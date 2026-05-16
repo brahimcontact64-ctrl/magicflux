@@ -11,6 +11,56 @@ const BLOCKED = new Set([
   'ai_provider',
 ]);
 
+export const FORBIDDEN_PROVIDER_PATTERNS: RegExp[] = [
+  /notify/i,
+  /notification/i,
+  /message/i,
+  /storage/i,
+  /upload/i,
+  /dispatch/i,
+  /manager/i,
+  /action/i,
+  /utility/i,
+  /handler/i,
+];
+
+export const CANONICAL_PROVIDERS = [
+  'stripe',
+  'airtable',
+  'openai',
+  'slack',
+  'gmail',
+  'google_drive',
+  'google_sheets',
+  'telegram',
+  'shopify',
+  'hubspot',
+  'elevenlabs',
+  'claude',
+  'facebook',
+  'canva',
+  'twitter',
+  'whatsapp',
+  'cloudflare_ai',
+  'deepgram',
+  'supabase',
+] as const;
+
+const CANONICAL_PROVIDER_SET = new Set<string>(CANONICAL_PROVIDERS);
+
+export function toProviderToken(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+export function isCanonicalProvider(value: string): boolean {
+  return CANONICAL_PROVIDER_SET.has(value);
+}
+
+export function hasForbiddenProviderPattern(value: string): boolean {
+  if (!value) return false;
+  return FORBIDDEN_PROVIDER_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 export function isStrictProviderMode(): boolean {
   return process.env.STRICT_PROVIDER_MODE === 'true' || process.env.NEXT_PUBLIC_STRICT_PROVIDER_MODE === 'true';
 }
@@ -34,7 +84,7 @@ export function normalizeProvider(value: string): string {
   if (cleaned.includes('telegram')) return 'telegram';
   if (cleaned.includes('reddit')) return 'reddit';
   if (cleaned.includes('whatsapp')) return 'whatsapp';
-  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'email';
+  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'gmail';
   if (cleaned.includes('anthropic') || cleaned.includes('claude')) return 'claude';
   if (cleaned.includes('deepgram')) return 'deepgram';
   if (cleaned.includes('elevenlabs')) return 'elevenlabs';
@@ -42,12 +92,12 @@ export function normalizeProvider(value: string): string {
   if (cleaned.includes('slack')) return 'slack';
   if (cleaned.includes('hubspot')) return 'hubspot';
   if (cleaned.includes('cloudflare ai') || cleaned.includes('cloudflare_ai') || cleaned.includes('workers ai') || cleaned.includes('workers_ai')) return 'cloudflare_ai';
-  if (cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq')) return 'grok';
+  if (cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq') || cleaned === 'x' || cleaned.includes('twitter')) return 'twitter';
   if (cleaned.includes('coinmarketcap') || cleaned === 'cmc') return 'coinmarketcap';
   if (cleaned.includes('supabase')) return 'supabase';
   if (cleaned.includes('postgres')) return 'postgres';
 
-  return cleaned.replace(/[^a-z0-9_]/g, '_');
+  return toProviderToken(cleaned);
 }
 
 const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
@@ -57,7 +107,7 @@ const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
   { pattern: /\bgoogle\s*drive\b|\bgoogledrive\b/i, provider: 'google_drive' },
   { pattern: /\bgoogle\s*sheets\b|\bgooglesheets\b/i, provider: 'google_sheets' },
   { pattern: /\bslack\b/i, provider: 'slack' },
-  { pattern: /\bgmail\b|\bemail\b|\bsmtp\b/i, provider: 'email' },
+  { pattern: /\bgmail\b|\bemail\b|\bsmtp\b/i, provider: 'gmail' },
   { pattern: /\btelegram\b/i, provider: 'telegram' },
   { pattern: /\bfacebook\b/i, provider: 'facebook' },
   { pattern: /\bcanva\b/i, provider: 'canva' },
@@ -71,7 +121,7 @@ const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
   { pattern: /\bwhatsapp\b/i, provider: 'whatsapp' },
   { pattern: /\bdeepgram\b/i, provider: 'deepgram' },
   { pattern: /\breddit\b/i, provider: 'reddit' },
-  { pattern: /\bx\b|\btwitter\b/i, provider: 'twitter' },
+  { pattern: /\btwitter\b|\bx\.com\b/i, provider: 'twitter' },
 ];
 
 export function parseRequestedProvidersFromPrompt(prompt: string): string[] {
@@ -82,7 +132,7 @@ export function parseRequestedProvidersFromPrompt(prompt: string): string[] {
   for (const { pattern, provider } of PROMPT_PROVIDER_PATTERNS) {
     if (!pattern.test(text)) continue;
     const normalized = normalizeProvider(provider);
-    if (!normalized || BLOCKED.has(normalized)) continue;
+    if (!normalized || BLOCKED.has(normalized) || hasForbiddenProviderPattern(normalized) || !isCanonicalProvider(normalized)) continue;
     providers.add(normalized);
   }
 
@@ -94,8 +144,8 @@ export function extractAllProvidersFromWorkflowGraph(graph?: WorkflowGraphSummar
 
   const providers = new Set<string>();
   for (const node of graph.nodes ?? []) {
-    const provider = normalizeProvider(node.provider ?? node.integration ?? '');
-    if (!provider || BLOCKED.has(provider)) continue;
+    const provider = normalizeProvider(String(node.provider ?? node.integration ?? ''));
+    if (!provider || BLOCKED.has(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
     providers.add(provider);
   }
 
@@ -109,7 +159,7 @@ export function extractProvidersFromWorkflowGraph(graph?: WorkflowGraphSummary |
   for (const node of graph.nodes ?? []) {
     if (!node.requiresCredentials) continue;
     const provider = normalizeProvider(node.provider ?? node.integration ?? '');
-    if (!provider || BLOCKED.has(provider)) continue;
+    if (!provider || BLOCKED.has(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
     providers.add(provider);
   }
 

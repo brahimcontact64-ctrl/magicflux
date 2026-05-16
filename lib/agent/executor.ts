@@ -25,7 +25,7 @@ import { getToolExecutionPolicy } from '@/lib/runtime/tool-policy';
 import { createTraceId, endSpan, startSpan } from '@/lib/runtime/tracing';
 import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
-import { extractAllProvidersFromWorkflowGraph, normalizeProvider } from '@/lib/agent/provider-allowlist';
+import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider, toProviderToken } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 // ---------------------------------------------------------------------------
@@ -214,6 +214,7 @@ async function generateWorkflowJson(params: {
   required_capabilities?: string[];
   skill_packs?: string[];
   block_blueprint?: string[];
+  requested_providers?: string[];
   nodes_description: string;
 }): Promise<{
   nodes: object[];
@@ -248,6 +249,7 @@ ${params.automation_style ? `Style: ${params.automation_style}` : ''}
 ${params.required_capabilities && params.required_capabilities.length > 0 ? `Required Capabilities: ${params.required_capabilities.join(', ')}` : ''}
 ${params.skill_packs && params.skill_packs.length > 0 ? `Activated Skill Packs: ${params.skill_packs.join(', ')}` : ''}
 ${params.block_blueprint && params.block_blueprint.length > 0 ? `Block Blueprint: ${params.block_blueprint.join(' -> ')}` : ''}
+${params.requested_providers && params.requested_providers.length > 0 ? `Requested Providers (STRICT): ${params.requested_providers.join(', ')}` : ''}
 Description: ${params.nodes_description}
 
 Return a JSON object with this exact structure:
@@ -259,7 +261,9 @@ Return a JSON object with this exact structure:
 
 Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.).
 Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider.
-For provider use canonical ids (openai, facebook, canva, telegram, google_sheets, twitter, claude, deepgram, reddit, airtable, slack, supabase, coinmarketcap, whatsapp, email, shopify, stripe) or null.
+For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase.
+Forbidden provider names: notification, notification_action, send_message, email, storage, upload, file_upload, team_chat, ai, utility, action, document_extraction, payment_action.
+Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
 Do not emit generic provider placeholders; attach provider metadata directly on every node.
 Keep it production-ready and deployable.`;
@@ -289,8 +293,8 @@ Keep it production-ready and deployable.`;
       ?? (typeof node.integration === 'string' ? node.integration : undefined)
       ?? (typeof providerMeta?.provider === 'string' ? providerMeta.provider : undefined)
       ?? '';
-    const normalizedProvider = normalizeProvider(rawProvider);
-    const provider = normalizedProvider && normalizedProvider !== 'core' && normalizedProvider !== 'integration'
+    const normalizedProvider = normalizeProvider(String(rawProvider));
+    const provider = normalizedProvider && isCanonicalProvider(normalizedProvider)
       ? normalizedProvider
       : null;
 
@@ -512,6 +516,9 @@ export async function executeTool(
           required_capabilities: requiredCapabilities,
           skill_packs: skillPacks,
           block_blueprint: blockBlueprint,
+          requested_providers: Array.isArray(args.requested_providers)
+            ? args.requested_providers.map((value) => String(value)).filter(Boolean)
+            : undefined,
           nodes_description: String(args.nodes_description ?? ''),
         });
 
@@ -535,37 +542,59 @@ export async function executeTool(
           ? Array.from(
               new Set(
                 args.requested_providers
-                  .map((value) => normalizeProvider(String(value)))
-                  .filter(Boolean)
+                  .map((value) => toProviderToken(String(value)))
+                  .filter((provider) => provider && isCanonicalProvider(provider))
               )
             )
           : [];
 
         if (requestedProviders.length > 0) {
           const graphProviders = extractAllProvidersFromWorkflowGraph(workflowGraph);
+          const rawGraphProviders = Array.from(
+            new Set(
+              (workflowGraph.nodes ?? [])
+                .map((node) => normalizeProvider(String(node.provider ?? node.integration ?? '')))
+                .filter(Boolean)
+            )
+          );
           const graphSet = new Set(graphProviders);
           const requestedSet = new Set(requestedProviders);
 
           const missingProviders = requestedProviders.filter((provider) => !graphSet.has(provider));
           const extraProviders = graphProviders.filter((provider) => !requestedSet.has(provider));
+          const forbiddenProviders = rawGraphProviders.filter((provider) => hasForbiddenProviderPattern(provider));
+          const invalidProviders = rawGraphProviders.filter(
+            (provider) => !hasForbiddenProviderPattern(provider) && !isCanonicalProvider(provider)
+          );
 
-          if (missingProviders.length > 0 || extraProviders.length > 0) {
+          console.log({
+            requestedProviders,
+            graphProviders,
+            missingProviders,
+            extraProviders,
+            forbiddenProviders,
+            invalidProviders,
+          });
+
+          if (missingProviders.length > 0 || extraProviders.length > 0 || forbiddenProviders.length > 0 || invalidProviders.length > 0) {
             return {
               tool: toolName,
               success: false,
               output: {
                 error: 'Provider parity validation failed: generated workflow providers do not match requested providers.',
                 validation_failed: true,
-                requested_providers: requestedProviders,
-                graph_providers: graphProviders,
-                missing_providers: missingProviders,
-                extra_providers: extraProviders,
+                requestedProviders,
+                graphProviders,
+                missing: missingProviders,
+                extras: extraProviders,
+                forbidden: forbiddenProviders,
+                invalidCanonical: invalidProviders,
                 workflow_graph: workflowGraph,
               },
               event: {
                 type: 'error',
                 label: 'Provider validation failed',
-                detail: `Missing: ${missingProviders.join(', ') || 'none'} | Extra: ${extraProviders.join(', ') || 'none'}`,
+                detail: `Missing: ${missingProviders.join(', ') || 'none'} | Extra: ${extraProviders.join(', ') || 'none'} | Forbidden: ${forbiddenProviders.join(', ') || 'none'} | Invalid: ${invalidProviders.join(', ') || 'none'}`,
                 agent: 'planner',
               },
             };

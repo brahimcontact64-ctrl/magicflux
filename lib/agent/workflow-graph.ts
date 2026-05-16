@@ -1,4 +1,4 @@
-import { normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
+import { hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 type N8nNode = {
@@ -26,7 +26,7 @@ function providerDisplayName(provider: string): string {
   if (provider === 'google_sheets') return 'Google Sheets';
   if (provider === 'twitter') return 'X';
   if (provider === 'whatsapp') return 'WhatsApp';
-  if (provider === 'email') return 'Email';
+  if (provider === 'gmail') return 'Gmail';
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'claude') return 'Claude';
   if (provider === 'deepgram') return 'Deepgram';
@@ -128,7 +128,10 @@ function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'pr
     ?? null;
 
   const normalizedProvider = providerInput ? normalizeCanonicalProvider(String(providerInput)) : null;
-  const credentialSchema = getProviderCredentialSchema(normalizedProvider);
+  const canonicalProvider = normalizedProvider && isCanonicalProvider(normalizedProvider) && !hasForbiddenProviderPattern(normalizedProvider)
+    ? normalizedProvider
+    : null;
+  const credentialSchema = getProviderCredentialSchema(canonicalProvider);
   const requiresCredentials = credentialSchema.length > 0;
 
   const rawKind = node.kind ?? (typeof paramsMeta.kind === 'string' ? paramsMeta.kind : undefined);
@@ -139,18 +142,18 @@ function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'pr
 
   const name = String(node.name ?? 'Workflow step');
   const label = String(node.label ?? paramsMeta.label ?? (kind === 'trigger' ? inferScheduleLabel(node) : name));
-  const displayName = String(node.displayName ?? paramsMeta.displayName ?? (normalizedProvider ? providerDisplayName(normalizedProvider) : name));
-  const capability = String(node.capability ?? paramsMeta.capability ?? (normalizedProvider ? `${normalizedProvider}_operation` : 'workflow_step'));
+  const displayName = String(node.displayName ?? paramsMeta.displayName ?? (canonicalProvider ? providerDisplayName(canonicalProvider) : name));
+  const capability = String(node.capability ?? paramsMeta.capability ?? (canonicalProvider ? `${canonicalProvider}_operation` : 'workflow_step'));
 
   return {
-    provider: normalizedProvider,
+    provider: canonicalProvider,
     capability,
     requiresCredentials,
     credentialSchema,
     displayName,
     label,
     kind,
-    integration: normalizedProvider ?? classified.integration,
+    integration: canonicalProvider ?? classified.integration,
   };
 }
 

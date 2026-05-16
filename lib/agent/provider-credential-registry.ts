@@ -36,6 +36,17 @@ const PROVIDER_CREDENTIAL_REGISTRY: Record<string, ProviderCredentialField[]> = 
     { key: 'bot_token', label: 'Bot Token', required: true },
     { key: 'signing_secret', label: 'Signing Secret', required: true },
   ],
+  gmail: [
+    { key: 'auth_type', label: 'Auth Type (smtp|oauth)', required: true },
+    { key: 'client_id', label: 'OAuth Client ID', required: false },
+    { key: 'client_secret', label: 'OAuth Client Secret', required: false },
+    { key: 'refresh_token', label: 'OAuth Refresh Token', required: false },
+    { key: 'smtp_host', label: 'SMTP Host', required: false },
+    { key: 'smtp_port', label: 'SMTP Port', required: false },
+    { key: 'smtp_user', label: 'SMTP User', required: false },
+    { key: 'smtp_pass', label: 'SMTP Password', required: false },
+    { key: 'from_email', label: 'From Email', required: true },
+  ],
   hubspot: [
     { key: 'private_app_token', label: 'Private App Token', required: true },
   ],
@@ -52,9 +63,6 @@ const PROVIDER_CREDENTIAL_REGISTRY: Record<string, ProviderCredentialField[]> = 
   twitter: [
     { key: 'bearer_token', label: 'Bearer Token', required: true },
   ],
-  x: [
-    { key: 'bearer_token', label: 'Bearer Token', required: true },
-  ],
   cloudflare_ai: [
     { key: 'account_id', label: 'Account ID', required: true },
     { key: 'api_token', label: 'API Token', required: true },
@@ -65,9 +73,11 @@ const PROVIDER_ALIASES: Record<string, string> = {
   googlesheets: 'google_sheets',
   google_sheet: 'google_sheets',
   google_spreadsheets: 'google_sheets',
-  xai: 'x',
-  grok: 'x',
-  twitterx: 'x',
+  email: 'gmail',
+  smtp: 'gmail',
+  xai: 'twitter',
+  grok: 'twitter',
+  twitterx: 'twitter',
   cloudflare: 'cloudflare_ai',
   cloudflareai: 'cloudflare_ai',
 };

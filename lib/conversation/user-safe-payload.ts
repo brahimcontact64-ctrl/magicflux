@@ -1,4 +1,5 @@
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
+import { hasForbiddenProviderPattern, isCanonicalProvider } from '@/lib/agent/provider-allowlist';
 
 type SafeProgressStatus = 'working' | 'success' | 'warning' | 'error';
 
@@ -28,7 +29,7 @@ function normalizeProvider(value: string): string {
   const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '');
   if (!cleaned || cleaned === 'core' || cleaned === 'integration') return 'core';
   if (cleaned.includes('whatsapp')) return 'whatsapp';
-  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'email';
+  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'gmail';
   if (cleaned.includes('openai')) return 'openai';
   if (cleaned.includes('claude') || cleaned.includes('anthropic')) return 'claude';
   if (cleaned.includes('deepgram')) return 'deepgram';
@@ -40,12 +41,13 @@ function normalizeProvider(value: string): string {
   if (cleaned.includes('reddit')) return 'reddit';
   if (cleaned.includes('shopify')) return 'shopify';
   if (cleaned.includes('stripe')) return 'stripe';
+  if (cleaned.includes('twitter') || cleaned === 'x' || cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq')) return 'twitter';
   return cleaned;
 }
 
 function providerDisplayName(provider: string): string {
   if (provider === 'whatsapp') return 'WhatsApp';
-  if (provider === 'email') return 'Email';
+  if (provider === 'gmail') return 'Gmail';
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'claude') return 'Claude';
   if (provider === 'deepgram') return 'Deepgram';
@@ -211,10 +213,13 @@ function sanitizeWorkflowGraph(input: unknown):
             : 'utility') as 'trigger' | 'action' | 'condition' | 'ai' | 'utility';
           const provider = sanitizeText(node.provider, 'core').toLowerCase().slice(0, 80);
           const normalizedProvider = normalizeProvider(provider);
+          const canonicalProvider = isCanonicalProvider(normalizedProvider) ? normalizedProvider : 'core';
+          const providerRejected = hasForbiddenProviderPattern(normalizedProvider)
+            || (normalizedProvider !== 'core' && normalizedProvider !== 'integration' && !isCanonicalProvider(normalizedProvider));
           const capability = sanitizeText(node.capability, 'workflow_step').toLowerCase().slice(0, 80);
-          const credentialSchema = getProviderCredentialSchema(normalizedProvider);
+          const credentialSchema = providerRejected ? [] : getProviderCredentialSchema(canonicalProvider);
           const requiresCredentials = credentialSchema.length > 0;
-          const displayName = sanitizeText(node.displayName, providerDisplayName(normalizedProvider)).slice(0, 120);
+          const displayName = sanitizeText(node.displayName, providerDisplayName(canonicalProvider)).slice(0, 120);
           const pos = Array.isArray(node.position) ? node.position : [0, 0];
           const x = typeof pos[0] === 'number' ? pos[0] : 0;
           const y = typeof pos[1] === 'number' ? pos[1] : 0;
@@ -226,7 +231,7 @@ function sanitizeWorkflowGraph(input: unknown):
             label,
             type,
             kind,
-            provider: normalizedProvider,
+            provider: canonicalProvider,
             capability,
             requiresCredentials,
             credentialSchema,
