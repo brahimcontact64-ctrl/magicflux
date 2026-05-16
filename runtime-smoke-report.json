@@ -1,0 +1,362 @@
+{
+  "generatedAt": "2026-05-10T07:28:59.628Z",
+  "baseUrl": "http://localhost:3000",
+  "userId": "d1c3fbb9-ac45-4727-9130-29b73211f727",
+  "workflowId": "0d8e63d8-21db-4617-a997-30fd14228eda",
+  "checks": [
+    {
+      "name": "runtime health endpoint",
+      "ok": true,
+      "details": {
+        "health": {
+          "redis": "missing",
+          "workers": "configured",
+          "queues": [
+            "planner_queue",
+            "deploy_queue",
+            "execution_queue",
+            "retry_queue",
+            "monitoring_queue",
+            "recovery_queue",
+            "notification_queue",
+            "ai_task_queue"
+          ]
+        }
+      }
+    },
+    {
+      "name": "webhook live execution start",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "executionId": "1e106ba1-270e-4e3b-861b-7a6eff79167e",
+          "status": "waiting",
+          "live": true,
+          "currentNodeId": "Wait Node",
+          "nextRunAt": "2026-05-10T07:29:54.948Z",
+          "error": null
+        }
+      }
+    },
+    {
+      "name": "execution checkpoints persisted",
+      "ok": true,
+      "details": {
+        "execution": {
+          "id": "1e106ba1-270e-4e3b-861b-7a6eff79167e",
+          "status": "waiting",
+          "next_run_at": "2026-05-10T07:29:54.948+00:00",
+          "current_node_id": "Wait Node"
+        }
+      }
+    },
+    {
+      "name": "runtime checkpoint rows exist",
+      "ok": true,
+      "details": {
+        "checkpoints": [
+          {
+            "checkpoint_type": "waiting",
+            "current_node_id": "Wait Node",
+            "created_at": "2026-05-10T07:27:55.924+00:00"
+          },
+          {
+            "checkpoint_type": "node_completed",
+            "current_node_id": "Webhook Trigger",
+            "created_at": "2026-05-10T07:27:53.016+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pause/resume/cancel endpoints",
+      "ok": true,
+      "details": {
+        "pause": {
+          "success": true,
+          "action": "pause"
+        },
+        "resume": {
+          "success": true,
+          "action": "resume",
+          "execution": {
+            "executionId": "1e106ba1-270e-4e3b-861b-7a6eff79167e",
+            "status": "waiting",
+            "currentNodeId": "Wait Node",
+            "steps": [
+              {
+                "nodeId": "n2",
+                "nodeName": "Wait Node",
+                "nodeType": "n8n-nodes-base.wait",
+                "status": "waiting",
+                "inputData": {
+                  "hello": "world",
+                  "smoke": true
+                },
+                "outputData": {
+                  "hello": "world",
+                  "smoke": true
+                },
+                "logs": [
+                  "Wait node: pausing execution until 2026-05-10T07:30:03.591Z."
+                ],
+                "startedAt": "2026-05-10T07:28:04.401Z",
+                "completedAt": "2026-05-10T07:28:04.401Z",
+                "attempt": 1
+              }
+            ],
+            "finalOutput": {
+              "hello": "world",
+              "smoke": true
+            },
+            "nextRunAt": "2026-05-10T07:30:03.591Z",
+            "simulated": false,
+            "warnings": [],
+            "previews": {
+              "emails": [],
+              "slackMessages": [],
+              "airtableRecords": []
+            }
+          }
+        },
+        "cancel": {
+          "success": true,
+          "action": "cancel"
+        }
+      }
+    },
+    {
+      "name": "SSE stream emits events",
+      "ok": true,
+      "details": {
+        "contentType": "text/event-stream; charset=utf-8",
+        "preview": "event: status\ndata: {\"message\":\"Analyzing your request...\"}\n\nevent: status\ndata: {\"message\":\"Analyzing your request...\",\"type\":\"phase\"}\n\nevent: status\ndata: {\"message\":\"Designing your workflow...\",\"type\":\"phase\"}\n\nevent: status\ndata: {\"message\":\"Setting up the workflow structure...\",\"type\":\"tool\"}\n\nevent: tool_event\ndata: {\"toolName\":\"generate_workflow_json\"}\n\nevent: status\ndata: {\"message\":\"Workflow blueprint generated\",\"type\":\"event\"}\n\nevent: tool_event\ndata: {\"event\":{\"type\":\"generating_workflow\",\"label\":\"Workflow blueprint generated\",\"detail\":\"3 nodes — Simple Email Notification\",\"agent\":\""
+      }
+    },
+    {
+      "name": "enqueue real background task",
+      "ok": true,
+      "details": {
+        "queueJobId": "5",
+        "reason": null
+      }
+    },
+    {
+      "name": "BullMQ processing terminal state",
+      "ok": true,
+      "details": {
+        "job": {
+          "status": "failed",
+          "attempts": 2,
+          "error_message": "fetch failed",
+          "completed_at": "2026-05-10T07:28:21.535+00:00"
+        }
+      }
+    },
+    {
+      "name": "runtime events emission",
+      "ok": true,
+      "details": {
+        "count": 3,
+        "sample": [
+          {
+            "event_type": "execution.failed",
+            "severity": "error",
+            "correlation_id": "corr-smoke-fail-1778398066446",
+            "execution_id": "exec-smoke-fail-1778398066446",
+            "timestamp": "2026-05-10T07:28:21.927+00:00"
+          },
+          {
+            "event_type": "retry.started",
+            "severity": "warning",
+            "correlation_id": "corr-smoke-fail-1778398066446",
+            "execution_id": "exec-smoke-fail-1778398066446",
+            "timestamp": "2026-05-10T07:28:18.4+00:00"
+          },
+          {
+            "event_type": "execution.started",
+            "severity": "info",
+            "correlation_id": "corr-smoke-fail-1778398066446",
+            "execution_id": "exec-smoke-fail-1778398066446",
+            "timestamp": "2026-05-10T07:28:16.239+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dead-letter queue verification",
+      "ok": true,
+      "details": {
+        "dlqCount": 1,
+        "sample": [
+          {
+            "id": "2c8d8a27-3a01-4f86-9ac0-bdddb03ce1eb",
+            "queue_name": "monitoring_queue",
+            "task_type": "get_workflow_status",
+            "replay_status": "pending",
+            "failed_at": "2026-05-10T07:28:21.73+00:00",
+            "error_message": "fetch failed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "timeline events persistence",
+      "ok": true,
+      "details": {
+        "rows": [
+          {
+            "id": "51e617d7-2835-49d5-9634-5252db04bc04",
+            "event_type": "workflow_generated",
+            "title": "Smoke timeline event",
+            "status": "info",
+            "created_at": "2026-05-10T07:28:23.82129+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "graph mutation persistence",
+      "ok": true,
+      "details": {
+        "latestVersion": 1,
+        "rows": [
+          {
+            "id": "5aba7d0d-079c-40b5-b2ac-1569b9003a02",
+            "workflow_id": "0d8e63d8-21db-4617-a997-30fd14228eda",
+            "version": 1,
+            "mutation_type": "add_node",
+            "reason": "Smoke graph mutation",
+            "created_at": "2026-05-10T07:28:24.032+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "deployment rollback trigger path",
+      "ok": true,
+      "details": {
+        "rollback": {
+          "success": true,
+          "rollbackVersion": 1,
+          "message": "Rolled back to deployment version 1"
+        }
+      }
+    },
+    {
+      "name": "stalled-job recovery verification",
+      "ok": true,
+      "details": {
+        "recoveredStaleCount": 1
+      }
+    },
+    {
+      "name": "execution cleanup for orphaned runs",
+      "ok": true,
+      "details": {
+        "recovered": [
+          {
+            "executionId": "orphan-exec-1778398066446",
+            "userId": "d1c3fbb9-ac45-4727-9130-29b73211f727",
+            "workflowId": "0d8e63d8-21db-4617-a997-30fd14228eda"
+          }
+        ]
+      }
+    },
+    {
+      "name": "worker heartbeat system",
+      "ok": true,
+      "details": {
+        "before": [
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-30880",
+            "memory_mb": 82.7,
+            "heartbeat_at": "2026-05-10T07:28:21.735+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-27480",
+            "memory_mb": 87.19,
+            "heartbeat_at": "2026-05-10T07:07:57.649+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-29228",
+            "memory_mb": 89.71,
+            "heartbeat_at": "2026-05-10T06:23:49.532+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-26744",
+            "memory_mb": 91.36,
+            "heartbeat_at": "2026-05-10T06:01:24.029+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-29472",
+            "memory_mb": 70.07,
+            "heartbeat_at": "2026-05-07T13:35:23.577+00:00",
+            "jobs_processed": 0
+          }
+        ],
+        "after": [
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-30880",
+            "memory_mb": 84.05,
+            "heartbeat_at": "2026-05-10T07:28:51.742+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-27480",
+            "memory_mb": 87.19,
+            "heartbeat_at": "2026-05-10T07:07:57.649+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-29228",
+            "memory_mb": 89.71,
+            "heartbeat_at": "2026-05-10T06:23:49.532+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-26744",
+            "memory_mb": 91.36,
+            "heartbeat_at": "2026-05-10T06:01:24.029+00:00",
+            "jobs_processed": 0
+          },
+          {
+            "worker_id": "runtime-worker-DESKTOP-R5C9RLT-29472",
+            "memory_mb": 70.07,
+            "heartbeat_at": "2026-05-07T13:35:23.577+00:00",
+            "jobs_processed": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "no obvious worker memory leak (short window)",
+      "ok": true,
+      "details": {
+        "beforeTop": {
+          "worker_id": "runtime-worker-DESKTOP-R5C9RLT-30880",
+          "memory_mb": 82.7,
+          "heartbeat_at": "2026-05-10T07:28:21.735+00:00",
+          "jobs_processed": 0
+        },
+        "afterTop": {
+          "worker_id": "runtime-worker-DESKTOP-R5C9RLT-30880",
+          "memory_mb": 84.05,
+          "heartbeat_at": "2026-05-10T07:28:51.742+00:00",
+          "jobs_processed": 0
+        },
+        "note": "Short smoke window only; not a long-haul leak test."
+      }
+    }
+  ],
+  "summary": {
+    "total": 17,
+    "passed": 17,
+    "failed": 0
+  }
+}

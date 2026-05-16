@@ -1,0 +1,744 @@
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Designing your workflow...","status":"working"}
+
+event: status
+data: {"label":"Setting up the workflow structure...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow blueprint generated","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow graph ready","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json","workflowPreview":{"nodeCount":5,"edgeCount":4,"integrations":["cron","httprequest","grok","telegram","supabase"],"estimatedLatencyMs":750,"estimatedCostUsd":0}}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Getting this deployed...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"deploy_workflow_to_n8n"}
+
+event: status
+data: {"label":"Deploying your automation...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"deploying","label":"Deploying your automation...","detail":"Deployment has started in the background."},"toolName":"deploy_workflow_to_n8n"}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Need to connect this integration...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Need coinmarketcap credentials","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"requesting_credential","label":"Need coinmarketcap credentials","detail":"To fetch the latest cryptocurrency data for alerts."},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Need to connect this integration...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Need telegram credentials","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"requesting_credential","label":"Need telegram credentials","detail":"To send alerts to your Telegram channel."},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Need to connect this integration...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Need supabase credentials","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"requesting_credential","label":"Need supabase credentials","detail":"To log alerts and their details in your Supabase database."},"toolName":"request_credential"}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Finalizing your automation...","status":"working"}
+
+event: token
+data: {"text":"The"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Crypto"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Alert"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Bot"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"is"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"set"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"up"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"and"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"ready"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"be"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"deployed."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"To"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"proceed,"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"please"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"provide"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"following"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"credentials:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"1."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"**CoinMarketCap"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Key**:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Needed"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"fetch"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"latest"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"cryptocurrency"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"data."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"[Instructions:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Go"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"CoinMarketCap"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Keys"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Create"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"new"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"key]"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"2."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"**Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Bot"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Required"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"send"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"alerts"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"your"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"channel."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"[Instructions:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Go"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"BotFather"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Create"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"new"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"bot"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Get"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"3."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"**Supabase"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Service"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Role"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Key**:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"To"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"log"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"alerts"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"in"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"your"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Supabase"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"database."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"[Instructions:"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Go"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Supabase"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Project"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Settings"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"API"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"→"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Get"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"service"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"role"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"key]"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Once"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"you"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"have"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"these,"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"input"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"them"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"here,"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"and"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"we'll"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"activate"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"bot!"}
+
+event: final
+data: {"payload":{"assistant":{"content":"The Telegram Crypto Alert Bot is set up and ready to be deployed. To proceed, please provide the following credentials: 1. **CoinMarketCap API Key**: Needed to fetch the latest cryptocurrency data. [Instructions: Go to CoinMarketCap API → API Keys → Create new key] 2. **Telegram Bot API Token**: Required to send alerts to your Telegram channel. [Instructions: Go to Telegram BotFather → Create new bot → Get the API token] 3. **Supabase Service Role Key**: To log alerts in your Supabase database. [Instructions: Go to Supabase → Project Settings → API → Get the service role key] Once you have these, input them here, and we'll activate the bot!"},"agentEvents":[{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},{"type":"deploying","label":"Deploying your automation...","detail":"Deployment has started in the background."},{"type":"requesting_credential","label":"Need coinmarketcap credentials","detail":"To fetch the latest cryptocurrency data for alerts."},{"type":"requesting_credential","label":"Need telegram credentials","detail":"To send alerts to your Telegram channel."},{"type":"requesting_credential","label":"Need supabase credentials","detail":"To log alerts and their details in your Supabase database."}],"credentialRequests":[{"provider":"coinmarketcap","reason":"To fetch the latest cryptocurrency data for alerts.","instructions":"Go to CoinMarketCap API → API Keys → Create new key"},{"provider":"telegram","reason":"To send alerts to your Telegram channel.","instructions":"Go to Telegram BotFather → Create new bot → Get the API token"},{"provider":"supabase","reason":"To log alerts and their details in your Supabase database.","instructions":"Go to Supabase → Project Settings → API → Get the service role key"}],"approvalRequests":[],"workflowPreview":{"nodeCount":5,"edgeCount":4,"integrations":["cron","httprequest","grok","telegram","supabase"],"estimatedLatencyMs":750,"estimatedCostUsd":0},"deploymentStatus":null}}
+
+event: done
+data: {"ok":true}
+

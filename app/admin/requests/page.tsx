@@ -1,17 +1,36 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Zap, ArrowLeft, Inbox, RefreshCw, ChevronDown, Mail, Clock, CircleCheck as CheckCircle2, CircleAlert as AlertCircle, Circle as XCircle, ExternalLink, Search, Filter } from 'lucide-react';
+import {
+  Zap,
+  ArrowLeft,
+  Inbox,
+  RefreshCw,
+  Mail,
+  ExternalLink,
+  Search,
+  Eye,
+  Loader2,
+  Sparkles,
+  Rocket,
+  CircleCheck as CheckCircle2,
+  CircleDot,
+  CircleDashed,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase-client';
 import { cn } from '@/lib/utils';
+import { apiRequest } from '@/lib/api/client';
 
-type RequestStatus = 'open' | 'in_progress' | 'resolved' | 'cancelled';
+type RequestStatus = 'new' | 'generated' | 'deployed';
 
-interface ManagedRequest {
+type ManagedRequest = {
   id: string;
+  user_id: string | null;
   template_id: string | null;
   template_name: string | null;
   request_type: string;
@@ -19,17 +38,37 @@ interface ManagedRequest {
   contact_email: string;
   status: RequestStatus;
   created_at: string;
-  resolution_notes: string | null;
-}
-
-const STATUS_CONFIG: Record<RequestStatus, { label: string; icon: React.ElementType; color: string; bg: string }> = {
-  open: { label: 'New', icon: Inbox, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-  in_progress: { label: 'In Progress', icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
-  resolved: { label: 'Delivered', icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-  cancelled: { label: 'Cancelled', icon: XCircle, color: 'text-muted-foreground', bg: 'bg-muted/30 border-border' },
+  workflow_json: Record<string, unknown> | null;
+  workflow_id: string | null;
+  required_integrations?: string[];
+  missing_integrations?: string[];
 };
 
-const STATUS_ORDER: RequestStatus[] = ['open', 'in_progress', 'resolved', 'cancelled'];
+type ActionState = {
+  generating: boolean;
+  deploying: boolean;
+};
+
+const STATUS_CONFIG: Record<RequestStatus, { label: string; icon: React.ElementType; color: string; bg: string }> = {
+  new: {
+    label: 'New',
+    icon: CircleDot,
+    color: 'text-blue-400',
+    bg: 'bg-blue-500/10 border-blue-500/20',
+  },
+  generated: {
+    label: 'Generated',
+    icon: CircleDashed,
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10 border-amber-500/20',
+  },
+  deployed: {
+    label: 'Deployed',
+    icon: CheckCircle2,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10 border-emerald-500/20',
+  },
+};
 
 function StatusBadge({ status }: { status: RequestStatus }) {
   const cfg = STATUS_CONFIG[status];
@@ -39,42 +78,6 @@ function StatusBadge({ status }: { status: RequestStatus }) {
       <Icon className="w-3 h-3" />
       {cfg.label}
     </span>
-  );
-}
-
-function StatusDropdown({ current, onChange }: { current: RequestStatus; onChange: (s: RequestStatus) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronDown className="w-3 h-3" />
-        Change
-      </button>
-      {open && (
-        <div className="absolute right-0 top-6 z-10 w-36 rounded-lg border border-border bg-card shadow-lg shadow-black/20 overflow-hidden">
-          {STATUS_ORDER.map(s => {
-            const SCfg = STATUS_CONFIG[s];
-            const SIcon = SCfg.icon;
-            return (
-              <button
-                key={s}
-                onClick={() => { onChange(s); setOpen(false); }}
-                className={cn(
-                  'w-full text-left px-3 py-2 text-xs hover:bg-muted/50 transition-colors flex items-center gap-2',
-                  s === current && 'bg-muted/30'
-                )}
-              >
-                <SIcon className={cn('w-3 h-3', SCfg.color)} />
-                {SCfg.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -93,42 +96,163 @@ function formatDate(iso: string) {
 export default function RequestsDashboard() {
   const [requests, setRequests] = useState<ManagedRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState<RequestStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [previewRequestId, setPreviewRequestId] = useState<string | null>(null);
+  const [actionState, setActionState] = useState<Record<string, ActionState>>({});
+
+  const withAuthHeaders = useCallback(async (): Promise<HeadersInit | null> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      toast.error('Session expired. Please sign in again.');
+      return null;
+    }
+
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+  }, []);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('managed_requests')
-      .select('id, template_id, template_name, request_type, description, contact_email, status, created_at, resolution_notes')
-      .order('created_at', { ascending: false });
-    setRequests((data as ManagedRequest[]) ?? []);
-    setLoading(false);
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) {
+        setLoading(false);
+        return;
+      }
+
+      const payload = await apiRequest<{ requests?: ManagedRequest[] }>(
+        '/api/admin/requests',
+        {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        },
+        'Failed to fetch requests'
+      );
+
+      setRequests(payload?.requests ?? []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to fetch requests');
+    } finally {
+      setLoading(false);
+    }
+  }, [withAuthHeaders]);
+
+  useEffect(() => {
+    fetchRequests();
+  }, [fetchRequests]);
+
+  const setRequestAction = useCallback((requestId: string, patch: Partial<ActionState>) => {
+    setActionState(prev => ({
+      ...prev,
+      [requestId]: {
+        generating: prev[requestId]?.generating ?? false,
+        deploying: prev[requestId]?.deploying ?? false,
+        ...patch,
+      },
+    }));
   }, []);
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  const handleGenerate = useCallback(async (requestId: string) => {
+    setRequestAction(requestId, { generating: true });
 
-  async function updateStatus(id: string, status: RequestStatus) {
-    setUpdatingId(id);
-    await supabase.from('managed_requests').update({ status }).eq('id', id);
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-    setUpdatingId(null);
-  }
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
 
-  const filtered = requests.filter(r => {
-    const matchStatus = filterStatus === 'all' || r.status === filterStatus;
-    const q = search.toLowerCase();
-    const matchSearch = !q || r.contact_email.toLowerCase().includes(q) || (r.template_name ?? '').toLowerCase().includes(q) || r.description.toLowerCase().includes(q);
-    return matchStatus && matchSearch;
-  });
+      const payload = await apiRequest<{
+        workflow_json?: Record<string, unknown>;
+        status?: RequestStatus;
+        missingIntegrations?: string[];
+      }>(
+        '/api/admin/generate',
+        {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ requestId }),
+        },
+        'AI generation failed'
+      );
 
-  const counts = STATUS_ORDER.reduce((acc, s) => ({ ...acc, [s]: requests.filter(r => r.status === s).length }), {} as Record<RequestStatus, number>);
+      setRequests(prev => prev.map(r => (
+        r.id === requestId
+          ? {
+              ...r,
+              status: payload?.status ?? 'generated',
+              workflow_json: payload?.workflow_json ?? r.workflow_json,
+              missing_integrations: payload?.missingIntegrations ?? r.missing_integrations,
+            }
+          : r
+      )));
+
+      toast.success('Workflow draft generated successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'AI generation failed');
+    } finally {
+      setRequestAction(requestId, { generating: false });
+    }
+  }, [setRequestAction, withAuthHeaders]);
+
+  const handleDeploy = useCallback(async (requestId: string) => {
+    setRequestAction(requestId, { deploying: true });
+
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+
+      const payload = await apiRequest<{
+        workflow_id?: string;
+        status?: RequestStatus;
+      }>(
+        '/api/admin/deploy',
+        {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ requestId }),
+        },
+        'Deployment failed'
+      );
+
+      setRequests(prev => prev.map(r => (
+        r.id === requestId
+          ? {
+              ...r,
+              status: payload?.status ?? 'deployed',
+              workflow_id: payload?.workflow_id ?? r.workflow_id,
+            }
+          : r
+      )));
+
+      toast.success('Workflow deployed to n8n');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Deployment failed');
+    } finally {
+      setRequestAction(requestId, { deploying: false });
+    }
+  }, [setRequestAction, withAuthHeaders]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return requests;
+    return requests.filter(r => (
+      r.contact_email.toLowerCase().includes(q)
+      || (r.template_name ?? '').toLowerCase().includes(q)
+      || r.description.toLowerCase().includes(q)
+      || r.status.toLowerCase().includes(q)
+    ));
+  }, [requests, search]);
+
+  const previewRequest = useMemo(
+    () => requests.find(r => r.id === previewRequestId) ?? null,
+    [previewRequestId, requests]
+  );
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="h-14 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-10 flex items-center px-6 gap-4">
         <Link href="/" className="flex items-center gap-2 group">
           <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -155,61 +279,28 @@ export default function RequestsDashboard() {
       </header>
 
       <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Page title */}
         <div className="mb-6">
           <h1 className="text-xl font-bold">Managed Requests</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{requests.length} total requests</p>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          {STATUS_ORDER.map(s => {
-            const cfg = STATUS_CONFIG[s];
-            const Icon = cfg.icon;
-            return (
-              <button
-                key={s}
-                onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
-                className={cn(
-                  'rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5',
-                  filterStatus === s ? cfg.bg : 'border-border bg-card hover:border-primary/20'
-                )}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <Icon className={cn('w-4 h-4', cfg.color)} />
-                  <span className="text-lg font-bold">{counts[s] ?? 0}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">{cfg.label}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Filters */}
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search by email, template, or description..."
+              placeholder="Search by email, template, description, or status..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:border-primary transition-colors"
             />
           </div>
-          {filterStatus !== 'all' && (
-            <Button variant="outline" size="sm" onClick={() => setFilterStatus('all')} className="gap-1.5 text-xs">
-              <Filter className="w-3.5 h-3.5" />
-              Clear filter
-            </Button>
-          )}
         </div>
 
-        {/* Request list */}
         {loading ? (
           <div className="space-y-3">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-20 rounded-xl border border-border bg-card animate-pulse" />
+              <div key={i} className="h-24 rounded-xl border border-border bg-card animate-pulse" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -217,14 +308,18 @@ export default function RequestsDashboard() {
             <Inbox className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
             <p className="text-sm font-medium">No requests found</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {requests.length === 0 ? 'Requests will appear here once customers submit them.' : 'Try clearing your search or filter.'}
+              {requests.length === 0 ? 'Requests will appear here once customers submit them.' : 'Try adjusting your search.'}
             </p>
           </div>
         ) : (
           <div className="space-y-2">
             {filtered.map(req => {
               const isExpanded = expandedId === req.id;
-              const isUpdating = updatingId === req.id;
+              const state = actionState[req.id] ?? { generating: false, deploying: false };
+              const missingIntegrations = req.missing_integrations ?? [];
+              const canPreview = !!req.workflow_json;
+              const canDeploy = req.status === 'generated' && !!req.workflow_json && !state.generating && missingIntegrations.length === 0;
+
               return (
                 <div
                   key={req.id}
@@ -233,7 +328,6 @@ export default function RequestsDashboard() {
                     isExpanded ? 'border-primary/30' : 'border-border hover:border-primary/20'
                   )}
                 >
-                  {/* Row */}
                   <div
                     className="flex items-center gap-4 px-4 py-3 cursor-pointer"
                     onClick={() => setExpandedId(isExpanded ? null : req.id)}
@@ -251,27 +345,24 @@ export default function RequestsDashboard() {
                           {req.contact_email}
                         </span>
                         <span>{formatDate(req.created_at)}</span>
+                        {req.workflow_id && (
+                          <span className="text-emerald-400 font-mono">n8n: {req.workflow_id}</span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <StatusBadge status={req.status} />
-                      <div onClick={e => e.stopPropagation()}>
-                        <StatusDropdown
-                          current={req.status}
-                          onChange={s => updateStatus(req.id, s)}
-                        />
-                      </div>
-                      {isUpdating && <RefreshCw className="w-3 h-3 text-muted-foreground animate-spin" />}
+                      {(state.generating || state.deploying) && <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />}
                     </div>
                   </div>
 
-                  {/* Expanded detail */}
                   {isExpanded && (
                     <div className="border-t border-border bg-muted/20 px-4 py-4 space-y-3">
                       <div>
                         <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Description</p>
                         <p className="text-sm leading-relaxed">{req.description}</p>
                       </div>
+
                       <div className="grid grid-cols-2 gap-4 text-xs">
                         <div>
                           <p className="text-muted-foreground mb-0.5">Request ID</p>
@@ -282,10 +373,49 @@ export default function RequestsDashboard() {
                           <p className="text-foreground">{new Date(req.created_at).toLocaleString()}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 pt-1">
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="h-8 gap-1.5"
+                          onClick={() => handleGenerate(req.id)}
+                          disabled={state.generating || state.deploying}
+                        >
+                          {state.generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                          Generate workflow draft
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5"
+                          onClick={() => setPreviewRequestId(req.id)}
+                          disabled={!canPreview || state.generating || state.deploying}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Preview workflow JSON
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 gap-1.5"
+                          onClick={() => handleDeploy(req.id)}
+                          disabled={!canDeploy || state.deploying}
+                        >
+                          {state.deploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                          Deploy to n8n
+                        </Button>
+
+                        {missingIntegrations.length > 0 && (
+                          <Link href="/settings/integrations" className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 transition-colors px-2">
+                            Deploy only after customer integrations are connected: {missingIntegrations.join(', ')}
+                          </Link>
+                        )}
+
                         <a
                           href={`mailto:${req.contact_email}?subject=Your ${req.template_name ?? 'automation'} request — update`}
-                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline px-2"
                         >
                           <Mail className="w-3 h-3" />
                           Email customer
@@ -300,6 +430,22 @@ export default function RequestsDashboard() {
           </div>
         )}
       </div>
+
+      {previewRequest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl max-h-[85vh] rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
+            <div className="h-12 px-4 border-b border-border flex items-center justify-between">
+              <div className="text-sm font-medium">Workflow Preview JSON</div>
+              <Button variant="ghost" size="sm" onClick={() => setPreviewRequestId(null)}>Close</Button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <pre className="text-xs leading-relaxed whitespace-pre-wrap break-words bg-muted/30 border border-border rounded-lg p-3">
+                {JSON.stringify(previewRequest.workflow_json, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

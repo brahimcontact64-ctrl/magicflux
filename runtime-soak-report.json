@@ -1,0 +1,670 @@
+{
+  "generatedAt": "2026-05-13T21:31:28.656Z",
+  "runId": "runtime-soak-1778707577508",
+  "durationMs": 300000,
+  "sampleIntervalMs": 10000,
+  "enqueueBatch": 3,
+  "baseline": {
+    "timestamp": "2026-05-13T21:26:18.869Z",
+    "queue": {
+      "queued": 0,
+      "active": 0,
+      "completed": 0,
+      "failed": 0
+    },
+    "stalledJobs": 0,
+    "runawayRetries": 0,
+    "runtimeEvents": 0,
+    "workers": {
+      "count": 1,
+      "maxHeartbeatGapMs": 18484,
+      "avgMemoryMb": 104.73,
+      "zombieWorkers": 0
+    },
+    "dlqCount": 0
+  },
+  "final": {
+    "timestamp": "2026-05-13T21:31:28.656Z",
+    "queue": {
+      "queued": 0,
+      "active": 0,
+      "completed": 84,
+      "failed": 0
+    },
+    "stalledJobs": 0,
+    "runawayRetries": 0,
+    "runtimeEvents": 84,
+    "workers": {
+      "count": 1,
+      "maxHeartbeatGapMs": 8684,
+      "avgMemoryMb": 111.45,
+      "zombieWorkers": 0
+    },
+    "dlqCount": 0
+  },
+  "deltas": {
+    "completedDelta": 84,
+    "failedDelta": 0,
+    "dlqDelta": 0,
+    "memoryGrowthMb": 6.72,
+    "failedJobRatio": 0,
+    "heartbeatGapMs": 8684,
+    "stalledJobs": 0,
+    "zombieWorkers": 0,
+    "runawayRetries": 0,
+    "totalUnhandledExceptions": 0
+  },
+  "thresholds": {
+    "maxMemoryGrowthMb": 150,
+    "maxFailedJobRatio": 0.15,
+    "maxDlqIncrease": 5,
+    "maxHeartbeatGapMs": 90000,
+    "maxUnhandledExceptions": 0,
+    "maxStalledJobs": 0,
+    "maxZombieWorkers": 0,
+    "maxRunawayRetries": 0
+  },
+  "checks": {
+    "unhandledExceptions": {
+      "value": 0,
+      "threshold": 0,
+      "pass": true
+    },
+    "stalledJobs": {
+      "value": 0,
+      "threshold": 0,
+      "pass": true
+    },
+    "zombieWorkers": {
+      "value": 0,
+      "threshold": 0,
+      "pass": true
+    },
+    "memoryGrowthMb": {
+      "value": 6.72,
+      "threshold": 150,
+      "pass": true
+    },
+    "failedJobRatio": {
+      "value": 0,
+      "threshold": 0.15,
+      "pass": true
+    },
+    "dlqDelta": {
+      "value": 0,
+      "threshold": 5,
+      "pass": true
+    },
+    "heartbeatGapMs": {
+      "value": 8684,
+      "threshold": 90000,
+      "pass": true
+    },
+    "runawayRetries": {
+      "value": 0,
+      "threshold": 0,
+      "pass": true
+    }
+  },
+  "samples": [
+    {
+      "timestamp": "2026-05-13T21:26:18.869Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 0,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 0,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 18484,
+        "avgMemoryMb": 104.73,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:26:30.698Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 3,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 3,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8682,
+        "avgMemoryMb": 104.73,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:26:41.553Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 6,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 6,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8895,
+        "avgMemoryMb": 104.53,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:26:52.615Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 9,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 9,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8152,
+        "avgMemoryMb": 104.53,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:27:03.673Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 12,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 12,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 3273,
+        "avgMemoryMb": 107.52,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:27:14.739Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 15,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 15,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8974,
+        "avgMemoryMb": 107.52,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:27:26.009Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 18,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 18,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9268,
+        "avgMemoryMb": 107.52,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:27:37.000Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 21,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 21,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 6581,
+        "avgMemoryMb": 107.41,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:27:48.038Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 24,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 24,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 7788,
+        "avgMemoryMb": 107.41,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:00.239Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 27,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 27,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9403,
+        "avgMemoryMb": 107.41,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:11.177Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 30,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 30,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8190,
+        "avgMemoryMb": 105.19,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:22.527Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 33,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 33,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8565,
+        "avgMemoryMb": 105.19,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:33.392Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 36,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 36,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 2953,
+        "avgMemoryMb": 102.92,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:44.279Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 39,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 39,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9024,
+        "avgMemoryMb": 102.92,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:28:55.755Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 42,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 42,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9010,
+        "avgMemoryMb": 102.92,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:29:06.767Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 45,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 45,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 6318,
+        "avgMemoryMb": 107.77,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:29:17.539Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 48,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 48,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8269,
+        "avgMemoryMb": 107.77,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:29:28.533Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 51,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 51,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9026,
+        "avgMemoryMb": 107.77,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:29:39.466Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 54,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 54,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8491,
+        "avgMemoryMb": 106.98,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:29:50.677Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 57,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 57,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8551,
+        "avgMemoryMb": 106.98,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:01.850Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 60,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 60,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 1371,
+        "avgMemoryMb": 111.43,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:13.264Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 63,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 63,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 9445,
+        "avgMemoryMb": 111.43,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:23.971Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 66,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 66,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8498,
+        "avgMemoryMb": 111.43,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:34.974Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 69,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 69,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 4481,
+        "avgMemoryMb": 111.5,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:45.673Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 72,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 72,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8200,
+        "avgMemoryMb": 111.5,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:30:56.385Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 75,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 75,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8757,
+        "avgMemoryMb": 111.5,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:31:07.077Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 78,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 78,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 6579,
+        "avgMemoryMb": 111.45,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:31:17.956Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 81,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 81,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8902,
+        "avgMemoryMb": 111.45,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    },
+    {
+      "timestamp": "2026-05-13T21:31:28.656Z",
+      "queue": {
+        "queued": 0,
+        "active": 0,
+        "completed": 84,
+        "failed": 0
+      },
+      "stalledJobs": 0,
+      "runawayRetries": 0,
+      "runtimeEvents": 84,
+      "workers": {
+        "count": 1,
+        "maxHeartbeatGapMs": 8684,
+        "avgMemoryMb": 111.45,
+        "zombieWorkers": 0
+      },
+      "dlqCount": 0
+    }
+  ],
+  "summary": {
+    "status": "PASS",
+    "pass": true,
+    "checksPassed": 8,
+    "checksFailed": 0,
+    "startedAt": "2026-05-13T21:26:17.508Z",
+    "endedAt": "2026-05-13T21:31:28.657Z"
+  }
+}

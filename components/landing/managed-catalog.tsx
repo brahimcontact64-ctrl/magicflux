@@ -111,7 +111,7 @@ function RequestModal({ automation, onClose }: RequestModalProps) {
       request_type: 'setup',
       description: desc,
       contact_email: email.trim(),
-      status: 'open'
+      status: 'new'
     }).select('id').maybeSingle();
 
     if (data?.id) {

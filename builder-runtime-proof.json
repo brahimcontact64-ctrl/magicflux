@@ -1,0 +1,877 @@
+{
+  "generatedAt": "2026-05-16T11:00:14.425Z",
+  "baseUrl": "http://localhost:3001",
+  "preflight": {
+    "baseUrl": "http://localhost:3001",
+    "builderStatus": 200,
+    "loaderOnly": false,
+    "assets": [
+      {
+        "path": "/_next/static/css/app/layout.css",
+        "status": 200
+      },
+      {
+        "path": "/_next/static/chunks/main-app.js",
+        "status": 200
+      }
+    ]
+  },
+  "scenario": "create-session -> inject-auth -> /builder -> generate -> reload x10 -> new tab -> reopen",
+  "auth": {
+    "source": "api/dev/e2e-session",
+    "injected": true,
+    "testUserId": "609de174-2ff8-4b4f-8a13-2963a612c873",
+    "testUserEmail": "e2e-1778929214712-59521535@magicflux.local",
+    "cleanupAttempted": true,
+    "cleanupSucceeded": true
+  },
+  "baseline": {
+    "timestamp": 1778929242350,
+    "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+    "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+    "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+    "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+    "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+    "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+    "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+  },
+  "reloads": [
+    {
+      "cycle": 1,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 2,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 3,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 4,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 5,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 6,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 7,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 8,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 9,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    },
+    {
+      "cycle": 10,
+      "comparison": {
+        "changed": [],
+        "drift": false,
+        "details": {
+          "runtime": false,
+          "graph": false,
+          "provider": false,
+          "intelligence": false,
+          "summary": false,
+          "deploy": false,
+          "conversation": false
+        }
+      }
+    }
+  ],
+  "newTab": {
+    "changed": [],
+    "drift": false,
+    "details": {
+      "runtime": false,
+      "graph": false,
+      "provider": false,
+      "intelligence": false,
+      "summary": false,
+      "deploy": false,
+      "conversation": false
+    }
+  },
+  "reopen": {
+    "changed": [],
+    "drift": false,
+    "details": {
+      "runtime": false,
+      "graph": false,
+      "provider": false,
+      "intelligence": false,
+      "summary": false,
+      "deploy": false,
+      "conversation": false
+    }
+  },
+  "surfaceValidations": [
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    },
+    {
+      "graphVisible": true,
+      "graphNodeCount": 30,
+      "providerCardsVisible": true,
+      "providerCardCount": 3,
+      "intelligenceVisible": true,
+      "summaryVisible": true,
+      "deployVisible": true,
+      "conversationVisible": true,
+      "allSurfacesPresent": true
+    }
+  ],
+  "errors": {
+    "runtimeCrashes": 0,
+    "hydrationMismatches": 0,
+    "objectLeakage": 0,
+    "messages": [
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED",
+      "GET https://obszpocughyndybjvshn.supabase.co/rest/v1/subscriptions?select=status%2Cplan%2Cplans%21subscriptions_plan_id_fkey%28slug%29&user_id=eq.609de174-2ff8-4b4f-8a13-2963a612c873 :: net::ERR_ABORTED"
+    ]
+  },
+  "summary": {
+    "pass": true,
+    "reason": "PASS: deterministic runtime proof completed with zero drift and zero auth UI coupling"
+  },
+  "proof": {
+    "status": "PASS",
+    "reason": "✓ Zero drift across 12 cycles, zero mutations, zero hydration mismatches",
+    "timestamp": "2026-05-16T11:01:00.678Z",
+    "cycles": 12,
+    "baseline": {
+      "timestamp": 1778929242350,
+      "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+      "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+      "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+      "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+      "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+      "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+      "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+    },
+    "snapshots": [
+      {
+        "timestamp": 1778929244120,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929245380,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929246704,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929248047,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929249791,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929251013,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929252207,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929253940,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929255277,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929256984,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929258784,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      },
+      {
+        "timestamp": 1778929260657,
+        "runtimeHash": "9e6a3befdbb65e37ddd5f56c776d9e92ae4c3b597662167245d2fc87bcc5ee1b",
+        "graphHash": "3801b3827a64cc0f06d5a0e98f9bcbab26e489c545a665048d83ee0ece25fa57",
+        "providerHash": "bf5317639ec0d3ddccb811be6e65fe04263417bf72164db2455e3159e61abd8a",
+        "intelligenceHash": "1e067d73aa349f215801b65d97553cc76f09b303169a29d5788cf13eafb7a8c8",
+        "summaryHash": "ba650c89376337be2431f6ed1f318e8416a79aa955e19723a34825a23c1001da",
+        "deployHash": "f771bae643025d78c20689b68bc8592f2ae9f6309b77706f728956e27f5a3cee",
+        "conversationHash": "8141ccfeeca797bae609ab92d1048b1b1cfd0850d64d77a424dc4582c9ce122e"
+      }
+    ],
+    "driftAnalysis": {
+      "hasDrift": false,
+      "mutations": [],
+      "cycleComparisons": [
+        {
+          "cycle": 2,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 3,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 4,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 5,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 6,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 7,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 8,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 9,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 10,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 11,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 12,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        },
+        {
+          "cycle": 13,
+          "comparison": {
+            "changed": [],
+            "drift": false,
+            "details": {
+              "runtime": false,
+              "graph": false,
+              "provider": false,
+              "intelligence": false,
+              "summary": false,
+              "deploy": false,
+              "conversation": false
+            }
+          }
+        }
+      ]
+    },
+    "surfaceValidations": [
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      },
+      {
+        "graphVisible": true,
+        "graphNodeCount": 30,
+        "providerCardsVisible": true,
+        "providerCardCount": 3,
+        "intelligenceVisible": true,
+        "summaryVisible": true,
+        "deployVisible": true,
+        "conversationVisible": true,
+        "allSurfacesPresent": true
+      }
+    ],
+    "failureReasons": {
+      "crashes": [],
+      "hydrationMismatches": [],
+      "drift": [],
+      "mutations": [],
+      "objectLeakage": []
+    }
+  }
+}

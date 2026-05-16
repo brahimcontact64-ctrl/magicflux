@@ -1,0 +1,415 @@
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Designing your workflow...","status":"working"}
+
+event: status
+data: {"label":"Setting up the workflow structure...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow blueprint generated","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow graph ready","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json","workflowPreview":{"nodeCount":5,"edgeCount":4,"integrations":["cron","httprequest","grok","telegram","supabase"],"estimatedLatencyMs":750,"estimatedCostUsd":0}}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Getting this deployed...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"deploy_workflow_to_n8n"}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Finalizing your automation...","status":"working"}
+
+event: token
+data: {"text":"The"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"workflow"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"is"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"ready"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"be"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"deployed,"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"but"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"it"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"requires"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"approval"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"for"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"deployment"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"due"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"its"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"high-risk"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"nature."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Please"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"approve"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"action"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"to"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"proceed"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"with"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"deploying"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Crypto"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Alert"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Bot."}
+
+event: final
+data: {"payload":{"assistant":{"content":"The workflow is ready to be deployed, but it requires approval for deployment due to its high-risk nature. Please approve the action to proceed with deploying the Telegram Crypto Alert Bot."},"agentEvents":[{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},{"type":"approval_required","label":"Human approval required","detail":"Approval required for high-risk action: deploy_workflow_to_n8n"}],"credentialRequests":[],"approvalRequests":[{"actionType":"deploy_workflow_to_n8n","reason":"Approval required for high-risk action: deploy_workflow_to_n8n","status":"pending"}],"workflowPreview":{"nodeCount":5,"edgeCount":4,"integrations":["cron","httprequest","grok","telegram","supabase"],"estimatedLatencyMs":750,"estimatedCostUsd":0},"deploymentStatus":null}}
+
+event: done
+data: {"ok":true}
+
+
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Analyzing your request...","status":"working"}
+
+event: status
+data: {"label":"Designing your workflow...","status":"working"}
+
+event: status
+data: {"label":"Setting up the workflow structure...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow blueprint generated","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},"toolName":"generate_workflow_json"}
+
+event: status
+data: {"label":"Workflow graph ready","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"generate_workflow_json","workflowPreview":{"nodeCount":5,"edgeCount":0,"integrations":["cron","httprequest","openai","telegram"],"estimatedLatencyMs":2800,"estimatedCostUsd":0.01}}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Getting this deployed...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"event","label":"Progress update","detail":""},"toolName":"deploy_workflow_to_n8n"}
+
+event: status
+data: {"label":"Deploying your automation...","status":"working"}
+
+event: tool_event
+data: {"event":{"type":"deploying","label":"Deploying your automation...","detail":"Deployment has started in the background."},"toolName":"deploy_workflow_to_n8n"}
+
+event: status
+data: {"label":"Refining your automation plan...","status":"working"}
+
+event: status
+data: {"label":"Finalizing your automation...","status":"working"}
+
+event: token
+data: {"text":"The"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"deployment"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"of"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Telegram"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Crypto"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Alert"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"Bot"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"is"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"queued"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"and"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"will"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"be"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"executed"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"shortly."}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"I'll"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"keep"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"you"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"updated"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"on"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"the"}
+
+event: token
+data: {"text":""}
+
+event: token
+data: {"text":"progress."}
+
+event: final
+data: {"payload":{"assistant":{"content":"The deployment of the Telegram Crypto Alert Bot is queued and will be executed shortly. I'll keep you updated on the progress."},"agentEvents":[{"type":"generating_workflow","label":"Workflow blueprint generated","detail":"5 nodes — Telegram Crypto Alert Bot"},{"type":"deploying","label":"Deploying your automation...","detail":"Deployment has started in the background."}],"credentialRequests":[],"approvalRequests":[],"workflowPreview":{"nodeCount":5,"edgeCount":0,"integrations":["cron","httprequest","openai","telegram"],"estimatedLatencyMs":2800,"estimatedCostUsd":0.01},"deploymentStatus":null}}
+
+event: done
+data: {"ok":true}
+

@@ -106,7 +106,7 @@ export function Hero() {
               <span className="text-xs text-muted-foreground">Press Enter to generate</span>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-xs text-muted-foreground">AI Ready</span>
+                <span className="text-xs text-muted-foreground">Planner available</span>
               </div>
             </div>
           </div>

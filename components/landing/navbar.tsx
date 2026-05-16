@@ -10,6 +10,8 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import { cn } from '@/lib/utils';
 
+const ISOLATE_A = process.env.NEXT_PUBLIC_MF_BUILD_ISOLATE_A === '1';
+
 const NAV_LINKS = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#managed', label: 'Done For You' },
@@ -29,6 +31,8 @@ function UserDropdown() {
   const isPro = user.plan === 'pro';
 
   async function handleUpgrade() {
+    if (ISOLATE_A) return;
+
     setUpgrading(true);
     setOpen(false);
     try {
@@ -84,7 +88,7 @@ function UserDropdown() {
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-sm text-amber-400 transition-colors"
               >
                 <Crown className="w-4 h-4" />
-                {upgrading ? 'Redirecting to PayPal...' : 'Upgrade to Pro — $19'}
+                {upgrading ? 'Redirecting to PayPal...' : 'Upgrade to Pro — $29'}
               </button>
             )}
             <Link href="/builder" onClick={() => setOpen(false)}

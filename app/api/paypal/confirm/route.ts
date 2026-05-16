@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     // Idempotent — already processed
     if (rec.status === 'completed') {
+      await upgradePlan(authUser.id, rec.plan_granted);
       return NextResponse.json({ success: true, plan: rec.plan_granted, alreadyProcessed: true });
     }
 

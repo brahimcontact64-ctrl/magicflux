@@ -1,0 +1,4 @@
+{
+  "generatedAt": "2026-05-14T22:02:08.547Z",
+  "error": "page.waitForURL: Timeout 60000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n  navigated to \"http://localhost:3000/login\"\n============================================================\n    at ensureAuthenticated (C:\\Users\\Privat\\Downloads\\magicflux\\project\\temp-check\\browser-check-patched.cjs:124:14)\n    at async C:\\Users\\Privat\\Downloads\\magicflux\\project\\temp-check\\browser-check-patched.cjs:139:5"
+}

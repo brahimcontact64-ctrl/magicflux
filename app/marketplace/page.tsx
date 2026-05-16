@@ -187,8 +187,8 @@ export default function MarketplacePage() {
             Template Marketplace
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">
-            Production-Ready
-            <span className="text-gradient"> Automation Templates</span>
+            Generated Workflow
+            <span className="text-gradient"> Templates</span>
           </h1>
           <p className="text-muted-foreground max-w-2xl leading-relaxed">
             Browse {AUTOMATION_TEMPLATES.length} battle-tested n8n workflow templates across {INDUSTRIES.length} industries. Select any template to instantly generate your complete automation package.

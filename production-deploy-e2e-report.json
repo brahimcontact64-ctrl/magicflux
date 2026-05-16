@@ -1,0 +1,536 @@
+{
+  "generatedAt": "2026-05-13T22:16:30.870Z",
+  "baseUrl": "http://localhost:3000",
+  "prompt": "Build me a Telegram crypto alert bot that checks CoinMarketCap every 15 minutes, summarizes changes with Grok, sends alerts to Telegram, and logs every signal in Supabase.",
+  "mode": "production_deploy",
+  "sessionId": "e2e-production-1778710516312",
+  "userId": "578fa871-ede6-4133-8fa9-8d9e44e7627c",
+  "seededProviders": [
+    "supabase"
+  ],
+  "summary": {
+    "totalChecks": 21,
+    "passedChecks": 21,
+    "failedChecks": 0,
+    "failedCheckNames": [],
+    "pass": true,
+    "decision": "GO"
+  },
+  "checks": {
+    "exactPromptUsed": {
+      "pass": true,
+      "details": {
+        "prompt": "Build me a Telegram crypto alert bot that checks CoinMarketCap every 15 minutes, summarizes changes with Grok, sends alerts to Telegram, and logs every signal in Supabase."
+      }
+    },
+    "streamRequestSucceeded": {
+      "pass": true,
+      "details": {
+        "status": 200
+      }
+    },
+    "credentialsPolicySafeStop": {
+      "pass": true,
+      "details": {
+        "seededProviders": [
+          "supabase"
+        ],
+        "requestedProviders": [],
+        "missingCredentials": []
+      }
+    },
+    "approvalRequestAppearsIfNeeded": {
+      "pass": true,
+      "details": {
+        "firstApprovalRequests": 1,
+        "finalApprovalRequests": 0
+      }
+    },
+    "approvalAcceptAndContinue": {
+      "pass": true,
+      "details": {
+        "approvalAccepted": true,
+        "approvalContinuationRan": true
+      }
+    },
+    "workflowGenerated": {
+      "pass": true,
+      "details": {
+        "agentEventsCount": 2
+      }
+    },
+    "workflowPersisted": {
+      "pass": true,
+      "details": {
+        "row": {
+          "id": "12d3c8c7-b5b0-451d-b44b-f2c98c4d9bb3",
+          "session_id": "e2e-production-1778710516312",
+          "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+          "updated_at": "2026-05-13T22:16:13.263+00:00"
+        }
+      }
+    },
+    "runtimeJobEnqueued": {
+      "pass": true,
+      "details": {
+        "rows": 1
+      }
+    },
+    "workerProcessedJob": {
+      "pass": true,
+      "details": {
+        "statuses": [
+          "failed"
+        ]
+      }
+    },
+    "deploymentBegins": {
+      "pass": true,
+      "details": {
+        "deployJobs": 1
+      }
+    },
+    "healthGateRunsAndActivationSafe": {
+      "pass": true,
+      "details": {
+        "activateJobs": 0,
+        "healthGateFailed": false
+      }
+    },
+    "rollbackOnHealthFailure": {
+      "pass": true,
+      "details": {
+        "healthGateFailed": false,
+        "rollbackEvidence": false
+      }
+    },
+    "streamSafetyNoLeaks": {
+      "pass": true,
+      "details": {
+        "leaked": false,
+        "matches": []
+      }
+    },
+    "runtimePersistenceTimeline": {
+      "pass": true,
+      "details": {
+        "rows": 6
+      }
+    },
+    "runtimePersistenceEvents": {
+      "pass": true,
+      "details": {
+        "rows": 22
+      }
+    },
+    "runtimePersistenceDeploymentVersion": {
+      "pass": true,
+      "details": {
+        "rows": 1
+      }
+    },
+    "runtimePersistenceGraphVersion": {
+      "pass": true,
+      "details": {
+        "graphVersions": 1,
+        "graphMutations": 1
+      }
+    },
+    "runtimePersistenceTaskStatus": {
+      "pass": true,
+      "details": {
+        "rows": 0
+      }
+    },
+    "userUxNaturalChat": {
+      "pass": true,
+      "details": {
+        "preview": "The deployment of the Telegram Crypto Alert Bot is queued and will be executed shortly. I'll keep you updated on the progress."
+      }
+    },
+    "userUxIntegrationCardsIfNeeded": {
+      "pass": true,
+      "details": {
+        "credentialRequests": 0
+      }
+    },
+    "userUxNoInternalStateExposed": {
+      "pass": true,
+      "details": {
+        "preview": "The deployment of the Telegram Crypto Alert Bot is queued and will be executed shortly. I'll keep you updated on the progress."
+      }
+    }
+  },
+  "samples": {
+    "assistantPreview": "The deployment of the Telegram Crypto Alert Bot is queued and will be executed shortly. I'll keep you updated on the progress.",
+    "queueRows": [
+      {
+        "id": "f96ba1cd-8888-42c9-89e7-a32bd5cf9f90",
+        "status": "failed",
+        "queue_name": "deploy_queue",
+        "task_type": "deploy_workflow",
+        "error_message": "N8N_NETWORK_ERROR: Failed to reach n8n API",
+        "created_at": "2026-05-13T22:16:10.078+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": null
+      }
+    ],
+    "runtimeRows": [
+      {
+        "event_type": "execution.failed",
+        "severity": "error",
+        "payload": {
+          "error": "N8N_NETWORK_ERROR: Failed to reach n8n API",
+          "queue": "deploy_queue",
+          "job_id": "7",
+          "will_retry": false,
+          "max_attempts": 3,
+          "attempts_made": 3
+        },
+        "created_at": "2026-05-13T22:16:23.445+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "deployment.failed",
+        "severity": "error",
+        "payload": {
+          "error": "Failed to reach n8n API",
+          "error_code": "N8N_NETWORK_ERROR",
+          "diagnostics": {
+            "url": "http://localhost:5678/api/v1/workflows",
+            "method": "POST",
+            "errorName": "TypeError",
+            "hasApiKey": true,
+            "hasApiUrl": true,
+            "timeoutMs": 12000,
+            "retry_error": null,
+            "errorMessage": "fetch failed"
+          },
+          "workflowName": "Telegram Crypto Alert Bot"
+        },
+        "created_at": "2026-05-13T22:16:22.324+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "retry.started",
+        "severity": "warning",
+        "payload": {
+          "error": "N8N_NETWORK_ERROR: Failed to reach n8n API",
+          "queue": "deploy_queue",
+          "job_id": "7",
+          "will_retry": true,
+          "max_attempts": 3,
+          "attempts_made": 2
+        },
+        "created_at": "2026-05-13T22:16:17.855+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "deployment.failed",
+        "severity": "error",
+        "payload": {
+          "error": "Failed to reach n8n API",
+          "error_code": "N8N_NETWORK_ERROR",
+          "diagnostics": {
+            "url": "http://localhost:5678/api/v1/workflows",
+            "method": "POST",
+            "errorName": "TypeError",
+            "hasApiKey": true,
+            "hasApiUrl": true,
+            "timeoutMs": 12000,
+            "retry_error": null,
+            "errorMessage": "fetch failed"
+          },
+          "workflowName": "Telegram Crypto Alert Bot"
+        },
+        "created_at": "2026-05-13T22:16:16.906+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "retry.started",
+        "severity": "warning",
+        "payload": {
+          "error": "N8N_NETWORK_ERROR: Failed to reach n8n API",
+          "queue": "deploy_queue",
+          "job_id": "7",
+          "will_retry": true,
+          "max_attempts": 3,
+          "attempts_made": 1
+        },
+        "created_at": "2026-05-13T22:16:13.21+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "agent.completed",
+        "severity": "info",
+        "payload": {
+          "approvalsPending": 0,
+          "workflowComplete": false
+        },
+        "created_at": "2026-05-13T22:16:12.52+00:00",
+        "workflow_id": null,
+        "execution_id": null,
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "deployment.failed",
+        "severity": "error",
+        "payload": {
+          "error": "Failed to reach n8n API",
+          "error_code": "N8N_NETWORK_ERROR",
+          "diagnostics": {
+            "url": "http://localhost:5678/api/v1/workflows",
+            "method": "POST",
+            "errorName": "TypeError",
+            "hasApiKey": true,
+            "hasApiUrl": true,
+            "timeoutMs": 12000,
+            "retry_error": null,
+            "errorMessage": "fetch failed"
+          },
+          "workflowName": "Telegram Crypto Alert Bot"
+        },
+        "created_at": "2026-05-13T22:16:12.26+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "tool.completed",
+        "severity": "info",
+        "payload": {
+          "toolName": "deploy_workflow_to_n8n",
+          "duration_ms": 2255
+        },
+        "created_at": "2026-05-13T22:16:10.543+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "execution.started",
+        "severity": "info",
+        "payload": {
+          "queue": "deploy_queue",
+          "taskType": "deploy_workflow",
+          "queueJobId": "7"
+        },
+        "created_at": "2026-05-13T22:16:10.353+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "tool.started",
+        "severity": "info",
+        "payload": {
+          "args": {
+            "workflow_json": "{\"nodes\":[{\"id\":\"1\",\"name\":\"Schedule Trigger\",\"type\":\"n8n-nodes-base.cron\",\"typeVersion\":1,\"position\":[200,300],\"parameters\":{\"triggerTimes\":{\"item\":[{\"mode\":\"everyX\",\"value\":15,\"unit\":\"minutes\"}]}}},{\"id\":\"2\",\"name\":\"CoinMarketCap API\",\"type\":\"n8n-nodes-base.httpRequest\",\"typeVersion\":1,\"position\":[400,300],\"parameters\":{\"url\":\"https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest\",\"method\":\"GET\",\"headers\":{\"Content-Type\":\"application/json\",\"X-CMC_PRO_API_KEY\":\"YOUR_COINMARKETCAP_API_KEY\"},\"responseFormat\":\"json\"}},{\"id\":\"3\",\"name\":\"Grok AI Summarizer\",\"type\":\"n8n-nodes-base.openAi\",\"typeVersion\":1,\"position\":[600,300],\"parameters\":{\"model\":\"text-davinci-003\",\"prompt\":\"Summarize the following cryptocurrency price changes: {{$json}}\",\"maxTokens\":150}},{\"id\":\"4\",\"name\":\"Send Telegram Message\",\"type\":\"n8n-nodes-base.telegram\",\"typeVersion\":1,\"position\":[800,300],\"parameters\":{\"chatId\":\"YOUR_TELEGRAM_CHAT_ID\",\"text\":\"Crypto Alert: {{$json['choices'][0]['text']}}\"}},{\"id\":\"5\",\"name\":\"Log to Supabase\",\"type\":\"n8n-nodes-base.httpRequest\",\"typeVersion\":1,\"position\":[1000,300],\"parameters\":{\"url\":\"https://YOUR_SUPABASE_URL/rest/v1/alerts\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json\",\"apikey\":\"YOUR_SUPABASE_API_KEY\",\"Authorization\":\"Bearer YOUR_SUPABASE_JWT\"},\"body\":{\"alert\":\"{{$json['choices'][0]['text']}}\",\"timestamp\":\"={{new Date().toISOString()}}\"},\"jsonParameters\":true}}],\"connections\":{\"1\":{\"main\":[[{\"node\":\"2\",\"type\":\"main\",\"index\":0}]]},\"2\":{\"main\":[[{\"node\":\"3\",\"type\":\"main\",\"index\":0}]]},\"3\":{\"main\":[[{\"node\":\"4\",\"type\":\"main\",\"index\":0},{\"node\":\"5\",\"type\":\"main\",\"index\":0}]]}}}",
+            "workflow_name": "Telegram Crypto Alert Bot"
+          },
+          "toolName": "deploy_workflow_to_n8n"
+        },
+        "created_at": "2026-05-13T22:16:08.666+00:00",
+        "workflow_id": null,
+        "execution_id": "deploy_workflow_to_n8n-1778710568287",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "tool.completed",
+        "severity": "info",
+        "payload": {
+          "toolName": "generate_workflow_json",
+          "duration_ms": 7774
+        },
+        "created_at": "2026-05-13T22:16:00.229+00:00",
+        "workflow_id": null,
+        "execution_id": "generate_workflow_json-1778710552455",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "ai.request.completed",
+        "severity": "info",
+        "payload": {
+          "model": "gpt-4o",
+          "prompt_tokens": 254,
+          "completion_tokens": 856
+        },
+        "created_at": "2026-05-13T22:15:59.263+00:00",
+        "workflow_id": null,
+        "execution_id": null,
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "ai.request.started",
+        "severity": "info",
+        "payload": {
+          "model": "gpt-4o",
+          "purpose": "generate_workflow_json"
+        },
+        "created_at": "2026-05-13T22:15:53.057+00:00",
+        "workflow_id": null,
+        "execution_id": null,
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "tool.started",
+        "severity": "info",
+        "payload": {
+          "args": {
+            "action": "send_message",
+            "trigger": "schedule",
+            "platform": "coinmarketcap",
+            "schedule": "every 15 minutes",
+            "ai_provider": "grok",
+            "destination": "telegram",
+            "workflow_name": "Telegram Crypto Alert Bot",
+            "automation_style": "fully_automatic",
+            "nodes_description": "1. Trigger every 15 minutes to check CoinMarketCap for crypto price changes. 2. Use Grok to summarize the changes. 3. Send the summarized alert to a Telegram channel. 4. Log each alert in Supabase for record-keeping."
+          },
+          "toolName": "generate_workflow_json"
+        },
+        "created_at": "2026-05-13T22:15:52.869+00:00",
+        "workflow_id": null,
+        "execution_id": "generate_workflow_json-1778710552455",
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      },
+      {
+        "event_type": "agent.started",
+        "severity": "info",
+        "payload": {
+          "safetyMode": "production",
+          "maxToolRounds": 6
+        },
+        "created_at": "2026-05-13T22:15:48.513+00:00",
+        "workflow_id": null,
+        "execution_id": null,
+        "correlation_id": "corr-e2e-production-1778710516312-1778710547918"
+      }
+    ],
+    "timelineRows": [
+      {
+        "id": "63e406e0-f092-43d1-bd68-36b9dd40a43d",
+        "event_type": "runtime_failure",
+        "title": "Deployment failed",
+        "status": "error",
+        "created_at": "2026-05-13T22:16:22.51+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e"
+      },
+      {
+        "id": "2cb5737e-766c-4b85-8e55-a0ea8bc7fbc7",
+        "event_type": "runtime_failure",
+        "title": "Deployment failed",
+        "status": "error",
+        "created_at": "2026-05-13T22:16:17.105+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e"
+      },
+      {
+        "id": "42264813-b007-4618-893c-1e35f3bc16cf",
+        "event_type": "runtime_failure",
+        "title": "Deployment failed",
+        "status": "error",
+        "created_at": "2026-05-13T22:16:12.447+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e"
+      },
+      {
+        "id": "bdcfe29a-143c-445a-b403-adef900877a7",
+        "event_type": "deployment_completed",
+        "title": "Deploying your automation...",
+        "status": "info",
+        "created_at": "2026-05-13T22:16:11.549192+00:00",
+        "workflow_id": null
+      },
+      {
+        "id": "23565212-793d-4ecf-ad1b-09107e90c7c1",
+        "event_type": "workflow_generated",
+        "title": "Workflow blueprint generated",
+        "status": "info",
+        "created_at": "2026-05-13T22:16:01.250907+00:00",
+        "workflow_id": null
+      },
+      {
+        "id": "0906c8c3-f992-42a8-9f93-8610e1f7158f",
+        "event_type": "workflow_generated",
+        "title": "Workflow blueprint generated",
+        "status": "info",
+        "created_at": "2026-05-13T22:15:37.087842+00:00",
+        "workflow_id": null
+      }
+    ],
+    "deploymentVersions": [
+      {
+        "id": "446c8029-3a42-44a0-b790-ac261b3b737d",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "version": 1,
+        "status": "failed",
+        "deployed_at": "2026-05-13T22:16:22.134+00:00",
+        "rolled_back_at": null,
+        "rollback_reason": null,
+        "metadata": {
+          "job_id": "7",
+          "source": "runtime_worker",
+          "error_code": "N8N_NETWORK_ERROR",
+          "queue_name": "deploy_queue",
+          "diagnostics": {
+            "url": "http://localhost:5678/api/v1/workflows",
+            "method": "POST",
+            "errorName": "TypeError",
+            "hasApiKey": true,
+            "hasApiUrl": true,
+            "timeoutMs": 12000,
+            "retry_error": null,
+            "errorMessage": "fetch failed"
+          },
+          "error_message": "Failed to reach n8n API",
+          "workflow_name": "Telegram Crypto Alert Bot"
+        }
+      }
+    ],
+    "graphVersions": [
+      {
+        "id": "548f8769-56a9-487b-9318-cbc4c3346709",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "version": 1,
+        "is_active": true,
+        "created_at": "2026-05-13T22:16:09.491534+00:00"
+      }
+    ],
+    "graphMutations": [
+      {
+        "id": "f0a89a44-4676-4149-93cc-49edda2bbfc7",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "version": 1,
+        "mutation_type": "update_node",
+        "reason": "Initial workflow graph snapshot before deployment",
+        "created_at": "2026-05-13T22:16:09.434+00:00"
+      }
+    ],
+    "backgroundTasks": [],
+    "credentialProviders": [],
+    "missingCredentials": [],
+    "approvalAccepted": true,
+    "approvalContinuationRan": true,
+    "deploymentJobs": [
+      {
+        "id": "f96ba1cd-8888-42c9-89e7-a32bd5cf9f90",
+        "status": "failed",
+        "queue_name": "deploy_queue",
+        "task_type": "deploy_workflow",
+        "error_message": "N8N_NETWORK_ERROR: Failed to reach n8n API",
+        "created_at": "2026-05-13T22:16:10.078+00:00",
+        "workflow_id": "3503ceff-b5cd-4632-9e55-54deb05e0e9e",
+        "execution_id": null
+      }
+    ]
+  }
+}

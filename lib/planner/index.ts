@@ -45,7 +45,7 @@ export interface AutomationPlan {
   planReasoning: string;
   createdAt: string;
   // Extended fields (Phase 3.5)
-  plannerModeUsed?: 'openai' | 'deterministic' | 'deterministic_fallback';
+  plannerModeUsed?: 'openai' | 'deterministic';
   assumptions?: string[];
   unsupportedRequirements?: string[];
   requiredCredentials?: string[];
@@ -58,6 +58,84 @@ export interface PlannerResult {
   n8nJson: N8nWorkflow;
   envConfig: string;
   dependencies: ReturnType<typeof collectDependencies>;
+  generationAdjusted?: boolean;
+  generationWarning?: string;
+  proPlanner?: {
+    intent: {
+      trigger: { service: string; event: string; description: string };
+      actions: Array<{ service: string; action: string; description: string }>;
+      required_integrations: string[];
+      forbidden_integrations: string[];
+      assumptions: string[];
+      confidence: number;
+    };
+    options: Array<{
+      id: string;
+      name: string;
+      pros: string[];
+      cons: string[];
+      difficulty: number;
+      reliability: number;
+      requiredIntegrations: string[];
+      estimatedSetupMinutes: number;
+      score: number;
+      reason: string;
+    }>;
+    recommendedOptionId: string;
+    validation: {
+      valid: boolean;
+      checks: {
+        intentMatch: boolean;
+        requiredIntegrationsMatch: boolean;
+        noForbiddenIntegrations: boolean;
+        structureValid: boolean;
+        connected: boolean;
+        hasTrigger: boolean;
+        hasAction: boolean;
+      };
+      detectedIntegrations: string[];
+      errors: string[];
+    };
+    explanation: {
+      whyChosen: string;
+      nodeSummary: string[];
+      credentialsNeeded: string[];
+      userMustConfigure: string[];
+      limitations: string[];
+    };
+  };
+}
+
+export type PlannerRejectionCode = 'CLARIFICATION_REQUIRED' | 'INCOMPLETE_INTENT' | 'UNSUPPORTED_REQUIREMENTS';
+
+export class PlannerApiError extends Error {
+  code: PlannerRejectionCode;
+  mode?: 'clarification';
+  missing?: Array<'trigger' | 'action' | 'data'>;
+  questions?: string[];
+  suggestions?: string[];
+  examples?: string[];
+
+  constructor(
+    code: PlannerRejectionCode,
+    message: string,
+    extra?: {
+      mode?: 'clarification';
+      missing?: Array<'trigger' | 'action' | 'data'>;
+      questions?: string[];
+      suggestions?: string[];
+      examples?: string[];
+    }
+  ) {
+    super(message);
+    this.name = 'PlannerApiError';
+    this.code = code;
+    this.mode = extra?.mode;
+    this.missing = extra?.missing;
+    this.questions = extra?.questions;
+    this.suggestions = extra?.suggestions;
+    this.examples = extra?.examples;
+  }
 }
 
 // ─── n8n WORKFLOW TYPES ──────────────────────────────────────────────────────
@@ -110,7 +188,7 @@ const AutomationPlanSchema = z.object({
   complexity: z.enum(['simple', 'moderate', 'complex']),
   planReasoning: z.string(),
   createdAt: z.string(),
-  plannerModeUsed: z.enum(['openai', 'deterministic', 'deterministic_fallback']).optional(),
+  plannerModeUsed: z.enum(['openai', 'deterministic']).optional(),
   assumptions: z.array(z.string()).optional(),
   unsupportedRequirements: z.array(z.string()).optional(),
   requiredCredentials: z.array(z.string()).optional(),
@@ -386,12 +464,12 @@ function detectExternalWebhookAssumptions(prompt: string, trigger: TriggerType):
 
 // ─── PLANNER ENGINE ──────────────────────────────────────────────────────────
 
-function detectTrigger(prompt: string): TriggerType {
+function detectTrigger(prompt: string): TriggerType | null {
   const normalized = prompt.toLowerCase();
   for (const [type, signals] of Object.entries(TRIGGER_SIGNALS) as [TriggerType, string[]][]) {
     if (signals.some(s => normalized.includes(s))) return type;
   }
-  return 'webhook';
+  return null;
 }
 
 function detectActions(prompt: string): ActionType[] {
@@ -402,10 +480,6 @@ function detectActions(prompt: string): ActionType[] {
     if (signals.some(s => normalized.includes(s))) {
       detected.push(action);
     }
-  }
-
-  if (!detected.includes('transform')) {
-    detected.unshift('transform');
   }
 
   return detected;
@@ -727,12 +801,26 @@ export function createAutomationPlan(
   modeOverride?: AutomationPlan['plannerModeUsed']
 ): PlannerResult {
   const trigger = detectTrigger(prompt);
+  if (!trigger) {
+    throw new Error('INCOMPLETE_INTENT: Missing trigger. Describe when the workflow should run.');
+  }
+
   const actions = detectActions(prompt);
+  if (actions.length === 0) {
+    throw new Error('INCOMPLETE_INTENT: Missing action. Describe what the workflow should do.');
+  }
+
   const integrations = detectIntegrations(prompt);
   const pattern = matchPattern(prompt, trigger, actions);
   const steps = buildPlanSteps(pattern, actions);
   const unsupportedRequirements = detectUnsupportedRequirements(prompt);
-  const webhookAssumptions = detectExternalWebhookAssumptions(prompt, trigger);
+  if (unsupportedRequirements.length > 0) {
+    throw new Error('UNSUPPORTED_REQUIREMENTS: This automation cannot be built with current capabilities.');
+  }
+
+  if (steps.length === 0) {
+    throw new Error('INCOMPLETE_INTENT: Missing action. Describe at least one executable action.');
+  }
 
   const totalNodes = 1 + steps.length;
   const triggerBlockId = TRIGGER_TO_BLOCK[trigger];
@@ -740,10 +828,12 @@ export function createAutomationPlan(
   const planId = `plan_${Date.now()}`;
   const createdAt = new Date().toISOString();
 
-  // Lower confidence when the prompt contains unsupported requirements
-  const hasUnsupported = unsupportedRequirements.length > 0;
-  const baseConfidence = Math.min(97, 65 + steps.length * 3 + integrations.length * 2);
-  const confidence = hasUnsupported ? Math.min(40, baseConfidence) : baseConfidence;
+  const normalizedPrompt = prompt.toLowerCase();
+  const hasExplicitSequence = normalizedPrompt.includes('when') || normalizedPrompt.includes('every') || normalizedPrompt.includes('if');
+  const confidence = Math.min(97, 70 + steps.length * 4 + integrations.length * 3 + (hasExplicitSequence ? 10 : 0));
+  if (confidence < 85) {
+    throw new Error('CLARIFICATION_REQUIRED: Please provide a clearer trigger and action.');
+  }
 
   const planBase = {
     title: pattern.name,
@@ -767,15 +857,10 @@ export function createAutomationPlan(
     planReasoning: '',
     createdAt,
     plannerModeUsed: modeOverride ?? 'deterministic',
-    assumptions: [
-      'Prompt was matched to the closest available workflow pattern.',
-      ...webhookAssumptions
-    ],
-    unsupportedRequirements,
+    assumptions: detectExternalWebhookAssumptions(prompt, trigger),
+    unsupportedRequirements: [],
     requiredCredentials: integrations,
-    confidenceReason: hasUnsupported
-      ? `Confidence reduced to ${confidence} because ${unsupportedRequirements.length} requested feature(s) are not available in the block registry. A best-effort partial plan was generated using supported blocks.`
-      : 'Keyword matching against workflow pattern library.'
+    confidenceReason: 'Strict intent match and capability validation passed.'
   };
 
   plan.planReasoning = generatePlanReasoning(planBase, prompt);
@@ -827,9 +912,8 @@ export function assemblePlannerResult(rawPlan: Omit<AutomationPlan, 'id' | 'crea
  * Falls back to deterministic inline if the API call fails (e.g. network error).
  *
  * The plannerModeUsed field on the returned plan indicates which path was taken:
- *   'openai'                  → OpenAI structured output used
- *   'deterministic'           → keyword planner used (AI_PLANNER_MODE != openai)
- *   'deterministic_fallback'  → OpenAI failed, keyword planner used as fallback
+ *   'openai'        → OpenAI structured output used
+ *   'deterministic' → keyword planner used (AI_PLANNER_MODE != openai)
  */
 export async function createAutomationPlanAsync(prompt: string): Promise<PlannerResult> {
   try {
@@ -839,20 +923,49 @@ export async function createAutomationPlanAsync(prompt: string): Promise<Planner
       body: JSON.stringify({ prompt })
     });
 
+    const data = await res.json().catch(() => null) as {
+      success?: boolean;
+      result?: PlannerResult;
+      error?: string;
+      message?: string;
+      mode?: 'clarification';
+      missing?: Array<'trigger' | 'action' | 'data'>;
+      questions?: string[];
+      suggestions?: string[];
+      examples?: string[];
+      generationAdjusted?: boolean;
+      generationWarning?: string;
+      proPlanner?: PlannerResult['proPlanner'];
+    } | null;
+
     if (!res.ok) {
-      throw new Error(`Planner API returned ${res.status}`);
+      const code = data?.error;
+      const message = data?.message ?? data?.error ?? `Planner API returned ${res.status}`;
+      if (code === 'CLARIFICATION_REQUIRED' || code === 'INCOMPLETE_INTENT' || code === 'UNSUPPORTED_REQUIREMENTS') {
+        throw new PlannerApiError(code, message, {
+          mode: data?.mode,
+          missing: data?.missing,
+          questions: data?.questions,
+          suggestions: data?.suggestions,
+          examples: data?.examples,
+        });
+      }
+      throw new Error(message);
     }
 
-    const data = await res.json();
-
-    if (data.success && data.result) {
-      return data.result as PlannerResult;
+    if (data?.success && data.result) {
+      const result = data.result as PlannerResult;
+      result.generationAdjusted = data.generationAdjusted;
+      result.generationWarning = data.generationWarning;
+      result.proPlanner = data.proPlanner ?? result.proPlanner;
+      return result;
     }
 
-    throw new Error(data.error ?? 'Planner API returned no result');
-  } catch {
-    // Network failure or server error — fall back to inline deterministic planner
-    return createAutomationPlan(prompt, 'deterministic_fallback');
+    throw new Error(data?.error ?? 'Planner API returned no result');
+  } catch (error) {
+    throw error instanceof Error
+      ? error
+      : new Error('Planner request failed');
   }
 }
 

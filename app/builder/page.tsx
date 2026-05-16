@@ -4,32 +4,71 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Zap, ArrowLeft, PanelRightOpen, PanelRightClose, LayoutPanelLeft, Brain, Activity, LogOut, Crown, ChevronDown, Loader as Loader2, TriangleAlert, User } from 'lucide-react';
+import { Zap, ArrowLeft, PanelRightOpen, PanelRightClose, LayoutPanelLeft, Brain, LogOut, Crown, ChevronDown, Loader as Loader2, TriangleAlert, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { IndustrySelector } from '@/components/builder/industry-selector';
 import { ChatInterface } from '@/components/builder/chat-interface';
-import { OutputPanel } from '@/components/builder/output-panel';
+import { IntegrationConnectModal } from '@/components/builder/integration-connect-modal';
 import { ArchitectPanel } from '@/components/builder/architect-panel';
-import { GenerationResult } from '@/lib/generator';
 import { AUTOMATION_TEMPLATES, AutomationTemplate, Industry } from '@/lib/templates';
-import { createAutomationPlanAsync, modifyPlan, PlannerResult } from '@/lib/planner';
+import { createAutomationPlanAsync, PlannerApiError, PlannerResult } from '@/lib/planner';
 import { validateWorkflow, ValidationResult } from '@/lib/validator';
 import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { DeploymentLifecycle } from '@/components/builder/setup-wizard';
 import { LiveDeployResult } from '@/components/builder/one-click-deploy';
+import { requiredProvidersFromWorkflow, type IntegrationProvider } from '@/lib/integrations';
+import { apiRequest } from '@/lib/api/client';
 
-type OutputMode = 'legacy' | 'architect';
+const ISOLATE_C = process.env.NEXT_PUBLIC_MF_BUILD_ISOLATE_C === '1';
+
+type WorkflowTestResult = {
+  success: boolean;
+  logs: string[];
+  output: Record<string, unknown> | null;
+  error?: string;
+  simulated?: boolean;
+  simulationMessage?: string | null;
+  statusLabel?: 'SIMULATED TEST' | 'LIVE SUCCESS' | 'FAILED';
+};
+
+type PlannerRejection = {
+  code: 'CLARIFICATION_REQUIRED' | 'INCOMPLETE_INTENT' | 'UNSUPPORTED_REQUIREMENTS';
+  mode?: 'clarification';
+  message: string;
+  missing?: Array<'trigger' | 'action' | 'data'>;
+  questions?: string[];
+  suggestions?: string[];
+  examples?: string[];
+};
+
+type ExecutionMode = 'safe_preview' | 'staging_deploy' | 'production_deploy';
+
+const MODE_STORAGE_KEY = 'magicflux.builder.execution_mode';
+const MODE_SESSION_PREFIX = 'magicflux.builder.execution_mode.session.';
+
+const EXECUTION_MODES: Array<{ value: ExecutionMode; label: string }> = [
+  { value: 'safe_preview', label: 'Preview' },
+  { value: 'staging_deploy', label: 'Staging' },
+  { value: 'production_deploy', label: 'Production' },
+];
 
 // ── User menu ─────────────────────────────────────────────────────────────────
 
 function UserMenu() {
-  const { user, session, signOut } = useAuth();
+  const { user, session, signOut, refreshPlan } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
+  const [activatingPro, setActivatingPro] = useState(false);
+
+  // ⚠️ DEV ONLY — remove before production
+  const SHOW_DEV = true; // fallback: set to false to rely solely on env var
+  console.log('DEV BUTTON:', process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON);
+  const devProEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON === 'true' || SHOW_DEV;
 
   if (!user) return null;
 
@@ -40,14 +79,17 @@ function UserMenu() {
     setUpgrading(true);
     setOpen(false);
     try {
-      const res = await fetch('/api/paypal/create-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+      const data = await apiRequest<{ approvalUrl?: string }>(
+        '/api/paypal/create-order',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-      });
-      const data = await res.json() as { approvalUrl?: string };
+        'Could not start checkout'
+      );
       if (data.approvalUrl && typeof window !== 'undefined') window.location.href = data.approvalUrl;
       else setUpgrading(false);
     } catch {
@@ -58,6 +100,25 @@ function UserMenu() {
   async function handleSignOut() {
     await signOut();
     router.push('/login');
+  }
+
+  async function handleDevActivatePro() {
+    if (!session) return;
+    setActivatingPro(true);
+    setOpen(false);
+    try {
+      const res = await fetch('/api/dev/activate-pro', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      await refreshPlan();
+      toast.success('Pro activated for testing 🧪');
+    } catch {
+      toast.error('Dev activation failed');
+    } finally {
+      setActivatingPro(false);
+    }
   }
 
   return (
@@ -99,7 +160,18 @@ function UserMenu() {
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-xs text-amber-400 transition-colors"
               >
                 {upgrading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
-                {upgrading ? 'Redirecting...' : 'Upgrade to Pro — $19'}
+                {upgrading ? 'Redirecting...' : 'Upgrade to Pro — $29'}
+              </button>
+            )}
+            {devProEnabled && (
+              <button
+                onClick={handleDevActivatePro}
+                disabled={activatingPro}
+                title="Development only — remove before production"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-orange-500/20 text-xs text-orange-400 transition-colors border border-dashed border-orange-500/40"
+              >
+                {activatingPro ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>🧪</span>}
+                DEV: Activate Pro for Testing 🧪
               </button>
             )}
             <button
@@ -131,7 +203,7 @@ function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrad
         className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex-shrink-0"
       >
         {upgrading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Crown className="w-3 h-3" />}
-        {upgrading ? 'Redirecting...' : 'Upgrade — $19'}
+        {upgrading ? 'Redirecting...' : 'Upgrade — $29'}
       </button>
     </div>
   );
@@ -140,18 +212,27 @@ function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrad
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BuilderPage() {
+  if (ISOLATE_C) {
+    return (
+      <main className="min-h-screen p-6">
+        <p className="text-sm text-muted-foreground">Builder temporarily isolated for build diagnostics.</p>
+      </main>
+    );
+  }
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading } = useAuth();
 
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<AutomationTemplate | null>(null);
-  const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [plannerResult, setPlannerResult] = useState<PlannerResult | null>(null);
+  const [conversationSessionId, setConversationSessionId] = useState<string | null>(null);
+  const [integrationWizardOpen, setIntegrationWizardOpen] = useState(false);
+  const [integrationWizardProviders, setIntegrationWizardProviders] = useState<string[]>([]);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [outputOpen, setOutputOpen] = useState(false);
-  const [outputMode, setOutputMode] = useState<OutputMode>('architect');
   const [isMobile, setIsMobile] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
@@ -161,6 +242,59 @@ export default function BuilderPage() {
   const [liveDeployResult, setLiveDeployResult] = useState<LiveDeployResult | null>(null);
   const [lastPrompt, setLastPrompt] = useState('');
   const [upgrading, setUpgrading] = useState(false);
+  const [isCreatingManagedRequest, setIsCreatingManagedRequest] = useState(false);
+  const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null);
+  const [requiredIntegrations, setRequiredIntegrations] = useState<IntegrationProvider[]>([]);
+  const [missingIntegrations, setMissingIntegrations] = useState<IntegrationProvider[]>([]);
+  const [isTestingWorkflow, setIsTestingWorkflow] = useState(false);
+  const [testResult, setTestResult] = useState<WorkflowTestResult | null>(null);
+  const [plannerRejection, setPlannerRejection] = useState<PlannerRejection | null>(null);
+  const [mode, setMode] = useState<ExecutionMode>('staging_deploy');
+  const [modeHydrated, setModeHydrated] = useState(false);
+
+  const getAuthHeaders = useCallback((): HeadersInit | null => {
+    if (!session?.access_token) {
+      toast.error('Session expired. Please login again.');
+      return null;
+    }
+
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    };
+  }, [session]);
+
+  const refreshIntegrationStatus = useCallback(async (workflowJson: unknown) => {
+    const required = requiredProvidersFromWorkflow(workflowJson);
+    setRequiredIntegrations(required);
+
+    if (!session?.access_token) {
+      setMissingIntegrations(required);
+      return;
+    }
+
+    try {
+      const headers = getAuthHeaders();
+      if (!headers) return;
+
+      const payload = await apiRequest<{
+        integrations?: Array<{ provider: IntegrationProvider; status: 'connected' | 'invalid' | 'not_connected' }>;
+      }>(
+        '/api/integrations',
+        { headers, cache: 'no-store' },
+        'Failed to load integrations'
+      );
+
+      const connected = new Set(
+        (payload?.integrations ?? [])
+          .filter((row) => row.status === 'connected')
+          .map((row) => row.provider)
+      );
+      setMissingIntegrations(required.filter((provider) => !connected.has(provider)));
+    } catch {
+      setMissingIntegrations(required);
+    }
+  }, [getAuthHeaders, session?.access_token]);
 
   // Auth guard — redirect unauthenticated users to /login
   useEffect(() => {
@@ -186,18 +320,50 @@ export default function BuilderPage() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const sessionMode = conversationSessionId
+      ? window.localStorage.getItem(`${MODE_SESSION_PREFIX}${conversationSessionId}`)
+      : null;
+    const persistedMode = window.localStorage.getItem(MODE_STORAGE_KEY);
+    const candidate = (sessionMode ?? persistedMode) as ExecutionMode | null;
+
+    if (
+      candidate === 'safe_preview'
+      || candidate === 'staging_deploy'
+      || candidate === 'production_deploy'
+    ) {
+      setMode(candidate);
+    }
+
+    setModeHydrated(true);
+  }, [conversationSessionId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!modeHydrated) return;
+    window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+    if (conversationSessionId) {
+      window.localStorage.setItem(`${MODE_SESSION_PREFIX}${conversationSessionId}`, mode);
+    }
+  }, [mode, conversationSessionId, modeHydrated]);
+
   const handleUpgrade = useCallback(async () => {
     if (!session) return;
     setUpgrading(true);
     try {
-      const res = await fetch('/api/paypal/create-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+      const data = await apiRequest<{ approvalUrl?: string }>(
+        '/api/paypal/create-order',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-      });
-      const data = await res.json() as { approvalUrl?: string };
+        'Could not start checkout'
+      );
       if (data.approvalUrl && typeof window !== 'undefined') window.location.href = data.approvalUrl;
       else setUpgrading(false);
     } catch {
@@ -205,23 +371,23 @@ export default function BuilderPage() {
     }
   }, [session]);
 
-  const runPlanner = useCallback(async (
-    prompt: string, isModification: boolean, currentPlannerResult: PlannerResult | null
-  ) => {
+  const runPlanner = useCallback(async (prompt: string) => {
     try {
-      let result: PlannerResult;
-      if (isModification && currentPlannerResult) {
-        result = modifyPlan(currentPlannerResult, prompt);
-      } else {
-        result = await createAutomationPlanAsync(prompt);
-      }
+      const result = await createAutomationPlanAsync(prompt);
 
       const validationResult = validateWorkflow(result.plan, result.composition, result.n8nJson);
+      setPlannerRejection(null);
       setPlannerResult(result);
       setValidation(validationResult);
+      if (result.generationAdjusted || result.generationWarning) {
+        toast.warning(result.generationWarning ?? 'Workflow adjusted to match your request');
+      }
+      setTestResult(null);
+      setSavedWorkflowId(null);
+      await refreshIntegrationStatus(result.n8nJson);
 
       supabase.from('automation_plans').insert({
-        session_id: `session-${Date.now()}`,
+        session_id: conversationSessionId ?? `session-${Date.now()}`,
         user_id: user?.id ?? null,
         prompt,
         plan_json: result.plan as unknown as Record<string, unknown>,
@@ -230,7 +396,7 @@ export default function BuilderPage() {
         env_config: result.envConfig,
         pattern: result.plan.pattern,
         trigger_type: result.plan.trigger.type,
-        integrations: result.plan.integrations,
+        integrations: requiredProvidersFromWorkflow(result.n8nJson),
         complexity: result.plan.complexity,
         estimated_nodes: result.plan.estimatedNodes,
         confidence: result.plan.confidence,
@@ -238,11 +404,54 @@ export default function BuilderPage() {
         is_valid: validationResult.valid,
       }).then(() => {}, () => {});
 
+      if (user?.id) {
+        const { data: savedWorkflow } = await supabase
+          .from('workflows')
+          .insert({
+            user_id: user.id,
+            name: result.plan.title,
+            description: result.plan.description,
+            prompt,
+            workflow_json: result.n8nJson as unknown as Record<string, unknown>,
+            integrations: requiredProvidersFromWorkflow(result.n8nJson),
+            status: 'draft',
+          })
+          .select('id')
+          .maybeSingle();
+
+        setSavedWorkflowId(savedWorkflow?.id ?? null);
+      }
+
       return result;
-    } catch {
+    } catch (error) {
+      if (error instanceof PlannerApiError) {
+        setPlannerResult(null);
+        setValidation(null);
+        setRequiredIntegrations([]);
+        setMissingIntegrations([]);
+        setSavedWorkflowId(null);
+        setPlannerRejection({
+          code: error.code,
+          mode: error.mode,
+          message: error.message,
+          missing: error.missing,
+          questions: error.questions,
+          suggestions: error.suggestions,
+          examples: error.examples,
+        });
+        toast.error(error.message);
+        return null;
+      }
+      setPlannerRejection({
+        code: 'CLARIFICATION_REQUIRED',
+        message: error instanceof Error ? error.message : 'Planner failed',
+      });
+      setPlannerResult(null);
+      setValidation(null);
+      toast.error(error instanceof Error ? error.message : 'Planner failed');
       return null;
     }
-  }, [user]);
+  }, [conversationSessionId, refreshIntegrationStatus, user]);
 
   const handleLiveDeploy = useCallback((result: LiveDeployResult) => {
     setLiveDeployResult(result);
@@ -259,66 +468,249 @@ export default function BuilderPage() {
     }
   }, []);
 
-  async function handleGenerated(result: GenerationResult | null, prompt?: string) {
-    setGenerationResult(result);
+  async function handlePlannerReady(prompt: string) {
     setDeployedUrl(null);
     setDeployedWorkflowId(null);
     setDeploymentLifecycle('draft_created');
     setLiveDeployResult(null);
+    setTestResult(null);
 
-    if (result && prompt) {
-      setLastPrompt(prompt);
-      const isModification = ['add ', 'remove ', 'switch ', 'change ', 'include ', 'replace '].some(
-        t => prompt.toLowerCase().startsWith(t) || prompt.toLowerCase().includes(t)
-      );
-      await runPlanner(prompt, isModification && plannerResult !== null, plannerResult);
-    }
-
-    if (result) {
+    setLastPrompt(prompt);
+    const strictPlan = await runPlanner(prompt);
+    if (strictPlan) {
       setOutputOpen(true);
       if (isMobile) setSidebarOpen(false);
     }
   }
+
+  const handleOpenIntegrationWizard = useCallback((providers: string[], sessionId: string) => {
+    setConversationSessionId(sessionId);
+    setIntegrationWizardProviders(providers);
+    setIntegrationWizardOpen(true);
+  }, []);
+
+  const handleIntegrationConnected = useCallback(async (provider: string) => {
+    setIntegrationWizardProviders((prev) => {
+      const next = prev.filter((p) => p !== provider);
+      if (next.length === 0) setIntegrationWizardOpen(false);
+      return next;
+    });
+    await refreshIntegrationStatus(plannerResult?.n8nJson ?? {});
+  }, [plannerResult?.n8nJson, refreshIntegrationStatus]);
 
   function handleSelectTemplate(template: AutomationTemplate) {
     setSelectedTemplate(template);
     if (isMobile) setSidebarOpen(false);
   }
 
+  const ensureWorkflowSaved = useCallback(async (): Promise<string | null> => {
+    if (savedWorkflowId) return savedWorkflowId;
+    if (!user?.id || !plannerResult) {
+      toast.error('Generate a workflow first.');
+      return null;
+    }
+
+    const { data: savedWorkflow, error } = await supabase
+      .from('workflows')
+      .insert({
+        user_id: user.id,
+        name: plannerResult.plan.title,
+        description: plannerResult.plan.description,
+        prompt: lastPrompt,
+        workflow_json: plannerResult.n8nJson as unknown as Record<string, unknown>,
+        integrations: requiredProvidersFromWorkflow(plannerResult.n8nJson),
+        status: 'draft',
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      toast.error('Could not save workflow');
+      return null;
+    }
+
+    const id = savedWorkflow?.id ?? null;
+    setSavedWorkflowId(id);
+    return id;
+  }, [lastPrompt, plannerResult, savedWorkflowId, user?.id]);
+
   async function handleDeploy() {
-    if (!plannerResult || !validation) return;
+    const workflowId = await ensureWorkflowSaved();
+    if (!workflowId) return;
+    if (!session) return;
+    if (missingIntegrations.length > 0) {
+      window.alert(`You must connect: ${missingIntegrations.join(', ')}`);
+      router.push('/settings/integrations');
+      return;
+    }
+    if (!isPro) {
+      toast.error('Deploy requires Pro');
+      router.push('/pricing');
+      return;
+    }
+
     setIsDeploying(true);
     try {
-      const res = await fetch('/api/n8n', {
+      const headers = getAuthHeaders();
+      if (!headers) return;
+
+      const res = await fetch('/api/workflows/deploy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create', workflow: plannerResult.n8nJson }),
+        headers,
+        body: JSON.stringify({ workflowId }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => null) as {
+        error?: string;
+        redirect?: string;
+        workflowUrl?: string;
+        workflow?: { n8n_workflow_id?: string | null };
+        blockingMessage?: string;
+      } | null;
 
-      if (data.result?.workflowUrl) {
-        const wfId = data.result.workflowId || '';
-        setDeployedUrl(data.result.workflowUrl);
-        setDeployedWorkflowId(wfId);
-        const initialLifecycle: DeploymentLifecycle =
-          validation.credentialsRequired.length > 0 ? 'draft_created' : 'ready_to_activate';
-        setDeploymentLifecycle(initialLifecycle);
-
-        supabase.from('workflow_executions').insert({
-          session_id: `session-${Date.now()}`,
-          user_id: user?.id ?? null,
-          n8n_workflow_id: wfId,
-          n8n_instance_url: process.env.NEXT_PUBLIC_N8N_INSTANCE_URL || '',
-          status: 'pending',
-          workflow_name: plannerResult.plan.title,
-        }).then(() => {}, () => {});
+      if (!res.ok) {
+        if (data?.error === 'PRO_REQUIRED') {
+          router.push(data.redirect ?? '/pricing');
+          return;
+        }
+        if (data?.error === 'SETUP_REQUIRED') {
+          if (data.blockingMessage) window.alert(data.blockingMessage);
+          router.push(data.redirect ?? '/settings/integrations');
+          return;
+        }
+        throw new Error(data?.error ?? 'Deployment failed');
       }
+
+      setDeployedUrl(data?.workflowUrl ?? null);
+      setDeployedWorkflowId(data?.workflow?.n8n_workflow_id ?? null);
+      setDeploymentLifecycle('active');
+      toast.success('Deployment successful');
     } catch {
-      // n8n not configured
+      toast.error('Deployment failed');
     } finally {
       setIsDeploying(false);
     }
   }
+
+  const handleTestWorkflow = useCallback(async () => {
+    const workflowId = await ensureWorkflowSaved();
+    if (!workflowId) return;
+
+    const headers = getAuthHeaders();
+    if (!headers) return;
+
+    setIsTestingWorkflow(true);
+    try {
+      const res = await fetch(`/api/workflows/${workflowId}/test`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+
+      const payload = await res.json().catch(() => null) as {
+        success?: boolean;
+        status?: 'success' | 'failed' | 'simulated_success';
+        message?: string;
+        steps?: Array<{ nodeName?: string; status?: string; logs?: string[]; error?: string }>;
+        finalOutput?: Record<string, unknown>;
+        error?: string;
+        missingIntegrations?: string[];
+        simulated?: boolean;
+        simulationMessage?: string | null;
+        warnings?: string[];
+      } | null;
+
+      if (!res.ok) {
+        if (payload?.error === 'SETUP_REQUIRED') {
+          router.push('/settings/integrations');
+          return;
+        }
+
+        setTestResult({
+          success: false,
+          logs: ['Test failed.'],
+          output: null,
+          error: payload?.error ?? 'Test failed',
+        });
+        toast.error(payload?.error ?? 'Test failed');
+        return;
+      }
+
+      const logs = (payload?.steps ?? []).flatMap((step) => {
+        const intro = `${step.nodeName ?? 'Node'} (${step.status ?? 'unknown'})`;
+        const stepLogs = step.logs ?? [];
+        const maybeError = step.error ? [`Error: ${step.error}`] : [];
+        return [intro, ...stepLogs, ...maybeError];
+      });
+
+      setTestResult({
+        success: payload?.status === 'success',
+        logs: [
+          ...(payload?.simulated ? [payload?.simulationMessage ?? 'SIMULATED — no real API executed'] : []),
+          ...(payload?.warnings ?? []),
+          ...logs,
+        ],
+        output: payload?.finalOutput ?? null,
+        simulated: payload?.simulated ?? true,
+        simulationMessage: payload?.simulationMessage ?? null,
+        statusLabel: payload?.status === 'simulated_success'
+          ? 'SIMULATED TEST'
+          : payload?.status === 'success'
+            ? 'LIVE SUCCESS'
+            : 'FAILED',
+      });
+      if (payload?.status === 'simulated_success') {
+        toast.warning('SIMULATED TEST: No real APIs were called.');
+      } else {
+        toast.success(payload?.message ?? 'Test successful');
+      }
+    } catch {
+      setTestResult({ success: false, logs: ['Unexpected error while testing workflow.'], output: null, error: 'Unexpected error' });
+      toast.error('Test failed');
+    } finally {
+      setIsTestingWorkflow(false);
+    }
+  }, [ensureWorkflowSaved, getAuthHeaders, router]);
+
+  const handleSetupAndTest = useCallback(async () => {
+    const workflowId = await ensureWorkflowSaved();
+    if (!workflowId) return;
+    router.push(`/dashboard/workflows/${workflowId}`);
+  }, [ensureWorkflowSaved, router]);
+
+  const handleManagedUpgrade = useCallback(async () => {
+    if (!user || !session || !plannerResult || isCreatingManagedRequest) return;
+
+    setIsCreatingManagedRequest(true);
+    try {
+      const description = (lastPrompt || plannerResult.plan.description || 'Managed setup request from Builder').trim();
+      const { data, error } = await supabase
+        .from('managed_requests')
+        .insert({
+          user_id: user.id,
+          template_id: selectedTemplate?.id ?? null,
+          template_name: selectedTemplate?.name ?? plannerResult.plan.title ?? 'Builder Workflow',
+          request_type: 'setup',
+          description,
+          contact_email: user.email,
+          status: 'new',
+        })
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      const requestId = data?.id;
+      const checkoutUrl = requestId
+        ? `/payment/checkout?type=managed&requestId=${encodeURIComponent(requestId)}`
+        : '/payment/checkout?type=managed';
+
+      router.push(checkoutUrl);
+    } catch {
+      setIsCreatingManagedRequest(false);
+    }
+  }, [isCreatingManagedRequest, lastPrompt, plannerResult, router, selectedTemplate, session, user]);
 
   const handleLifecycleChange = useCallback((next: DeploymentLifecycle) => {
     setDeploymentLifecycle(next);
@@ -361,8 +753,11 @@ export default function BuilderPage() {
     URL.revokeObjectURL(envUrl);
   }
 
-  const showOutput = outputOpen && (generationResult || plannerResult);
+  const showOutput = outputOpen && !plannerRejection && !!plannerResult;
   const isPro = user?.plan === 'pro';
+  const hasMissingIntegrations = missingIntegrations.length > 0;
+  const testDisabled = hasMissingIntegrations || isTestingWorkflow;
+  const deployDisabled = !savedWorkflowId || hasMissingIntegrations || !isPro || isDeploying;
 
   if (authLoading) {
     return (
@@ -396,28 +791,10 @@ export default function BuilderPage() {
 
         <div className="flex-1" />
 
-        {(generationResult || plannerResult) && (
-          <div className="flex items-center gap-1 p-0.5 rounded-md bg-muted/30 border border-border">
-            <button
-              onClick={() => setOutputMode('architect')}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
-                outputMode === 'architect' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Brain className="w-3 h-3" />
-              <span className="hidden sm:block">Architect</span>
-            </button>
-            <button
-              onClick={() => setOutputMode('legacy')}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
-                outputMode === 'legacy' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Activity className="w-3 h-3" />
-              <span className="hidden sm:block">Classic</span>
-            </button>
+        {plannerResult && (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-muted/30 border border-border text-xs text-foreground">
+            <Brain className="w-3 h-3" />
+            <span>Architect</span>
           </div>
         )}
 
@@ -432,7 +809,7 @@ export default function BuilderPage() {
             <LayoutPanelLeft className="w-3.5 h-3.5" />
             <span className="hidden sm:block">Templates</span>
           </button>
-          {(generationResult || plannerResult) && (
+          {plannerResult && (
             <button
               onClick={() => setOutputOpen(!outputOpen)}
               className={cn(
@@ -470,11 +847,170 @@ export default function BuilderPage() {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden p-3 lg:p-4 min-w-0">
+          <div className="mb-3 rounded-xl border border-border bg-card/50 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Execution mode</span>
+              <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
+                {EXECUTION_MODES.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setMode(item.value)}
+                    className={cn(
+                      'px-2.5 py-1 text-xs rounded-md transition-colors',
+                      mode === item.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Current mode: <span className="text-foreground font-medium">{mode}</span>
+            </div>
+          </div>
+
           <ChatInterface
             initialTemplate={selectedTemplate}
-            onGenerated={handleGenerated}
-            currentResult={generationResult}
+            accessToken={session?.access_token ?? null}
+            mode={mode}
+            onPlannerReady={handlePlannerReady}
+            onConversationStateChange={(state) => {
+              setConversationSessionId(state.sessionId);
+            }}
+            onOpenIntegrationWizard={handleOpenIntegrationWizard}
           />
+
+          {plannerRejection && (
+            <div className={cn(
+              'mt-3 rounded-xl border px-4 py-3 space-y-2',
+              plannerRejection.code === 'UNSUPPORTED_REQUIREMENTS'
+                ? 'border-red-500/30 bg-red-500/10'
+                : 'border-amber-500/30 bg-amber-500/10'
+            )}>
+              <p className={cn(
+                'text-sm font-semibold',
+                plannerRejection.code === 'UNSUPPORTED_REQUIREMENTS' ? 'text-red-300' : 'text-amber-300'
+              )}>
+                {plannerRejection.code === 'INCOMPLETE_INTENT'
+                  ? 'Incomplete request'
+                  : plannerRejection.code === 'UNSUPPORTED_REQUIREMENTS'
+                    ? 'Unsupported'
+                    : 'Needs clarification'}
+              </p>
+              <p className="text-xs text-muted-foreground">{plannerRejection.message}</p>
+              {plannerRejection.missing && plannerRejection.missing.length > 0 && (
+                <p className="text-xs text-muted-foreground">Missing: {plannerRejection.missing.join(', ')}</p>
+              )}
+              {plannerRejection.questions && plannerRejection.questions.length > 0 && (
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  {plannerRejection.questions.map((q, i) => (
+                    <li key={i}>• {q}</li>
+                  ))}
+                </ul>
+              )}
+              {(plannerRejection.suggestions ?? plannerRejection.examples ?? []).length > 0 && (
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  {(plannerRejection.suggestions ?? plannerRejection.examples ?? []).map((s, i) => (
+                    <li key={i}>• {s}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {plannerResult && !plannerRejection && (
+            <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Upgrade to Managed Setup 🚀</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Let our team build, configure integrations, and deploy this workflow for you.
+                </p>
+              </div>
+              <Button
+                onClick={handleManagedUpgrade}
+                disabled={isCreatingManagedRequest}
+                className="gap-2"
+              >
+                {isCreatingManagedRequest ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" />}
+                {isCreatingManagedRequest ? 'Preparing checkout...' : 'Upgrade to Managed Setup 🚀'}
+              </Button>
+            </div>
+          )}
+
+          {plannerResult && !plannerRejection && (
+            <div className="mt-3 rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" className="gap-2" onClick={handleSetupAndTest} disabled={isTestingWorkflow || isDeploying}>
+                  {isTestingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Setup & Test Workflow ⚙️
+                </Button>
+                {hasMissingIntegrations && (
+                  <Button variant="outline" className="gap-2" onClick={() => router.push('/settings/integrations')}>
+                    Open Integrations Settings
+                  </Button>
+                )}
+                <Button variant="outline" className="gap-2" onClick={handleTestWorkflow} disabled={testDisabled}>
+                  {isTestingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Run Simulated Test ▶️
+                </Button>
+                <Button className="gap-2" onClick={handleDeploy} disabled={deployDisabled}>
+                  {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Deploy 🚀
+                </Button>
+              </div>
+
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Required integrations: {requiredIntegrations.length > 0 ? requiredIntegrations.join(', ') : 'None'}</p>
+                {hasMissingIntegrations ? (
+                  <p className="text-amber-400">⚠️ Missing integrations: {missingIntegrations.join(', ')}</p>
+                ) : (
+                  <p className="text-emerald-400">All required integrations connected.</p>
+                )}
+                {!isPro && <p className="text-amber-400">Deploy is Pro only. Testing and download remain free.</p>}
+              </div>
+
+              {testResult && (
+                <div className={cn(
+                  'rounded-lg border p-3 space-y-2',
+                  testResult.statusLabel === 'SIMULATED TEST'
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : testResult.success
+                      ? 'border-emerald-500/30 bg-emerald-500/5'
+                      : 'border-red-500/30 bg-red-500/5'
+                )}>
+                  <p className={cn(
+                    'text-sm font-semibold',
+                    testResult.statusLabel === 'SIMULATED TEST'
+                      ? 'text-amber-300'
+                      : testResult.success ? 'text-emerald-400' : 'text-red-400'
+                  )}>
+                    {testResult.statusLabel ?? (testResult.success ? 'LIVE SUCCESS' : 'FAILED')}
+                  </p>
+                  {testResult.statusLabel === 'SIMULATED TEST' && (
+                    <p className="text-xs text-amber-200">No real APIs were called.</p>
+                  )}
+                  {testResult.error && <p className="text-xs text-red-300">{testResult.error}</p>}
+
+                  <div>
+                    <p className="text-xs font-medium mb-1">Logs</p>
+                    <pre className="text-xs rounded-md bg-black/30 border border-border p-2 overflow-auto max-h-40">
+                      {(testResult.logs ?? []).join('\n') || 'No logs'}
+                    </pre>
+                  </div>
+
+                  {testResult.output && (
+                    <p className="text-xs text-muted-foreground">
+                      Output generated successfully and is ready for use.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </main>
 
         <aside className={cn(
@@ -482,11 +1018,10 @@ export default function BuilderPage() {
           showOutput ? 'w-full sm:w-[440px] lg:w-[520px]' : 'w-0'
         )}>
           <div className="w-full sm:w-[440px] lg:w-[520px] h-full p-3 lg:p-4">
-            {outputMode === 'architect' && plannerResult && validation ? (
+            {plannerResult && validation && !plannerRejection ? (
               <ArchitectPanel
                 plannerResult={plannerResult}
                 validation={validation}
-                onDeploy={handleDeploy}
                 onDownload={handleDownload}
                 isDeploying={isDeploying}
                 deployedUrl={deployedUrl}
@@ -501,20 +1036,29 @@ export default function BuilderPage() {
                 isPro={isPro}
                 onUpgrade={handleUpgrade}
               />
-            ) : generationResult ? (
-              <OutputPanel result={generationResult} />
             ) : null}
           </div>
         </aside>
       </div>
 
-      {(generationResult || plannerResult) && !outputOpen && isMobile && (
+      {!plannerRejection && plannerResult && !outputOpen && isMobile && (
         <div className="fixed bottom-4 right-4 z-30">
           <Button onClick={() => setOutputOpen(true)} size="sm" className="gap-2 shadow-xl shadow-primary/30">
             <PanelRightOpen className="w-4 h-4" />
             View Output
           </Button>
         </div>
+      )}
+
+      {conversationSessionId && session?.access_token && (
+        <IntegrationConnectModal
+          open={integrationWizardOpen}
+          sessionId={conversationSessionId}
+          providers={integrationWizardProviders}
+          accessToken={session.access_token}
+          onOpenChange={setIntegrationWizardOpen}
+          onConnected={handleIntegrationConnected}
+        />
       )}
 
       {/* suppress unused variable warning */}

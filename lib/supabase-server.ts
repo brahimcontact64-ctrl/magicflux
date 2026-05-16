@@ -20,9 +20,24 @@ export async function getUserFromRequest(
   req: Request
 ): Promise<{ id: string; email: string } | null> {
   const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
+  let token: string | null = null;
 
-  const token = authHeader.slice(7);
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else {
+    const cookieHeader = req.headers.get('cookie') ?? '';
+    const tokenPair = cookieHeader
+      .split(';')
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith('mf_access_token='));
+
+    if (tokenPair) {
+      const raw = tokenPair.slice('mf_access_token='.length);
+      token = decodeURIComponent(raw);
+    }
+  }
+
+  if (!token) return null;
 
   const client = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false },
@@ -34,18 +49,79 @@ export async function getUserFromRequest(
   return { id: data.user.id, email: data.user.email ?? '' };
 }
 
+/** Validates a Supabase access token and returns user identity, or null. */
+export async function getUserFromAccessToken(
+  token: string
+): Promise<{ id: string; email: string } | null> {
+  if (!token) return null;
+
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false },
+  });
+
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) return null;
+
+  return { id: data.user.id, email: data.user.email ?? '' };
+}
+
+/** Reads Bearer token from authorization header. */
+export function getBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.slice(7);
+}
+
 /**
- * Reads the user's plan from user_profiles.
- * Returns 'free' if the profile row does not exist yet.
+ * Admin check:
+ * - Preferred source: auth user app_metadata.role === 'admin'
+ * - Fallback source: auth user user_metadata.role === 'admin'
+ */
+export async function isAdminUser(userId: string): Promise<boolean> {
+  const db = createServiceClient();
+  const { data, error } = await db.auth.admin.getUserById(userId);
+  if (error || !data.user) return false;
+
+  const appRole = (data.user.app_metadata as Record<string, unknown> | undefined)?.role;
+  const userRole = (data.user.user_metadata as Record<string, unknown> | undefined)?.role;
+
+  if (appRole === 'admin' || userRole === 'admin') return true;
+
+  const { data: profile } = await db
+    .from('user_profiles')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return profile?.role === 'admin';
+}
+
+/**
+ * Reads the user's plan from subscriptions + plans.
+ * Falls back to user_profiles.plan for backward compatibility.
  */
 export async function getUserPlan(userId: string): Promise<string> {
   const db = createServiceClient();
-  const { data } = await db
+
+  const { data: sub } = await db
+    .from('subscriptions')
+    .select('status, plan, plan_id, plans!subscriptions_plan_id_fkey(slug)')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const subStatus = sub?.status as string | undefined;
+  const subPlanSlug = (sub?.plans as { slug?: string } | null | undefined)?.slug;
+  if (subStatus === 'active' && (subPlanSlug || sub?.plan)) {
+    return subPlanSlug ?? String(sub?.plan);
+  }
+
+  const { data: profile } = await db
     .from('user_profiles')
     .select('plan')
     .eq('id', userId)
     .maybeSingle();
-  return data?.plan ?? 'free';
+
+  return profile?.plan ?? 'free';
 }
 
 /**
@@ -98,8 +174,26 @@ export async function checkDeployRateLimit(userId: string): Promise<boolean> {
 /** Upgrades a user's plan. Called after confirmed PayPal payment. */
 export async function upgradePlan(userId: string, plan: string): Promise<void> {
   const db = createServiceClient();
+
+  const { data: planRow } = await db
+    .from('plans')
+    .select('id, slug')
+    .eq('slug', plan)
+    .maybeSingle();
+
   await db.from('user_profiles').upsert(
     { id: userId, plan, upgraded_at: new Date().toISOString() },
     { onConflict: 'id' }
+  );
+
+  await db.from('subscriptions').upsert(
+    {
+      user_id: userId,
+      plan: planRow?.slug ?? plan,
+      plan_id: planRow?.id ?? null,
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
   );
 }

@@ -843,13 +843,13 @@ export const INDUSTRIES = [
 ];
 
 export const PROMPT_EXAMPLES = [
-  'Build a tenant maintenance request automation',
-  'Create an Airbnb guest messaging workflow',
-  'Set up Shopify abandoned cart recovery emails',
-  'Automate rent reminders for my tenants',
-  'Create a cleaning turnover notification system',
-  'Build an order fulfillment automation for my Shopify store',
-  'Automate leasing inquiry responses and CRM updates',
-  'Create a check-in and check-out workflow for my rental',
-  'Set up an automated returns and refund workflow'
+  'Help me automate maintenance requests from tenants',
+  'I need to message Airbnb guests automatically',
+  'Recover abandoned carts on my Shopify store',
+  'Send rent reminders to my tenants',
+  'Notify cleaners when tenants check out',
+  'Automate order fulfillment for my online store',
+  'Handle leasing inquiries and update my CRM',
+  'Create check-in/out workflows for rentals',
+  'Automate returns and refunds'
 ];

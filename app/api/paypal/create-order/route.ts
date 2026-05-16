@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 
-const AMOUNT = '19.00';
+const AMOUNT = '29.00';
 const CURRENCY = 'USD';
 const DESCRIPTION = 'MagicFlux Pro Access';
 
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     await db.from('paypal_orders').insert({
       user_id: authUser.id,
       paypal_order_id: order.id,
-      amount_cents: 1900,
+      amount_cents: 2900,
       currency: CURRENCY,
       status: 'created',
       plan_granted: 'pro',

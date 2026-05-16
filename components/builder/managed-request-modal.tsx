@@ -47,7 +47,7 @@ export function ManagedRequestModal({ templateId, templateName, onClose }: Manag
       request_type: requestType,
       description: desc,
       contact_email: email.trim(),
-      status: 'open'
+      status: 'new'
     }).select('id').maybeSingle();
 
     if (data?.id) {

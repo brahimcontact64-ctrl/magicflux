@@ -4,10 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:worker": "tsx --env-file=.env.local scripts/runtime-worker.ts",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:worker\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "runtime:soak": "tsx --env-file=.env.local scripts/runtime-soak.ts",
+    "e2e:sse-safety": "tsx --env-file=.env.local scripts/e2e-sse-safety.ts",
+    "e2e:production-deploy": "tsx --env-file=.env.local scripts/e2e-production-deploy.ts",
+    "e2e:builder-runtime-proof": "tsx --env-file=.env.local scripts/e2e-builder-runtime-proof.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -45,6 +51,7 @@
     "@types/react": "18.2.22",
     "@types/react-dom": "18.2.7",
     "autoprefixer": "10.4.15",
+    "bullmq": "^5.76.6",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
@@ -53,9 +60,12 @@
     "eslint": "8.49.0",
     "eslint-config-next": "13.5.1",
     "input-otp": "^1.2.4",
+    "ioredis": "^5.10.1",
     "lucide-react": "^0.446.0",
     "next": "13.5.1",
     "next-themes": "^0.3.0",
+    "nodemailer": "^8.0.7",
+    "openai": "^6.36.0",
     "postcss": "8.4.30",
     "react": "18.2.0",
     "react-day-picker": "^8.10.1",
@@ -70,5 +80,11 @@
     "typescript": "5.2.2",
     "vaul": "^0.9.9",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.0",
+    "concurrently": "^9.1.2",
+    "playwright": "^1.60.0",
+    "tsx": "^4.20.3"
   }
 }

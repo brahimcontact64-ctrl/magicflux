@@ -38,6 +38,8 @@ export interface DeployResult {
   /** 'draft' = created inactive, waiting for credential linking before activation */
   status: 'draft' | 'active' | 'error';
   error?: string;
+  errorCode?: string;
+  diagnostics?: Record<string, unknown>;
 }
 
 export interface N8nExecution {
@@ -72,22 +74,119 @@ function n8nUrl(config: N8nConfig, path: string): string {
   return `${base}/api/v1${path}`;
 }
 
+function normalizeTimeoutMs(): number {
+  const raw = Number(process.env.N8N_HTTP_TIMEOUT_MS ?? 12000);
+  if (!Number.isFinite(raw) || raw <= 0) return 12000;
+  return Math.floor(raw);
+}
+
+function clipText(value: string, max = 240): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max)}...`;
+}
+
+class N8nApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly diagnostics: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = 'N8nApiError';
+  }
+}
+
+function classifyNetworkFailure(error: unknown, timedOut: boolean): string {
+  if (timedOut) return 'N8N_TIMEOUT';
+  const text = String(error instanceof Error ? error.message : error).toUpperCase();
+  if (text.includes('ECONNREFUSED')) return 'N8N_CONNECTION_REFUSED';
+  if (text.includes('ENOTFOUND') || text.includes('EAI_AGAIN') || text.includes('DNS')) return 'N8N_DNS_ERROR';
+  if (text.includes('TLS') || text.includes('CERT')) return 'N8N_TLS_ERROR';
+  return 'N8N_NETWORK_ERROR';
+}
+
+export function getN8nErrorDetails(error: unknown): {
+  message: string;
+  code: string;
+  diagnostics: Record<string, unknown>;
+} {
+  if (error instanceof N8nApiError) {
+    return {
+      message: error.message,
+      code: error.code,
+      diagnostics: error.diagnostics,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    message,
+    code: 'N8N_UNKNOWN_ERROR',
+    diagnostics: {
+      rawError: clipText(message),
+    },
+  };
+}
+
 async function n8nFetch<T>(
   config: N8nConfig,
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const res = await fetch(n8nUrl(config, path), {
-    ...options,
-    headers: {
-      ...n8nHeaders(config),
-      ...(options.headers as Record<string, string> || {})
-    }
-  });
+  const url = n8nUrl(config, path);
+  const method = (options.method ?? 'GET').toUpperCase();
+  const timeoutMs = normalizeTimeoutMs();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...n8nHeaders(config),
+        ...(options.headers as Record<string, string> || {}),
+      },
+    });
+  } catch (error) {
+    timedOut = controller.signal.aborted;
+    const code = classifyNetworkFailure(error, timedOut);
+    throw new N8nApiError(
+      timedOut ? `n8n request timed out after ${timeoutMs}ms` : 'Failed to reach n8n API',
+      code,
+      {
+        method,
+        url,
+        timeoutMs,
+        hasApiUrl: Boolean(config.apiUrl),
+        hasApiKey: Boolean(config.apiKey),
+        errorName: error instanceof Error ? error.name : undefined,
+        errorMessage: clipText(error instanceof Error ? error.message : String(error)),
+      }
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`n8n API error ${res.status}: ${text || res.statusText}`);
+    throw new N8nApiError(
+      `n8n API error ${res.status}`,
+      'N8N_HTTP_ERROR',
+      {
+        method,
+        url,
+        timeoutMs,
+        status: res.status,
+        statusText: res.statusText,
+        bodySnippet: clipText(text || res.statusText),
+        hasApiUrl: Boolean(config.apiUrl),
+        hasApiKey: Boolean(config.apiKey),
+      }
+    );
   }
 
   return res.json() as Promise<T>;
@@ -117,11 +216,14 @@ export async function createWorkflow(
       status: 'draft'
     };
   } catch (err) {
+    const details = getN8nErrorDetails(err);
     return {
       workflowId: '',
       workflowUrl: '',
       status: 'error',
-      error: err instanceof Error ? err.message : String(err)
+      error: details.message,
+      errorCode: details.code,
+      diagnostics: details.diagnostics,
     };
   }
 }

@@ -50,6 +50,8 @@ export type ManagedRequest = {
   template_name?: string;
   description: string;
   contact_email: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'cancelled';
+  status: 'new' | 'generated' | 'deployed';
+  workflow_json?: object;
+  workflow_id?: string;
   created_at?: string;
 };

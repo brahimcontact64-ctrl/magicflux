@@ -11,12 +11,10 @@ import { CredentialsWizard } from './credentials-wizard';
 import { ManagedRequestModal } from './managed-request-modal';
 import { cn } from '@/lib/utils';
 
-type OutputTab = 'canvas' | 'workflow' | 'env' | 'guide' | 'download';
+type OutputTab = 'canvas' | 'guide' | 'download';
 
 const TABS: { id: OutputTab; icon: React.ElementType; label: string; color: string }[] = [
   { id: 'canvas',   icon: Workflow,   label: 'Canvas',        color: 'text-cyan-400' },
-  { id: 'workflow', icon: FileCode2,  label: 'Workflow JSON', color: 'text-blue-400' },
-  { id: 'env',      icon: FileText,   label: '.env Config',   color: 'text-emerald-400' },
   { id: 'guide',    icon: BookOpen,   label: 'Setup Guide',   color: 'text-amber-400' },
   { id: 'download', icon: Download,   label: 'Deploy',        color: 'text-primary' }
 ];
@@ -140,7 +138,7 @@ export function OutputPanel({ result }: OutputPanelProps) {
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="hidden sm:block text-[10px]">{Math.round(result.confidence)}% match</span>
+          <span className="hidden sm:block text-[10px]">Ready to configure</span>
         </div>
       </div>
 
@@ -214,32 +212,14 @@ export function OutputPanel({ result }: OutputPanelProps) {
           </div>
         )}
 
-        {/* WORKFLOW JSON TAB */}
-        {activeTab === 'workflow' && (
-          <div className="relative h-full min-h-[300px]">
-            <div className="absolute top-3 right-3 z-10"><CopyButton text={workflowJson} /></div>
-            <pre className="p-4 text-xs font-mono text-muted-foreground leading-relaxed">
-              <code>{workflowJson}</code>
-            </pre>
-          </div>
-        )}
-
-        {/* ENV CONFIG TAB */}
-        {activeTab === 'env' && (
+        {/* SETUP GUIDE TAB */}
+        {activeTab === 'guide' && (
           <div className="p-4 space-y-4">
-            <div className="relative">
-              <div className="absolute top-0 right-0"><CopyButton text={files.envConfig} /></div>
-              <pre className="bg-muted/30 rounded-lg border border-border p-3 text-xs font-mono text-muted-foreground leading-relaxed overflow-x-auto scrollbar-thin">
-                <code>{files.envConfig}</code>
-              </pre>
-            </div>
-
-            {/* Variables Schema */}
             {Object.entries(groupedVars).length > 0 && (
               <div>
                 <p className="text-xs font-medium mb-3 flex items-center gap-1.5">
                   <Variable className="w-3.5 h-3.5 text-emerald-400" />
-                  Variables Reference
+                  Configuration Checklist
                 </p>
                 {Object.entries(groupedVars).map(([group, vars]) => (
                   <div key={group} className="mb-3">
@@ -250,7 +230,7 @@ export function OutputPanel({ result }: OutputPanelProps) {
                           <code className="text-xs font-mono text-foreground flex-shrink-0 pt-0.5">{v.key}</code>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-muted-foreground leading-relaxed">{v.description}</p>
-                            <code className="text-xs text-muted-foreground/70 font-mono">e.g. {v.example}</code>
+                            <p className="text-xs text-muted-foreground/70">Example value: {v.example}</p>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <span className={cn('text-xs font-mono', VAR_TYPE_COLORS[v.type] || 'text-muted-foreground')}>{v.type}</span>
@@ -263,12 +243,7 @@ export function OutputPanel({ result }: OutputPanelProps) {
                 ))}
               </div>
             )}
-          </div>
-        )}
 
-        {/* SETUP GUIDE TAB */}
-        {activeTab === 'guide' && (
-          <div className="p-4 space-y-4">
             {/* Dependency Checklist */}
             {dependencyChecklist && dependencyChecklist.length > 0 && (
               <div>
@@ -368,15 +343,14 @@ export function OutputPanel({ result }: OutputPanelProps) {
                 <div className="rounded-lg border border-border bg-muted/20 p-3">
                   <div className="flex items-center gap-2 mb-1.5">
                     <Rocket className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-medium">Direct n8n Deploy</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">Coming Soon</span>
+                    <p className="text-xs font-medium">Live deploy</p>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed mb-2">
-                    Add N8N_API_URL and N8N_API_KEY to enable one-click deployment.
+                    Use Workflow Details to run live tests and deploy with integration checks.
                   </p>
                   <Button disabled size="sm" className="w-full gap-2 opacity-60 cursor-not-allowed h-8 text-xs">
                     <Server className="w-3.5 h-3.5" />
-                    Deploy to n8n
+                    Open workflow details to deploy
                   </Button>
                 </div>
 
