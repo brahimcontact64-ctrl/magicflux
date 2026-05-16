@@ -26,6 +26,7 @@ import { createTraceId, endSpan, startSpan } from '@/lib/runtime/tracing';
 import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
 import { normalizeProvider } from '@/lib/agent/provider-allowlist';
+import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -257,9 +258,9 @@ Return a JSON object with this exact structure:
 }
 
 Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.).
-Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider, requiresCredentials, credentialSchema.
+Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider.
 For provider use canonical ids (openai, facebook, canva, telegram, google_sheets, twitter, claude, deepgram, reddit, airtable, slack, supabase, coinmarketcap, whatsapp, email, shopify, stripe) or null.
-credentialSchema must be an array of { key, label, required }.
+Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
 Do not emit generic provider placeholders; attach provider metadata directly on every node.
 Keep it production-ready and deployable.`;
 
@@ -293,27 +294,8 @@ Keep it production-ready and deployable.`;
       ? normalizedProvider
       : null;
 
-    const existingSchema = Array.isArray(node.credentialSchema)
-      ? node.credentialSchema
-          .map((entry) => {
-            const field = entry as Record<string, unknown>;
-            const key = String(field.key ?? '').trim();
-            const label = String(field.label ?? '').trim();
-            if (!key || !label) return null;
-            return {
-              key,
-              label,
-              required: field.required !== false,
-            };
-          })
-          .filter((entry): entry is { key: string; label: string; required: boolean } => Boolean(entry))
-      : [];
-
-    const credentialSchema = existingSchema;
-    const requiresCredentials =
-      typeof node.requiresCredentials === 'boolean'
-        ? node.requiresCredentials
-        : credentialSchema.length > 0;
+    const credentialSchema = getProviderCredentialSchema(provider);
+    const requiresCredentials = credentialSchema.length > 0;
 
     return {
       ...node,

@@ -1,3 +1,5 @@
+import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
+
 type SafeProgressStatus = 'working' | 'success' | 'warning' | 'error';
 
 type SafeAgentEvent = {
@@ -210,20 +212,9 @@ function sanitizeWorkflowGraph(input: unknown):
           const provider = sanitizeText(node.provider, 'core').toLowerCase().slice(0, 80);
           const normalizedProvider = normalizeProvider(provider);
           const capability = sanitizeText(node.capability, 'workflow_step').toLowerCase().slice(0, 80);
-          const requiresCredentials = Boolean(node.requiresCredentials);
+          const credentialSchema = getProviderCredentialSchema(normalizedProvider);
+          const requiresCredentials = credentialSchema.length > 0;
           const displayName = sanitizeText(node.displayName, providerDisplayName(normalizedProvider)).slice(0, 120);
-          const credentialSchema = Array.isArray(node.credentialSchema)
-            ? node.credentialSchema
-                .map((row) => {
-                  const item = row as Record<string, unknown>;
-                  const key = sanitizeText(item.key, '').toLowerCase().slice(0, 80);
-                  const fieldLabel = sanitizeText(item.label, '').slice(0, 120);
-                  const required = item.required !== false;
-                  if (!key || !fieldLabel) return null;
-                  return { key, label: fieldLabel, required };
-                })
-                .filter((row): row is { key: string; label: string; required: boolean } => Boolean(row))
-            : [];
           const pos = Array.isArray(node.position) ? node.position : [0, 0];
           const x = typeof pos[0] === 'number' ? pos[0] : 0;
           const y = typeof pos[1] === 'number' ? pos[1] : 0;

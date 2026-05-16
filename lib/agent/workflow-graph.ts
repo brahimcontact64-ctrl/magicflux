@@ -1,4 +1,5 @@
 import { normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
+import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 type N8nNode = {
   id?: string;
@@ -116,26 +117,6 @@ function inferScheduleLabel(node: N8nNode): string {
   return 'Scheduled trigger';
 }
 
-function toCredentialSchema(
-  input: unknown
-): Array<{ key: string; label: string; required: boolean }> {
-  if (!Array.isArray(input)) return [];
-
-  return input
-    .map((row) => {
-      const item = row as Record<string, unknown>;
-      const key = String(item.key ?? '').trim();
-      const label = String(item.label ?? '').trim();
-      if (!key || !label) return null;
-      return {
-        key,
-        label,
-        required: item.required !== false,
-      };
-    })
-    .filter((row): row is { key: string; label: string; required: boolean } => Boolean(row));
-}
-
 function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'provider' | 'capability' | 'requiresCredentials' | 'credentialSchema' | 'displayName' | 'label' | 'kind' | 'integration'> {
   const classified = classifyNode(node);
   const paramsMeta = ((node.parameters ?? {})['providerMeta'] ?? {}) as Record<string, unknown>;
@@ -147,13 +128,8 @@ function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'pr
     ?? null;
 
   const normalizedProvider = providerInput ? normalizeCanonicalProvider(String(providerInput)) : null;
-  const credentialSchema = toCredentialSchema(node.credentialSchema ?? paramsMeta.credentialSchema);
-  const requiresCredentials =
-    typeof node.requiresCredentials === 'boolean'
-      ? node.requiresCredentials
-      : typeof paramsMeta.requiresCredentials === 'boolean'
-        ? paramsMeta.requiresCredentials
-        : credentialSchema.length > 0;
+  const credentialSchema = getProviderCredentialSchema(normalizedProvider);
+  const requiresCredentials = credentialSchema.length > 0;
 
   const rawKind = node.kind ?? (typeof paramsMeta.kind === 'string' ? paramsMeta.kind : undefined);
   const kind: WorkflowGraphNode['kind'] =
