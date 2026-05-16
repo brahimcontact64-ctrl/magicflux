@@ -684,16 +684,57 @@ export function deriveIntegrationCards(
   return Array.from(byProvider.values());
 }
 
+function hasScheduleTrigger(graph?: WorkflowGraphSummary): boolean {
+  if (!graph) return false;
+  return graph.nodes.some((node) => {
+    if (node.kind !== 'trigger') return false;
+    const haystack = `${node.type ?? ''} ${node.provider ?? ''} ${node.label ?? ''} ${node.name ?? ''}`.toLowerCase();
+    return /cron|schedule|interval|scheduler/.test(haystack);
+  });
+}
+
+function normalizeHydratedWorkflowGraph(graph?: WorkflowGraphSummary): WorkflowGraphSummary | undefined {
+  if (!graph) return undefined;
+  const scheduleDetected = hasScheduleTrigger(graph);
+  return {
+    ...graph,
+    ...(scheduleDetected ? {} : { schedule: undefined }),
+  };
+}
+
+function constrainAutomationBrainForHydration(
+  brain: AutomationBrainSummary | undefined,
+  graph?: WorkflowGraphSummary
+): AutomationBrainSummary | undefined {
+  if (!brain) return undefined;
+  const scheduleDetected = hasScheduleTrigger(graph);
+  if (scheduleDetected) return brain;
+
+  return {
+    ...brain,
+    capabilities: (brain.capabilities ?? []).filter((capability) => capability.key !== 'scheduling'),
+    activatedSkillPacks: (brain.activatedSkillPacks ?? []).map((pack) => ({
+      ...pack,
+      capabilities: (pack.capabilities ?? []).filter((capability) => capability !== 'scheduling'),
+    })),
+    composition: {
+      ...brain.composition,
+      executionFrequency: 'Event-driven',
+    },
+  };
+}
+
 function formatDollars(value: number): string {
   if (value < 0.01) return '<$0.01';
   return `$${value.toFixed(2)}`;
 }
 
 function detectSchedule(graph: WorkflowGraphSummary): string {
-  if (graph.schedule) return graph.schedule;
   const trigger = selectPreferredTrigger(graph);
   if (!trigger) return 'On-demand/manual';
-  return String(trigger.displayName || trigger.label || trigger.name || 'Trigger');
+  const haystack = `${trigger.type ?? ''} ${trigger.provider ?? ''} ${trigger.label ?? ''} ${trigger.name ?? ''}`.toLowerCase();
+  if (!/cron|schedule|interval|scheduler/.test(haystack)) return 'On-demand/manual';
+  return String(trigger.displayName || trigger.label || trigger.name || 'Scheduled trigger');
 }
 
 function riskLevel(graph: WorkflowGraphSummary): 'Low' | 'Medium' | 'High' {
@@ -761,17 +802,30 @@ function fromPersistedRuntimeState(raw: PersistedBuilderRuntimeState): BuilderRu
     timestamp: new Date(message.timestamp),
   }));
 
-  const hydratedWorkflowSummary = raw.workflowGraph ? deriveWorkflowSummary(raw.workflowGraph) : raw.workflowSummary;
+  const hydratedWorkflowGraph = normalizeHydratedWorkflowGraph(raw.workflowGraph);
+  const hydratedAutomationBrain = constrainAutomationBrainForHydration(raw.automationBrain, hydratedWorkflowGraph);
+  const hydratedWorkflowSummary = hydratedWorkflowGraph ? deriveWorkflowSummary(hydratedWorkflowGraph) : raw.workflowSummary;
 
-  return createRuntimeState({
+  const runtimeState = createRuntimeState({
     ...raw,
     version: RUNTIME_STATE_VERSION,
     conversation: conversation.length > 0 ? conversation : [defaultWelcomeMessage()],
+    workflowGraph: hydratedWorkflowGraph,
+    automationBrain: hydratedAutomationBrain,
     integrationCards: raw.integrationCards ?? [],
     workflowSummary: hydratedWorkflowSummary,
     deployState: raw.deployState ?? { blocked: false, ready: false, workflowActive: false },
     approvalState: raw.approvalState ?? { requests: [] },
   });
+
+  console.log({
+    persistedSchedule: raw?.workflowSummary?.schedule,
+    persistedCapabilities: raw?.automationBrain?.capabilities,
+    hydratedSchedule: runtimeState?.workflowSummary?.schedule,
+    hydratedCapabilities: runtimeState?.automationBrain?.capabilities,
+  });
+
+  return runtimeState;
 }
 
 function loadLegacyRuntimeState(storage: Storage): BuilderRuntimeState {
