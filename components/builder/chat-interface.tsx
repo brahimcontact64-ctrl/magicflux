@@ -424,7 +424,12 @@ export function ChatInterface({
     const graphTrigger = runtimeState.workflowGraph?.nodes.find((node) => node.kind === 'trigger');
     const renderedTrigger = runtimeState.liveWorkflow?.nodes.find((node) => node.kind === 'trigger');
     if (graphTrigger || renderedTrigger) {
-      console.log({ graphTrigger, renderedTrigger });
+      console.log({
+        graphTrigger,
+        workflowSchedule: runtimeState.workflowGraph?.schedule,
+        runtimeSchedule: runtimeState.workflowSummary?.schedule,
+        renderedTrigger,
+      });
     }
   }, [runtimeState.liveWorkflow, runtimeState.workflowGraph]);
 

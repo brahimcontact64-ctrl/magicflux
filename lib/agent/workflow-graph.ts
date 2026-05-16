@@ -73,7 +73,7 @@ export type WorkflowGraphSummary = {
   estimatedCostUsd: number;
   retryNodes: string[];
   branches: number;
-  schedule: string;
+  schedule?: string;
 };
 
 const COST_BY_NODE_TYPE: Array<{ match: RegExp; latencyMs: number; costUsd: number; kind: WorkflowGraphNode['kind']; integration: string }> = [
@@ -116,6 +116,12 @@ function inferScheduleLabel(node: N8nNode): string {
   if (/hour/.test(raw)) return 'Hourly schedule';
   if (/day|daily/.test(raw)) return 'Daily schedule';
   return 'Scheduled trigger';
+}
+
+function isScheduleTrigger(node: Pick<WorkflowGraphNode, 'kind' | 'label' | 'name' | 'provider' | 'type'>): boolean {
+  if (node.kind !== 'trigger') return false;
+  const haystack = `${node.label} ${node.name} ${node.provider ?? ''} ${node.type}`.toLowerCase();
+  return /schedule|cron|interval|hourly|daily|minutely/.test(haystack);
 }
 
 function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'provider' | 'capability' | 'requiresCredentials' | 'credentialSchema' | 'displayName' | 'label' | 'kind' | 'integration'> {
@@ -232,8 +238,8 @@ export function buildWorkflowGraphSummary(workflow: { nodes?: unknown; connectio
   const branches = nodes.filter((n) => n.kind === 'condition').length;
   const estimatedLatencyMs = nodes.reduce((sum, n) => sum + n.estimatedLatencyMs, 0);
   const estimatedCostUsd = Number(nodes.reduce((sum, n) => sum + n.estimatedCostUsd, 0).toFixed(4));
-  const scheduleNode = nodes.find((n) => n.provider === 'scheduler' || n.kind === 'trigger');
-  const schedule = scheduleNode?.label ?? 'On-demand/manual';
+  const scheduleNode = nodes.find((n) => n.provider === 'scheduler' || isScheduleTrigger(n));
+  const schedule = scheduleNode?.label;
 
   return {
     nodes,

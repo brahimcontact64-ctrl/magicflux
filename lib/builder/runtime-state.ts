@@ -761,12 +761,14 @@ function fromPersistedRuntimeState(raw: PersistedBuilderRuntimeState): BuilderRu
     timestamp: new Date(message.timestamp),
   }));
 
+  const hydratedWorkflowSummary = raw.workflowGraph ? deriveWorkflowSummary(raw.workflowGraph) : raw.workflowSummary;
+
   return createRuntimeState({
     ...raw,
     version: RUNTIME_STATE_VERSION,
     conversation: conversation.length > 0 ? conversation : [defaultWelcomeMessage()],
     integrationCards: raw.integrationCards ?? [],
-    workflowSummary: raw.workflowSummary ?? deriveWorkflowSummary(raw.workflowGraph),
+    workflowSummary: hydratedWorkflowSummary,
     deployState: raw.deployState ?? { blocked: false, ready: false, workflowActive: false },
     approvalState: raw.approvalState ?? { requests: [] },
   });

@@ -193,7 +193,7 @@ function sanitizeWorkflowGraph(input: unknown):
       edges: Array<{ from: string; to: string }>;
       integrations: string[];
       branches: number;
-      schedule: string;
+      schedule?: string;
       estimatedLatencyMs?: number;
       estimatedCostUsd?: number;
     }
@@ -282,7 +282,7 @@ function sanitizeWorkflowGraph(input: unknown):
     edges,
     integrations,
     branches: typeof raw.branches === 'number' ? raw.branches : 0,
-    schedule: sanitizeText(raw.schedule, 'On-demand/manual'),
+    ...(sanitizeText(raw.schedule, '') ? { schedule: sanitizeText(raw.schedule, '') } : {}),
     ...(typeof raw.estimatedLatencyMs === 'number' ? { estimatedLatencyMs: raw.estimatedLatencyMs } : {}),
     ...(typeof raw.estimatedCostUsd === 'number' ? { estimatedCostUsd: raw.estimatedCostUsd } : {}),
   };
