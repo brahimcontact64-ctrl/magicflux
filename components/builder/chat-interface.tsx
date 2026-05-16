@@ -423,15 +423,18 @@ export function ChatInterface({
   useEffect(() => {
     const graphTrigger = runtimeState.workflowGraph?.nodes.find((node) => node.kind === 'trigger');
     const renderedTrigger = runtimeState.liveWorkflow?.nodes.find((node) => node.kind === 'trigger');
+    const capabilities = runtimeState.automationBrain?.capabilities.map((capability) => capability.key) ?? [];
+    const inferredSkills = runtimeState.automationBrain?.activatedSkillPacks.map((pack) => pack.name) ?? [];
     if (graphTrigger || renderedTrigger) {
       console.log({
-        graphTrigger,
-        workflowSchedule: runtimeState.workflowGraph?.schedule,
-        runtimeSchedule: runtimeState.workflowSummary?.schedule,
+        trigger: graphTrigger,
+        schedule: runtimeState.workflowGraph?.schedule,
+        capabilities,
+        inferredSkills,
         renderedTrigger,
       });
     }
-  }, [runtimeState.liveWorkflow, runtimeState.workflowGraph]);
+  }, [runtimeState.liveWorkflow, runtimeState.workflowGraph, runtimeState.automationBrain]);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;

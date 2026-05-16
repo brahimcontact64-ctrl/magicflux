@@ -897,6 +897,14 @@ function inferPatternFromGraph(graph: WorkflowGraphSummary): PatternMatch {
   };
 }
 
+function graphIndicatesScheduling(graph: WorkflowGraphSummary): boolean {
+  return graph.nodes.some((node) => {
+    if (node.kind !== 'trigger') return false;
+    const haystack = `${node.type ?? ''} ${node.provider ?? ''} ${node.label ?? ''} ${node.name ?? ''}`.toLowerCase();
+    return /cron|schedule|interval|scheduler/.test(haystack);
+  });
+}
+
 export function constrainAutomationBrainToGraph(
   brain: AutomationBrainResult | undefined,
   workflowGraph?: WorkflowGraphSummary
@@ -916,6 +924,16 @@ export function constrainAutomationBrainToGraph(
     : brain.providerResolutions;
 
   const strict = isStrictProviderMode() && hasCredentialAllowList;
+  const hasScheduleTrigger = graphIndicatesScheduling(workflowGraph);
+  console.log({
+    trigger: workflowGraph.nodes.find((node) => node.kind === 'trigger'),
+    graphSchedule: workflowGraph.schedule,
+    schedulingDetected: hasScheduleTrigger,
+  });
+  const capabilities = hasScheduleTrigger
+    ? brain.capabilities
+    : brain.capabilities.filter((capability) => capability.key !== 'scheduling');
+
   const activatedSkillPacks = hasCredentialAllowList
     ? brain.activatedSkillPacks.filter((pack) => {
       const toolHits = pack.tools
@@ -925,6 +943,15 @@ export function constrainAutomationBrainToGraph(
     })
     : brain.activatedSkillPacks;
 
+  const schedulingFilteredSkillPacks = hasScheduleTrigger
+    ? activatedSkillPacks
+    : activatedSkillPacks
+      .map((pack) => ({
+        ...pack,
+        capabilities: pack.capabilities.filter((capability) => capability !== 'scheduling'),
+      }))
+      .filter((pack) => pack.capabilities.length > 0 || pack.tools.length > 0);
+
   const matchedPatterns = hasCredentialAllowList
     ? brain.matchedPatterns.filter((pattern) =>
       pattern.requiredTools
@@ -933,11 +960,27 @@ export function constrainAutomationBrainToGraph(
     )
     : brain.matchedPatterns;
 
+  const schedulingFilteredPatterns = hasScheduleTrigger
+    ? matchedPatterns
+    : matchedPatterns.map((pattern) => ({
+      ...pattern,
+      requiredCapabilities: pattern.requiredCapabilities.filter((capability) => capability !== 'scheduling'),
+    }));
+
+  const composition = hasScheduleTrigger
+    ? brain.composition
+    : {
+      ...brain.composition,
+      executionFrequency: 'Event-driven',
+    };
+
   return {
     ...brain,
+    capabilities: strict ? capabilities : capabilities,
     providerResolutions: strict ? providerResolutions : providerResolutions,
-    activatedSkillPacks: strict ? activatedSkillPacks : activatedSkillPacks,
-    matchedPatterns: strict ? matchedPatterns : matchedPatterns,
+    activatedSkillPacks: strict ? schedulingFilteredSkillPacks : schedulingFilteredSkillPacks,
+    matchedPatterns: strict ? schedulingFilteredPatterns : schedulingFilteredPatterns,
+    composition,
   };
 }
 
