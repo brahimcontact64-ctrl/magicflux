@@ -1,3 +1,5 @@
+import { normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
+
 type N8nNode = {
   id?: string;
   name?: string;
@@ -5,31 +7,23 @@ type N8nNode = {
   typeVersion?: number;
   position?: [number, number];
   parameters?: Record<string, unknown>;
+  label?: string;
+  displayName?: string;
+  provider?: string | null;
+  integration?: string;
+  capability?: string;
+  requiresCredentials?: boolean;
+  credentialSchema?: Array<{ key?: string; label?: string; required?: boolean }>;
+  kind?: 'trigger' | 'action' | 'condition' | 'ai' | 'utility';
 };
 
 type N8nConnections = Record<string, { main?: Array<Array<{ node: string }>> }>;
 
-function normalizeProvider(value: string): string {
-  const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-  if (!cleaned || cleaned === 'core' || cleaned === 'integration') return 'core';
-  if (cleaned.includes('whatsapp')) return 'whatsapp';
-  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'email';
-  if (cleaned.includes('openai')) return 'openai';
-  if (cleaned.includes('claude') || cleaned.includes('anthropic')) return 'claude';
-  if (cleaned.includes('deepgram')) return 'deepgram';
-  if (cleaned.includes('coinmarketcap') || cleaned === 'cmc') return 'coinmarketcap';
-  if (cleaned.includes('telegram')) return 'telegram';
-  if (cleaned.includes('slack')) return 'slack';
-  if (cleaned.includes('airtable')) return 'airtable';
-  if (cleaned.includes('supabase')) return 'supabase';
-  if (cleaned.includes('reddit')) return 'reddit';
-  if (cleaned.includes('shopify')) return 'shopify';
-  if (cleaned.includes('stripe')) return 'stripe';
-  if (cleaned.includes('deepgram')) return 'deepgram';
-  return cleaned;
-}
-
 function providerDisplayName(provider: string): string {
+  if (provider === 'facebook') return 'Facebook';
+  if (provider === 'canva') return 'Canva';
+  if (provider === 'google_sheets') return 'Google Sheets';
+  if (provider === 'twitter') return 'X';
   if (provider === 'whatsapp') return 'WhatsApp';
   if (provider === 'email') return 'Email';
   if (provider === 'openai') return 'OpenAI';
@@ -53,7 +47,7 @@ export type WorkflowGraphNode = {
   type: string;
   position: [number, number];
   integration: string;
-  provider: string;
+  provider: string | null;
   capability: string;
   requiresCredentials: boolean;
   credentialSchema: Array<{ key: string; label: string; required: boolean }>;
@@ -122,105 +116,65 @@ function inferScheduleLabel(node: N8nNode): string {
   return 'Scheduled trigger';
 }
 
-function inferNodeSemantics(node: N8nNode): Pick<WorkflowGraphNode, 'provider' | 'capability' | 'requiresCredentials' | 'credentialSchema' | 'displayName' | 'label' | 'kind' | 'integration'> {
-  const name = String(node.name ?? '');
-  const type = String(node.type ?? '');
-  const params = JSON.stringify(node.parameters ?? {}).toLowerCase();
-  const haystack = `${name} ${type} ${params}`.toLowerCase();
+function toCredentialSchema(
+  input: unknown
+): Array<{ key: string; label: string; required: boolean }> {
+  if (!Array.isArray(input)) return [];
 
-  if (/schedule|cron|interval|trigger/.test(haystack)) {
-    return {
-      provider: 'scheduler',
-      capability: 'scheduled_trigger',
-      requiresCredentials: false,
-      credentialSchema: [],
-      displayName: 'Schedule',
-      label: inferScheduleLabel(node),
-      kind: 'trigger',
-      integration: 'core',
-    };
-  }
+  return input
+    .map((row) => {
+      const item = row as Record<string, unknown>;
+      const key = String(item.key ?? '').trim();
+      const label = String(item.label ?? '').trim();
+      if (!key || !label) return null;
+      return {
+        key,
+        label,
+        required: item.required !== false,
+      };
+    })
+    .filter((row): row is { key: string; label: string; required: boolean } => Boolean(row));
+}
 
-  if (/coinmarketcap|cmc/.test(haystack)) {
-    return {
-      provider: 'coinmarketcap',
-      capability: 'crypto_market_data',
-      requiresCredentials: true,
-      credentialSchema: [{ key: 'api_key', label: 'API key', required: true }],
-      displayName: providerDisplayName('coinmarketcap'),
-      label: name || 'Fetch CoinMarketCap data',
-      kind: 'action',
-      integration: 'coinmarketcap',
-    };
-  }
+function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'provider' | 'capability' | 'requiresCredentials' | 'credentialSchema' | 'displayName' | 'label' | 'kind' | 'integration'> {
+  const classified = classifyNode(node);
+  const paramsMeta = ((node.parameters ?? {})['providerMeta'] ?? {}) as Record<string, unknown>;
 
-  if (/grok|xai|x\.ai/.test(haystack)) {
-    return {
-      provider: 'grok',
-      capability: 'llm_generation',
-      requiresCredentials: true,
-      credentialSchema: [
-        { key: 'api_key', label: 'xAI/Grok API key', required: true },
-        { key: 'model', label: 'Optional model', required: false },
-      ],
-      displayName: 'Grok',
-      label: name || 'Summarize with Grok',
-      kind: 'ai',
-      integration: 'grok',
-    };
-  }
+  const providerInput =
+    node.provider
+    ?? (typeof node.integration === 'string' ? node.integration : null)
+    ?? (typeof paramsMeta.provider === 'string' ? paramsMeta.provider : null)
+    ?? null;
 
-  if (/telegram/.test(haystack)) {
-    return {
-      provider: 'telegram',
-      capability: 'messaging',
-      requiresCredentials: true,
-      credentialSchema: [
-        { key: 'bot_token', label: 'Bot token', required: true },
-        { key: 'chat_id', label: 'Chat ID', required: true },
-      ],
-      displayName: providerDisplayName('telegram'),
-      label: name || 'Send Telegram alert',
-      kind: 'action',
-      integration: 'telegram',
-    };
-  }
+  const normalizedProvider = providerInput ? normalizeCanonicalProvider(String(providerInput)) : null;
+  const credentialSchema = toCredentialSchema(node.credentialSchema ?? paramsMeta.credentialSchema);
+  const requiresCredentials =
+    typeof node.requiresCredentials === 'boolean'
+      ? node.requiresCredentials
+      : typeof paramsMeta.requiresCredentials === 'boolean'
+        ? paramsMeta.requiresCredentials
+        : credentialSchema.length > 0;
 
-  if (/supabase/.test(haystack)) {
-    return {
-      provider: 'supabase',
-      capability: 'database_logging',
-      requiresCredentials: false,
-      credentialSchema: [],
-      displayName: providerDisplayName('supabase'),
-      label: name || 'Log to Supabase',
-      kind: 'action',
-      integration: 'supabase',
-    };
-  }
+  const rawKind = node.kind ?? (typeof paramsMeta.kind === 'string' ? paramsMeta.kind : undefined);
+  const kind: WorkflowGraphNode['kind'] =
+    rawKind === 'trigger' || rawKind === 'action' || rawKind === 'condition' || rawKind === 'ai' || rawKind === 'utility'
+      ? rawKind
+      : classified.kind;
 
-  if (/httprequest|http request/.test(haystack) && /coinmarketcap|cmc/.test(haystack)) {
-    return {
-      provider: 'coinmarketcap',
-      capability: 'crypto_market_data',
-      requiresCredentials: true,
-      credentialSchema: [{ key: 'api_key', label: 'API key', required: true }],
-      displayName: 'CoinMarketCap',
-      label: name || 'Fetch CoinMarketCap data',
-      kind: 'action',
-      integration: 'coinmarketcap',
-    };
-  }
+  const name = String(node.name ?? 'Workflow step');
+  const label = String(node.label ?? paramsMeta.label ?? (kind === 'trigger' ? inferScheduleLabel(node) : name));
+  const displayName = String(node.displayName ?? paramsMeta.displayName ?? (normalizedProvider ? providerDisplayName(normalizedProvider) : name));
+  const capability = String(node.capability ?? paramsMeta.capability ?? (normalizedProvider ? `${normalizedProvider}_operation` : 'workflow_step'));
 
   return {
-    provider: 'core',
-    capability: 'workflow_step',
-    requiresCredentials: false,
-    credentialSchema: [],
-    displayName: name || 'Workflow step',
-    label: name || 'Workflow step',
-    kind: classifyNode(node).kind,
-    integration: classifyNode(node).integration,
+    provider: normalizedProvider,
+    capability,
+    requiresCredentials,
+    credentialSchema,
+    displayName,
+    label,
+    kind,
+    integration: normalizedProvider ?? classified.integration,
   };
 }
 
@@ -230,7 +184,7 @@ export function buildWorkflowGraphSummary(workflow: { nodes?: unknown; connectio
 
   const nodes: WorkflowGraphNode[] = rawNodes.map((n, index) => {
     const classified = classifyNode(n);
-    const semantic = inferNodeSemantics(n);
+    const semantic = extractExplicitNodeMetadata(n);
     return {
       id: String(n.id ?? `node-${index + 1}`),
       name: String(n.name ?? `Node ${index + 1}`),
@@ -290,7 +244,7 @@ export function buildWorkflowGraphSummary(workflow: { nodes?: unknown; connectio
   const integrations = Array.from(
     new Set(
       nodes
-        .map((n) => normalizeProvider(n.provider))
+        .map((n) => normalizeCanonicalProvider(n.provider ?? 'core'))
         .map((provider) => providerDisplayName(provider))
     )
   );

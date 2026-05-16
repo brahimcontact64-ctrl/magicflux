@@ -25,6 +25,7 @@ import { getToolExecutionPolicy } from '@/lib/runtime/tool-policy';
 import { createTraceId, endSpan, startSpan } from '@/lib/runtime/tracing';
 import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
+import { normalizeProvider } from '@/lib/agent/provider-allowlist';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,7 +257,10 @@ Return a JSON object with this exact structure:
 }
 
 Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.).
-Each node must have: id, name, type, typeVersion, position [x,y], parameters.
+Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider, requiresCredentials, credentialSchema.
+For provider use canonical ids (openai, facebook, canva, telegram, google_sheets, twitter, claude, deepgram, reddit, airtable, slack, supabase, coinmarketcap, whatsapp, email, shopify, stripe) or null.
+credentialSchema must be an array of { key, label, required }.
+Do not emit generic provider placeholders; attach provider metadata directly on every node.
 Keep it production-ready and deployable.`;
 
   const response = await openai.chat.completions.create({
@@ -274,6 +278,52 @@ Keep it production-ready and deployable.`;
     explanation?: string;
   };
 
+  const normalizedNodes = (Array.isArray(parsed.nodes) ? parsed.nodes : []).map((rawNode) => {
+    const node = { ...(rawNode as Record<string, unknown>) };
+    const providerMeta = typeof node.parameters === 'object' && node.parameters !== null
+      ? ((node.parameters as Record<string, unknown>).providerMeta as Record<string, unknown> | undefined)
+      : undefined;
+    const rawProvider =
+      (typeof node.provider === 'string' ? node.provider : undefined)
+      ?? (typeof node.integration === 'string' ? node.integration : undefined)
+      ?? (typeof providerMeta?.provider === 'string' ? providerMeta.provider : undefined)
+      ?? '';
+    const normalizedProvider = normalizeProvider(rawProvider);
+    const provider = normalizedProvider && normalizedProvider !== 'core' && normalizedProvider !== 'integration'
+      ? normalizedProvider
+      : null;
+
+    const existingSchema = Array.isArray(node.credentialSchema)
+      ? node.credentialSchema
+          .map((entry) => {
+            const field = entry as Record<string, unknown>;
+            const key = String(field.key ?? '').trim();
+            const label = String(field.label ?? '').trim();
+            if (!key || !label) return null;
+            return {
+              key,
+              label,
+              required: field.required !== false,
+            };
+          })
+          .filter((entry): entry is { key: string; label: string; required: boolean } => Boolean(entry))
+      : [];
+
+    const credentialSchema = existingSchema;
+    const requiresCredentials =
+      typeof node.requiresCredentials === 'boolean'
+        ? node.requiresCredentials
+        : credentialSchema.length > 0;
+
+    return {
+      ...node,
+      displayName: String(node.displayName ?? node.name ?? 'Workflow Node'),
+      provider,
+      requiresCredentials,
+      credentialSchema,
+    };
+  });
+
   await emitRuntimeEvent({
     eventType: 'ai.request.completed',
     userId: params.userId,
@@ -288,7 +338,7 @@ Keep it production-ready and deployable.`;
   });
 
   return {
-    nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+    nodes: normalizedNodes,
     connections: parsed.connections ?? {},
     explanation: typeof parsed.explanation === 'string' ? parsed.explanation : 'Workflow generated.',
     usage: {

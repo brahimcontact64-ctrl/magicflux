@@ -897,23 +897,6 @@ function inferPatternFromGraph(graph: WorkflowGraphSummary): PatternMatch {
   };
 }
 
-function deriveGraphSkillPacks(graph: WorkflowGraphSummary): SkillPackActivation[] {
-  const providers = extractProvidersFromWorkflowGraph(graph);
-  if (providers.length === 0) return [];
-
-  return [
-    {
-      id: 'graph-provider-pack',
-      name: 'Graph Provider Pack',
-      description: 'Skill pack generated directly from workflow graph nodes.',
-      tools: providers,
-      capabilities: unique(graph.nodes.map((node) => node.capability).filter(Boolean)),
-      patterns: ['graph-derived'],
-      matchScore: 100,
-    },
-  ];
-}
-
 export function constrainAutomationBrainToGraph(
   brain: AutomationBrainResult | undefined,
   workflowGraph?: WorkflowGraphSummary
@@ -933,35 +916,28 @@ export function constrainAutomationBrainToGraph(
     : brain.providerResolutions;
 
   const strict = isStrictProviderMode() && hasCredentialAllowList;
-  const activatedSkillPacks = strict
-    ? deriveGraphSkillPacks(workflowGraph)
-    : hasCredentialAllowList
-      ? brain.activatedSkillPacks.filter((pack) => {
-        const toolHits = pack.tools
-          .map((tool) => normalizeProvider(tool))
-          .filter((tool) => providerAllowList.has(tool));
-        return toolHits.length > 0;
-      })
-      : brain.activatedSkillPacks;
+  const activatedSkillPacks = hasCredentialAllowList
+    ? brain.activatedSkillPacks.filter((pack) => {
+      const toolHits = pack.tools
+        .map((tool) => normalizeProvider(tool))
+        .filter((tool) => providerAllowList.has(tool));
+      return toolHits.length > 0;
+    })
+    : brain.activatedSkillPacks;
 
-  const matchedPatterns = strict
-    ? [inferPatternFromGraph(workflowGraph)]
-    : hasCredentialAllowList
-      ? [
-        inferPatternFromGraph(workflowGraph),
-        ...brain.matchedPatterns.filter((pattern) =>
-          pattern.requiredTools
-            .map((tool) => normalizeProvider(tool))
-            .every((tool) => !tool || providerAllowList.has(tool))
-        ),
-      ].slice(0, 6)
-      : brain.matchedPatterns;
+  const matchedPatterns = hasCredentialAllowList
+    ? brain.matchedPatterns.filter((pattern) =>
+      pattern.requiredTools
+        .map((tool) => normalizeProvider(tool))
+        .every((tool) => !tool || providerAllowList.has(tool))
+    )
+    : brain.matchedPatterns;
 
   return {
     ...brain,
-    providerResolutions,
-    activatedSkillPacks,
-    matchedPatterns,
+    providerResolutions: strict ? providerResolutions : providerResolutions,
+    activatedSkillPacks: strict ? activatedSkillPacks : activatedSkillPacks,
+    matchedPatterns: strict ? matchedPatterns : matchedPatterns,
   };
 }
 
