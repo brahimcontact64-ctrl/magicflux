@@ -25,7 +25,7 @@ import { getToolExecutionPolicy } from '@/lib/runtime/tool-policy';
 import { createTraceId, endSpan, startSpan } from '@/lib/runtime/tracing';
 import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
-import { normalizeProvider } from '@/lib/agent/provider-allowlist';
+import { extractAllProvidersFromWorkflowGraph, normalizeProvider } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 // ---------------------------------------------------------------------------
@@ -530,6 +530,47 @@ export async function executeTool(
           nodes: result.nodes,
           connections: result.connections,
         });
+
+        const requestedProviders = Array.isArray(args.requested_providers)
+          ? Array.from(
+              new Set(
+                args.requested_providers
+                  .map((value) => normalizeProvider(String(value)))
+                  .filter(Boolean)
+              )
+            )
+          : [];
+
+        if (requestedProviders.length > 0) {
+          const graphProviders = extractAllProvidersFromWorkflowGraph(workflowGraph);
+          const graphSet = new Set(graphProviders);
+          const requestedSet = new Set(requestedProviders);
+
+          const missingProviders = requestedProviders.filter((provider) => !graphSet.has(provider));
+          const extraProviders = graphProviders.filter((provider) => !requestedSet.has(provider));
+
+          if (missingProviders.length > 0 || extraProviders.length > 0) {
+            return {
+              tool: toolName,
+              success: false,
+              output: {
+                error: 'Provider parity validation failed: generated workflow providers do not match requested providers.',
+                validation_failed: true,
+                requested_providers: requestedProviders,
+                graph_providers: graphProviders,
+                missing_providers: missingProviders,
+                extra_providers: extraProviders,
+                workflow_graph: workflowGraph,
+              },
+              event: {
+                type: 'error',
+                label: 'Provider validation failed',
+                detail: `Missing: ${missingProviders.join(', ') || 'none'} | Extra: ${extraProviders.join(', ') || 'none'}`,
+                agent: 'planner',
+              },
+            };
+          }
+        }
 
         const toolResult: ToolResult = {
           tool: toolName,

@@ -26,7 +26,11 @@ import {
   toAutomationBrainPromptContext,
   type AutomationBrainResult,
 } from '@/lib/automation';
-import { extractProvidersFromWorkflowGraph, filterProvidersToGraphAllowList } from '@/lib/agent/provider-allowlist';
+import {
+  extractProvidersFromWorkflowGraph,
+  filterProvidersToGraphAllowList,
+  parseRequestedProvidersFromPrompt,
+} from '@/lib/agent/provider-allowlist';
 
 // New autonomous systems
 import { persistentMemory } from '@/lib/memory/persistent-memory';
@@ -142,6 +146,7 @@ export async function runAgentLoop(
   const maxToolRounds = Math.min(options?.maxToolRounds ?? 6, policy.maxRoundsPerTurn);
   const onProgress = options?.onProgress;
   const latestUserMessage = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const requestedProvidersFromPrompt = parseRequestedProvidersFromPrompt(latestUserMessage);
   const allowDeploymentActions = hasExplicitDeployIntent(latestUserMessage);
   let automationBrain: AutomationBrainResult | undefined;
 
@@ -347,6 +352,10 @@ export async function runAgentLoop(
         args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
       } catch {
         // ignore parse errors — use empty args
+      }
+
+      if (toolName === 'generate_workflow_json' && requestedProvidersFromPrompt.length > 0) {
+        args.requested_providers = requestedProvidersFromPrompt;
       }
 
       const task = createTask(toolName, args);

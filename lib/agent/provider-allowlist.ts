@@ -19,6 +19,7 @@ export function normalizeProvider(value: string): string {
   const cleaned = value.toLowerCase().trim();
   if (!cleaned) return '';
 
+  if (cleaned.includes('google drive') || cleaned.includes('googledrive') || cleaned.includes('drive')) return 'google_drive';
   if (cleaned.includes('google sheets') || cleaned.includes('googlesheets') || cleaned.includes('sheets')) return 'google_sheets';
   if (cleaned.includes('facebook')) return 'facebook';
   if (cleaned.includes('canva')) return 'canva';
@@ -36,14 +37,69 @@ export function normalizeProvider(value: string): string {
   if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'email';
   if (cleaned.includes('anthropic') || cleaned.includes('claude')) return 'claude';
   if (cleaned.includes('deepgram')) return 'deepgram';
+  if (cleaned.includes('elevenlabs')) return 'elevenlabs';
   if (cleaned.includes('airtable')) return 'airtable';
   if (cleaned.includes('slack')) return 'slack';
+  if (cleaned.includes('hubspot')) return 'hubspot';
+  if (cleaned.includes('cloudflare ai') || cleaned.includes('cloudflare_ai') || cleaned.includes('workers ai') || cleaned.includes('workers_ai')) return 'cloudflare_ai';
   if (cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq')) return 'grok';
   if (cleaned.includes('coinmarketcap') || cleaned === 'cmc') return 'coinmarketcap';
   if (cleaned.includes('supabase')) return 'supabase';
   if (cleaned.includes('postgres')) return 'postgres';
 
   return cleaned.replace(/[^a-z0-9_]/g, '_');
+}
+
+const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
+  { pattern: /\bstripe\b/i, provider: 'stripe' },
+  { pattern: /\bairtable\b/i, provider: 'airtable' },
+  { pattern: /\bopenai\b|\bgpt[-\s]?4\b|\bgpt\b/i, provider: 'openai' },
+  { pattern: /\bgoogle\s*drive\b|\bgoogledrive\b/i, provider: 'google_drive' },
+  { pattern: /\bgoogle\s*sheets\b|\bgooglesheets\b/i, provider: 'google_sheets' },
+  { pattern: /\bslack\b/i, provider: 'slack' },
+  { pattern: /\bgmail\b|\bemail\b|\bsmtp\b/i, provider: 'email' },
+  { pattern: /\btelegram\b/i, provider: 'telegram' },
+  { pattern: /\bfacebook\b/i, provider: 'facebook' },
+  { pattern: /\bcanva\b/i, provider: 'canva' },
+  { pattern: /\bhubspot\b/i, provider: 'hubspot' },
+  { pattern: /\bshopify\b/i, provider: 'shopify' },
+  { pattern: /\belevenlabs\b/i, provider: 'elevenlabs' },
+  { pattern: /\bclaude\b|\banthropic\b/i, provider: 'claude' },
+  { pattern: /\bcloudflare\s*ai\b|\bworkers\s*ai\b/i, provider: 'cloudflare_ai' },
+  { pattern: /\bcoinmarketcap\b|\bcmc\b/i, provider: 'coinmarketcap' },
+  { pattern: /\bsupabase\b/i, provider: 'supabase' },
+  { pattern: /\bwhatsapp\b/i, provider: 'whatsapp' },
+  { pattern: /\bdeepgram\b/i, provider: 'deepgram' },
+  { pattern: /\breddit\b/i, provider: 'reddit' },
+  { pattern: /\bx\b|\btwitter\b/i, provider: 'twitter' },
+];
+
+export function parseRequestedProvidersFromPrompt(prompt: string): string[] {
+  const text = String(prompt ?? '');
+  if (!text.trim()) return [];
+
+  const providers = new Set<string>();
+  for (const { pattern, provider } of PROMPT_PROVIDER_PATTERNS) {
+    if (!pattern.test(text)) continue;
+    const normalized = normalizeProvider(provider);
+    if (!normalized || BLOCKED.has(normalized)) continue;
+    providers.add(normalized);
+  }
+
+  return Array.from(providers);
+}
+
+export function extractAllProvidersFromWorkflowGraph(graph?: WorkflowGraphSummary | null): string[] {
+  if (!graph) return [];
+
+  const providers = new Set<string>();
+  for (const node of graph.nodes ?? []) {
+    const provider = normalizeProvider(node.provider ?? node.integration ?? '');
+    if (!provider || BLOCKED.has(provider)) continue;
+    providers.add(provider);
+  }
+
+  return Array.from(providers);
 }
 
 export function extractProvidersFromWorkflowGraph(graph?: WorkflowGraphSummary | null): string[] {
