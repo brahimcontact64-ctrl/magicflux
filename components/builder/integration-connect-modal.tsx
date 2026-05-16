@@ -26,8 +26,7 @@ type ProviderConfig = {
   quickSetup: string[];
   docsUrl?: string;
   credentialSchema?: CredentialSchemaField[];
-  supportsVerifyApi: boolean;
-  helperActions?: Array<{ label: string; href?: string; action?: 'generate_telegram_bot' | 'test_connection' }>;
+  helperActions?: Array<{ label: string; href?: string; action?: 'test_connection' }>;
 };
 
 function titleFromProvider(provider: string): string {
@@ -45,7 +44,6 @@ function fallbackProviderUiConfig(provider: string): ProviderConfig {
     logo: <PlugZap className="w-4 h-4" />,
     helpText: 'Connect credentials for this provider. MagicFlux will validate before saving.',
     quickSetup: ['Review required credentials below before connecting.'],
-    supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   };
 }
@@ -58,7 +56,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for AI generation logic in your workflow.',
     quickSetup: ['Create an API key in OpenAI dashboard', 'Paste it below to connect'],
     docsUrl: 'https://platform.openai.com/api-keys',
-    supportsVerifyApi: false,
     helperActions: [
       { label: 'Open OpenAI dashboard', href: 'https://platform.openai.com/api-keys' },
       { label: 'Test connection', action: 'test_connection' },
@@ -71,9 +68,8 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used to send or receive Telegram messages.',
     quickSetup: ['Create bot via @BotFather', 'Copy Bot Token and target Chat ID'],
     docsUrl: 'https://core.telegram.org/bots#6-botfather',
-    supportsVerifyApi: false,
     helperActions: [
-      { label: 'Generate Telegram bot', href: 'https://t.me/BotFather' },
+      { label: 'Open Telegram bot setup', href: 'https://t.me/BotFather' },
       { label: 'Test connection', action: 'test_connection' },
     ],
   },
@@ -84,7 +80,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for live crypto market pricing data.',
     quickSetup: ['Create API key in CoinMarketCap Developer Portal'],
     docsUrl: 'https://coinmarketcap.com/api/',
-    supportsVerifyApi: false,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
   supabase: {
@@ -94,7 +89,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for database and auth integration.',
     quickSetup: ['Supabase uses your project environment configuration.'],
     docsUrl: 'https://supabase.com/dashboard',
-    supportsVerifyApi: false,
   },
   shopify: {
     key: 'shopify',
@@ -102,7 +96,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Building2 className="w-4 h-4" />,
     helpText: 'Used for ecommerce order and product automation.',
     quickSetup: ['Create a private app token in Shopify admin'],
-    supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
   slack: {
@@ -111,7 +104,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Send className="w-4 h-4" />,
     helpText: 'Used for team notifications and message routing.',
     quickSetup: ['Create an incoming webhook in Slack app settings'],
-    supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
   airtable: {
@@ -120,7 +112,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Building2 className="w-4 h-4" />,
     helpText: 'Used for records, CRM, and operational tracking.',
     quickSetup: ['Create Airtable personal access token and choose base/table'],
-    supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
   email: {
@@ -129,7 +120,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Bot className="w-4 h-4" />,
     helpText: 'Used for email-based triggers and notifications.',
     quickSetup: ['Use SMTP details and an app password if Gmail is used'],
-    supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
 };
@@ -245,12 +235,8 @@ export function IntegrationConnectModal({
         for (const provider of supportedProviders) {
           const integrationStatus = integrationStatuses.get(provider);
           const conversationConnected = collected[`${provider}_connected`] === 'true';
-          const supabaseConfigured =
-            provider === 'supabase' &&
-            Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
-            Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
-          if (supabaseConfigured || integrationStatus === 'connected' || conversationConnected) {
+          if (integrationStatus === 'connected' || conversationConnected) {
             nextState[provider] = { state: 'connected', message: 'Connected successfully' };
           } else if (integrationStatus === 'invalid') {
             nextState[provider] = { state: 'failed', message: 'Invalid credentials detected' };
@@ -284,8 +270,24 @@ export function IntegrationConnectModal({
       type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
     }));
 
+    if (schema.length === 0) {
+      setProviderState((prev) => ({
+        ...prev,
+        [provider]: {
+          state: 'failed',
+          message: 'No credential requirements defined.',
+        },
+      }));
+      return;
+    }
+
     const providerValues = values[provider] ?? {};
-    const missingField = fields.find((field) => !(providerValues[field.key] ?? '').trim());
+    const requiredFieldKeys = new Set(
+      schema.filter((field) => field.required).map((field) => field.key)
+    );
+    const missingField = fields.find(
+      (field) => requiredFieldKeys.has(field.key) && !(providerValues[field.key] ?? '').trim()
+    );
     if (missingField) {
       setProviderState((prev) => ({
         ...prev,
@@ -300,35 +302,6 @@ export function IntegrationConnectModal({
     setProviderState((prev) => ({ ...prev, [provider]: { state: 'validating', message: 'Validating credentials...' } }));
 
     try {
-      if (provider === 'supabase') {
-        setProviderState((prev) => ({ ...prev, [provider]: { state: 'connected', message: 'Connected successfully' } }));
-        onConnected(provider);
-        return;
-      }
-
-      if (!config.supportsVerifyApi) {
-        const primaryKey = fields[0]?.key;
-        const credential = primaryKey ? (providerValues[primaryKey] ?? '') : '';
-        if (!credential.trim()) {
-          throw new Error('No credential requirements defined.');
-        }
-        const res = await fetch('/api/conversation/credentials', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ sessionId, provider, credential }),
-        });
-
-        const payload = await res.json().catch(() => null) as { error?: string } | null;
-        if (!res.ok) throw new Error(payload?.error ?? 'Credential validation failed');
-
-        setProviderState((prev) => ({ ...prev, [provider]: { state: 'connected', message: 'Valid API key' } }));
-        onConnected(provider);
-        return;
-      }
-
       const credentials = fields.reduce<Record<string, string>>((acc, field) => {
         acc[field.key] = providerValues[field.key] ?? '';
         return acc;
@@ -372,11 +345,7 @@ export function IntegrationConnectModal({
     }
   }
 
-  function handleHelperAction(provider: string, action: 'generate_telegram_bot' | 'test_connection') {
-    if (action === 'generate_telegram_bot') {
-      window.open('https://t.me/BotFather', '_blank', 'noopener,noreferrer');
-      return;
-    }
+  function handleHelperAction(provider: string, action: 'test_connection') {
     void connectProvider(provider);
   }
 
@@ -495,7 +464,7 @@ export function IntegrationConnectModal({
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     onClick={() => connectProvider(currentProvider)}
-                    disabled={providerState[currentProvider]?.state === 'validating' || currentProvider === 'supabase'}
+                    disabled={providerState[currentProvider]?.state === 'validating'}
                   >
                     {providerState[currentProvider]?.state === 'validating' ? (
                       <>
