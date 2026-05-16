@@ -420,6 +420,14 @@ export function ChatInterface({
   const pendingInitialRestoreRef = useRef(true);
   const messages = runtimeState.conversation;
 
+  useEffect(() => {
+    const graphTrigger = runtimeState.workflowGraph?.nodes.find((node) => node.kind === 'trigger');
+    const renderedTrigger = runtimeState.liveWorkflow?.nodes.find((node) => node.kind === 'trigger');
+    if (graphTrigger || renderedTrigger) {
+      console.log({ graphTrigger, renderedTrigger });
+    }
+  }, [runtimeState.liveWorkflow, runtimeState.workflowGraph]);
+
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
     const restored = restoreRuntimeState(window.localStorage);

@@ -441,10 +441,31 @@ function normalizeWorkflowNodeLabel(value: string): string {
   return toTitleCase(cleaned.replace(/[_-]+/g, ' '));
 }
 
+function getTriggerPriorityScore(node: WorkflowGraphSummary['nodes'][number]): number {
+  const provider = normalizeGraphProvider(String(node.provider ?? node.integration ?? ''));
+  const label = `${node.label ?? ''} ${node.name ?? ''} ${provider}`.toLowerCase();
+  if (provider === 'stripe' && /webhook/.test(label)) return 4;
+  if (/webhook/.test(label)) return 3;
+  if (/manual/.test(label)) return 2;
+  if (/schedule|cron|interval/.test(label)) return 1;
+  return 0;
+}
+
+function selectPreferredTrigger(graph: WorkflowGraphSummary): WorkflowGraphSummary['nodes'][number] | undefined {
+  const triggers = graph.nodes.filter((node) => node.kind === 'trigger');
+  if (triggers.length === 0) return undefined;
+
+  return triggers.reduce((best, current) => {
+    const bestScore = getTriggerPriorityScore(best);
+    const currentScore = getTriggerPriorityScore(current);
+    return currentScore > bestScore ? current : best;
+  });
+}
+
 export function createLiveWorkflowStatus(graph: WorkflowGraphSummary): LiveWorkflowStatus {
   const nodes = graph.nodes.map((node) => ({
     id: node.id,
-    label: normalizeWorkflowNodeLabel(node.label || node.name),
+    label: node.kind === 'trigger' ? String(node.displayName || node.label || node.name || 'Trigger') : normalizeWorkflowNodeLabel(node.label || node.name),
     kind: node.kind,
     position: node.position,
     state: 'generating' as const,
@@ -670,12 +691,9 @@ function formatDollars(value: number): string {
 
 function detectSchedule(graph: WorkflowGraphSummary): string {
   if (graph.schedule) return graph.schedule;
-  const trigger = graph.nodes.find((node) => node.kind === 'trigger');
+  const trigger = selectPreferredTrigger(graph);
   if (!trigger) return 'On-demand/manual';
-  const name = trigger.label.toLowerCase();
-  if (name.includes('schedule') || name.includes('cron') || name.includes('interval')) return 'Scheduled trigger';
-  if (name.includes('webhook')) return 'Event/webhook trigger';
-  return `${trigger.label} trigger`;
+  return String(trigger.displayName || trigger.label || trigger.name || 'Trigger');
 }
 
 function riskLevel(graph: WorkflowGraphSummary): 'Low' | 'Medium' | 'High' {
