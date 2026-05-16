@@ -1,4 +1,10 @@
 import { createServiceClient } from '@/lib/supabase-server';
+import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
+import {
+  extractProvidersFromWorkflowGraph,
+  isStrictProviderMode,
+  normalizeProvider,
+} from '@/lib/agent/provider-allowlist';
 import type {
   AutomationBrainResult,
   BlockBlueprint,
@@ -860,6 +866,103 @@ export function toAutomationBrainPromptContext(brain: AutomationBrainResult): st
     `Estimated cost usd: ${brain.composition.estimatedCostUsd}`,
     `Latency estimate ms: ${brain.composition.latencyEstimateMs}`,
   ].join('\n');
+}
+
+function inferPatternFromGraph(graph: WorkflowGraphSummary): PatternMatch {
+  const providers = extractProvidersFromWorkflowGraph(graph);
+  const providerSet = new Set(providers);
+  const hasAi = graph.nodes.some((node) => node.kind === 'ai' || /openai|gpt|claude|grok/i.test(node.type));
+
+  let name = 'Automation Graph Engine';
+  if (providerSet.has('facebook') && providerSet.has('canva') && hasAi) {
+    name = 'AI Content Growth Engine';
+  } else if (providerSet.has('reddit') && providerSet.has('openai')) {
+    name = 'AI Reddit Insights Engine';
+  }
+
+  return {
+    id: 'graph-pattern',
+    name,
+    category: 'graph-derived',
+    description: 'Pattern inferred from actual workflow graph providers and node composition.',
+    requiredCapabilities: unique(graph.nodes.map((node) => node.capability).filter(Boolean)),
+    requiredTools: providers,
+    optionalTools: [],
+    risk: graph.branches > 1 ? 'medium' : 'low',
+    estimatedCost: Number((graph.estimatedCostUsd ?? 0).toFixed(4)),
+    estimatedComplexity: graph.nodes.length > 8 ? 'complex' : graph.nodes.length > 4 ? 'moderate' : 'simple',
+    schedulePatterns: [graph.schedule || 'Event-driven'],
+    examples: ['Derived directly from workflow graph'],
+    score: 100,
+  };
+}
+
+function deriveGraphSkillPacks(graph: WorkflowGraphSummary): SkillPackActivation[] {
+  const providers = extractProvidersFromWorkflowGraph(graph);
+  if (providers.length === 0) return [];
+
+  return [
+    {
+      id: 'graph-provider-pack',
+      name: 'Graph Provider Pack',
+      description: 'Skill pack generated directly from workflow graph nodes.',
+      tools: providers,
+      capabilities: unique(graph.nodes.map((node) => node.capability).filter(Boolean)),
+      patterns: ['graph-derived'],
+      matchScore: 100,
+    },
+  ];
+}
+
+export function constrainAutomationBrainToGraph(
+  brain: AutomationBrainResult | undefined,
+  workflowGraph?: WorkflowGraphSummary
+): AutomationBrainResult | undefined {
+  if (!brain || !workflowGraph) return brain;
+
+  const providerAllowList = new Set(extractProvidersFromWorkflowGraph(workflowGraph));
+  const hasCredentialAllowList = providerAllowList.size > 0;
+
+  const providerResolutions = hasCredentialAllowList
+    ? brain.providerResolutions
+      .map((resolution) => ({
+        ...resolution,
+        provider: normalizeProvider(resolution.provider),
+      }))
+      .filter((resolution) => providerAllowList.has(resolution.provider))
+    : brain.providerResolutions;
+
+  const strict = isStrictProviderMode() && hasCredentialAllowList;
+  const activatedSkillPacks = strict
+    ? deriveGraphSkillPacks(workflowGraph)
+    : hasCredentialAllowList
+      ? brain.activatedSkillPacks.filter((pack) => {
+        const toolHits = pack.tools
+          .map((tool) => normalizeProvider(tool))
+          .filter((tool) => providerAllowList.has(tool));
+        return toolHits.length > 0;
+      })
+      : brain.activatedSkillPacks;
+
+  const matchedPatterns = strict
+    ? [inferPatternFromGraph(workflowGraph)]
+    : hasCredentialAllowList
+      ? [
+        inferPatternFromGraph(workflowGraph),
+        ...brain.matchedPatterns.filter((pattern) =>
+          pattern.requiredTools
+            .map((tool) => normalizeProvider(tool))
+            .every((tool) => !tool || providerAllowList.has(tool))
+        ),
+      ].slice(0, 6)
+      : brain.matchedPatterns;
+
+  return {
+    ...brain,
+    providerResolutions,
+    activatedSkillPacks,
+    matchedPatterns,
+  };
 }
 
 export async function analyzeAutomationPrompt(prompt: string): Promise<AutomationBrainResult> {

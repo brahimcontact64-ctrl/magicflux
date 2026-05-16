@@ -9,6 +9,11 @@ import {
 } from '@/lib/conversation-agent';
 import { runAgentLoop, type AgentProgressUpdate } from '@/lib/agent/loop';
 import type { SafetyMode } from '@/lib/agent/safety';
+import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
+import {
+  extractProvidersFromWorkflowGraph,
+  filterProvidersToGraphAllowList,
+} from '@/lib/agent/provider-allowlist';
 import { runtimeQueueConfigured } from '@/lib/runtime/queue';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
 import { decryptJson } from '@/lib/security/encryption';
@@ -122,29 +127,23 @@ async function buildUserMemoryContext(userId: string | null): Promise<string | u
   return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
-function inferIntegrationsFromIntent(input: {
-  message: string;
-  slots: ConversationSlots;
+function resolveRequiredIntegrations(input: {
+  workflowGraph?: WorkflowGraphSummary | null;
   requiredIntegrations: string[];
   credentialRequests: Array<{ provider: string }>;
 }): string[] {
-  const inferred = new Set<string>();
-  const text = input.message.toLowerCase();
+  const allowList = extractProvidersFromWorkflowGraph(input.workflowGraph);
+  const provisionalProviders = [
+    ...input.requiredIntegrations,
+    ...input.credentialRequests.map((request) => request.provider),
+  ];
 
-  for (const provider of input.requiredIntegrations) inferred.add(String(provider).toLowerCase());
-  for (const request of input.credentialRequests) inferred.add(String(request.provider).toLowerCase());
+  if (allowList.length > 0) {
+    const filtered = filterProvidersToGraphAllowList(provisionalProviders, input.workflowGraph);
+    return Array.from(new Set([...allowList, ...filtered]));
+  }
 
-  if (input.slots.platform) inferred.add(input.slots.platform.toLowerCase());
-  if (input.slots.destination) inferred.add(input.slots.destination.toLowerCase());
-  if (input.slots.ai_provider) inferred.add(input.slots.ai_provider.toLowerCase());
-
-  if (/gmail|email/.test(text)) inferred.add('email');
-  if (/openai|gpt-4|gpt-4\.1|gpt/.test(text)) inferred.add('openai');
-  if (/telegram|bot token|chat id/.test(text)) inferred.add('telegram');
-  if (/coinmarketcap|cmc|crypto price|market cap/.test(text)) inferred.add('coinmarketcap');
-  if (/supabase|postgres|database/.test(text)) inferred.add('supabase');
-
-  return Array.from(inferred).filter(Boolean);
+  return Array.from(new Set(filterProvidersToGraphAllowList(provisionalProviders, input.workflowGraph)));
 }
 
 export type ConversationTurnPayload = {
@@ -349,13 +348,9 @@ export async function processConversationTurn(params: {
     agentResult.canonical_prompt || buildCanonicalPrompt(mergedSlots, existingRow?.current_goal ?? message);
 
   const missingIntegrations = agentResult.credential_requests.map((r) => r.provider);
-  const providerIntegrationsFromBrain = (agentResult.automation_brain?.providerResolutions ?? [])
-    .map((resolution) => resolution.provider)
-    .filter(Boolean);
-  const inferredIntegrations = inferIntegrationsFromIntent({
-    message,
-    slots: mergedSlots,
-    requiredIntegrations: [...agentResult.required_integrations, ...providerIntegrationsFromBrain],
+  const resolvedIntegrations = resolveRequiredIntegrations({
+    workflowGraph: agentResult.workflow_graph,
+    requiredIntegrations: agentResult.required_integrations,
     credentialRequests: agentResult.credential_requests,
   });
 
@@ -377,7 +372,7 @@ export async function processConversationTurn(params: {
     slot_destination: mergedSlots.destination,
     slot_ai_provider: mergedSlots.ai_provider,
     slot_schedule: mergedSlots.schedule,
-    required_integrations: agentResult.required_integrations,
+    required_integrations: resolvedIntegrations,
     collected_credentials: existingRow?.collected_credentials ?? {},
     missing_fields: agentResult.missing_fields,
     conversation_history: updatedHistory,
@@ -449,8 +444,8 @@ export async function processConversationTurn(params: {
       error: runtimeConfigured ? null : 'Runtime worker/Redis not configured',
     },
     integrationWizard: {
-      autoLaunch: inferredIntegrations.length > 0,
-      required: inferredIntegrations,
+      autoLaunch: resolvedIntegrations.length > 0,
+      required: resolvedIntegrations,
     },
     workflow: agentResult.workflow_complete
       ? {
@@ -499,7 +494,7 @@ export async function processConversationTurn(params: {
       detectedTrigger: mergedSlots.trigger,
       detectedAction: mergedSlots.action,
       detectedPlatform: mergedSlots.platform,
-      requiredIntegrations: agentResult.required_integrations,
+      requiredIntegrations: resolvedIntegrations,
       collectedCredentials: credentialState,
       missingFields: agentResult.missing_fields,
       conversationHistory: updatedHistory,

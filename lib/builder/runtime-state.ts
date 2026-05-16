@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 import type { ConversationState } from '@/lib/conversation-agent';
 import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
+import {
+  extractProvidersFromWorkflowGraph,
+  filterProvidersToGraphAllowList,
+  normalizeProvider as normalizeGraphProvider,
+} from '@/lib/agent/provider-allowlist';
 
 const RUNTIME_STATE_VERSION = 2;
 const RUNTIME_PERSIST_KEY = 'magicflux.builder.runtime_state';
@@ -557,26 +562,13 @@ export function updateLiveWorkflow(
 }
 
 function normalizeProviderName(value: string): string {
-  const cleaned = value.toLowerCase().trim();
-  if (!cleaned || cleaned === 'core' || cleaned === 'integration') return '';
-  if (cleaned.includes('webhook')) return 'webhook';
-  if (cleaned.includes('scheduler') || cleaned.includes('cron') || cleaned.includes('schedule')) return 'scheduler';
-  if (cleaned.includes('whatsapp')) return 'whatsapp';
-  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'email';
-  if (cleaned.includes('anthropic') || cleaned.includes('claude')) return 'claude';
-  if (cleaned.includes('openai')) return 'openai';
-  if (cleaned.includes('deepgram')) return 'deepgram';
-  if (cleaned.includes('airtable')) return 'airtable';
-  if (cleaned.includes('slack')) return 'slack';
-  if (cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq')) return 'grok';
-  if (cleaned.includes('coinmarketcap') || cleaned === 'cmc') return 'coinmarketcap';
-  if (cleaned.includes('telegram')) return 'telegram';
-  if (cleaned.includes('supabase')) return 'supabase';
-  if (cleaned.includes('vision')) return 'vision_ai';
-  if (cleaned.includes('postgres')) return 'postgres';
-  if (cleaned.includes('reddit')) return 'reddit';
-  if (cleaned.includes('httprequest') || cleaned.includes('http_request')) return 'httprequest';
-  return cleaned.replace(/[^a-z0-9_]/g, '_');
+  const normalized = normalizeGraphProvider(value);
+  if (!normalized || normalized === 'core' || normalized === 'integration') return '';
+  if (normalized.includes('webhook')) return 'webhook';
+  if (normalized.includes('scheduler') || normalized.includes('cron') || normalized.includes('schedule')) return 'scheduler';
+  if (normalized.includes('vision')) return 'vision_ai';
+  if (normalized.includes('httprequest') || normalized.includes('http_request')) return 'httprequest';
+  return normalized;
 }
 
 function providerDisplayName(provider: string): string {
@@ -599,6 +591,9 @@ function providerRequiredFields(provider: string): string[] {
   if (provider === 'grok') return ['xAI/Grok API key', 'Optional model'];
   if (provider === 'openai') return ['OpenAI API key'];
   if (provider === 'claude') return ['Anthropic API key'];
+  if (provider === 'facebook') return ['Access token', 'Page ID'];
+  if (provider === 'canva') return ['Canva API key'];
+  if (provider === 'google_sheets') return ['Google service account', 'Spreadsheet ID'];
   if (provider === 'telegram') return ['Bot token', 'Chat ID'];
   if (provider === 'whatsapp') return ['Phone number ID', 'Access token'];
   if (provider === 'deepgram') return ['Deepgram API key'];
@@ -615,11 +610,14 @@ export function deriveIntegrationCards(
 ): IntegrationCardItem[] {
   const blockedProviders = new Set(['core', 'integration', 'scheduler', 'httprequest', 'http_request', 'ai_provider', 'utility', 'webhook']);
   const requestByProvider = new Map(requests.map((req) => [normalizeProviderName(req.provider), req]));
+  const providerAllowList = new Set(extractProvidersFromWorkflowGraph(graph));
+  const enforceAllowList = providerAllowList.size > 0;
   const byProvider = new Map<string, IntegrationCardItem>();
 
   const addProvider = (providerInput: string, preferredDisplayName?: string, preferredFields: string[] = []) => {
     const provider = normalizeProviderName(providerInput);
     if (!provider || blockedProviders.has(provider)) return;
+    if (enforceAllowList && !providerAllowList.has(provider)) return;
 
     const existing = byProvider.get(provider);
     const request = requestByProvider.get(provider);
@@ -637,13 +635,17 @@ export function deriveIntegrationCards(
   };
 
   for (const node of graph?.nodes ?? []) {
+    if (!node.requiresCredentials) continue;
     const schemaFields = (node.credentialSchema ?? []).map((field) => field.label).filter(Boolean);
     addProvider(node.provider ?? node.integration ?? '', node.displayName, schemaFields);
   }
 
-  for (const request of requests) addProvider(request.provider);
-  for (const provider of graph?.integrations ?? []) addProvider(provider);
-  for (const provider of requiredProviders) addProvider(provider);
+  for (const provider of filterProvidersToGraphAllowList(requests.map((request) => request.provider), graph)) {
+    addProvider(provider);
+  }
+  for (const provider of filterProvidersToGraphAllowList(requiredProviders, graph)) {
+    addProvider(provider);
+  }
 
   if (byProvider.has('grok')) {
     byProvider.delete('openai');
@@ -659,19 +661,6 @@ export function deriveIntegrationCards(
   }
 
   return Array.from(byProvider.values());
-}
-
-export function inferProvidersFromBrain(brain?: AutomationBrainSummary | null): string[] {
-  if (!brain) return [];
-  const caps = new Set((brain.capabilities ?? []).map((capability) => capability.key));
-  const providers = new Set<string>();
-
-  if (caps.has('speech_to_text') || caps.has('audio_processing') || caps.has('voice_orders')) providers.add('deepgram');
-  if (caps.has('reporting') || caps.has('notifications') || caps.has('email_send')) providers.add('email');
-  if (caps.has('voice_orders') || caps.has('send_message') || caps.has('customer_notifications')) providers.add('whatsapp');
-  if (caps.has('vision_analysis') || caps.has('product_recognition')) providers.add('openai');
-
-  return Array.from(providers);
 }
 
 function formatDollars(value: number): string {
@@ -817,7 +806,7 @@ function loadLegacyRuntimeState(storage: Storage): BuilderRuntimeState {
   }
 
   const assistantMessage = [...conversation].reverse().find((message) => message.role === 'assistant');
-  const integrationCards = deriveIntegrationCards(graph, [], inferProvidersFromBrain(brain));
+  const integrationCards = deriveIntegrationCards(graph, []);
   const blocked = integrationCards.some((card) => !card.connected && card.requiredFields.length > 0);
 
   return createRuntimeState({

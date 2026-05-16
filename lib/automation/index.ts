@@ -1,4 +1,4 @@
-export { analyzeAutomationPrompt, toAutomationBrainPromptContext } from './engine';
+export { analyzeAutomationPrompt, constrainAutomationBrainToGraph, toAutomationBrainPromptContext } from './engine';
 export { recordWorkflowFeedback } from './feedback';
 export type {
   AutomationBrainResult,

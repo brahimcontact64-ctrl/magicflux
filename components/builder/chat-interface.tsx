@@ -15,7 +15,6 @@ import {
   createLiveWorkflowStatus,
   deriveIntegrationCards,
   deriveWorkflowSummary,
-  inferProvidersFromBrain,
   normalizeAssistantCopy,
   sanitizeVisibleText,
   persistRuntimeState,
@@ -665,10 +664,7 @@ export function ChatInterface({
         const integrationCards = deriveIntegrationCards(
           graph,
           credentialRequests,
-          [
-            ...(typedPayload.integrationWizard?.required ?? []),
-            ...inferProvidersFromBrain(brain),
-          ]
+          typedPayload.integrationWizard?.required ?? []
         );
         const approvalRequests = (typedPayload.approvalRequests ?? []).map((approval) => ({
           actionKey: '',

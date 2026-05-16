@@ -22,9 +22,11 @@ import { createCorrelationId, emitRuntimeEvent } from '@/lib/runtime/events';
 import { createTraceId, endSpan, finishTrace, startSpan, startTrace } from '@/lib/runtime/tracing';
 import {
   analyzeAutomationPrompt,
+  constrainAutomationBrainToGraph,
   toAutomationBrainPromptContext,
   type AutomationBrainResult,
 } from '@/lib/automation';
+import { extractProvidersFromWorkflowGraph, filterProvidersToGraphAllowList } from '@/lib/agent/provider-allowlist';
 
 // New autonomous systems
 import { persistentMemory } from '@/lib/memory/persistent-memory';
@@ -661,6 +663,7 @@ function buildResult(params: {
   } = params;
 
   const validStatuses = ['collecting_requirements', 'waiting_integrations', 'ready_to_build', 'blocked_low_confidence'] as const;
+  const providerAllowList = extractProvidersFromWorkflowGraph(workflowGraph);
 
   const inferredRequiredIntegrations = Array.from(
     new Set([
@@ -670,6 +673,9 @@ function buildResult(params: {
       ...(currentSlots.ai_provider ? [currentSlots.ai_provider] : []),
     ])
   );
+  const resolvedRequiredIntegrations = providerAllowList.length > 0
+    ? filterProvidersToGraphAllowList(inferredRequiredIntegrations, workflowGraph)
+    : inferredRequiredIntegrations;
 
   const inferredReadyFromEvents =
     workflowComplete ||
@@ -700,6 +706,8 @@ function buildResult(params: {
     .filter(Boolean)
     .join('. ');
 
+  const constrainedBrain = constrainAutomationBrainToGraph(automationBrain, workflowGraph);
+
   return {
     assistant_message: message,
     options: Array.isArray(agentState?.options) ? (agentState!.options as string[]) : undefined,
@@ -717,13 +725,15 @@ function buildResult(params: {
     planner_status: plannerStatus,
     missing_fields: Array.isArray(agentState?.missing_fields) ? (agentState!.missing_fields as string[]) : [],
     required_integrations: Array.isArray(agentState?.required_integrations)
-      ? (agentState!.required_integrations as string[])
-      : inferredRequiredIntegrations,
+      ? (providerAllowList.length > 0
+        ? filterProvidersToGraphAllowList(agentState!.required_integrations as string[], workflowGraph)
+        : (agentState!.required_integrations as string[]))
+      : resolvedRequiredIntegrations,
     approval_requests: approvalRequests,
     safety_mode: safetyMode,
     workflow_graph: workflowGraph,
     agent_tasks: agentTasks,
-    automation_brain: automationBrain,
+    automation_brain: constrainedBrain,
   };
 }
 
