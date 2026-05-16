@@ -7,6 +7,7 @@ import {
   filterProvidersToGraphAllowList,
   normalizeProvider as normalizeGraphProvider,
 } from '@/lib/agent/provider-allowlist';
+import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 
 const RUNTIME_STATE_VERSION = 2;
 const RUNTIME_PERSIST_KEY = 'magicflux.builder.runtime_state';
@@ -293,6 +294,15 @@ export function validateRuntimeState(input: unknown): {
 }
 
 export function createRuntimeState(seed?: Partial<BuilderRuntimeState>): BuilderRuntimeState {
+  console.log({
+    stage: 'STATE-WRITE',
+    source: 'lib/builder/runtime-state.ts createRuntimeState',
+    incomingCapabilities: seed?.automationBrain?.capabilities?.map((x) => x.key),
+    prevCapabilities: undefined,
+    graphTrigger: seed?.workflowGraph?.nodes?.find((n) => n.kind === 'trigger'),
+    schedule: seed?.workflowSummary?.schedule,
+  });
+
   return {
     version: RUNTIME_STATE_VERSION,
     session: { id: seed?.session?.id ?? `conv-${Date.now()}` },
@@ -702,28 +712,6 @@ function normalizeHydratedWorkflowGraph(graph?: WorkflowGraphSummary): WorkflowG
   };
 }
 
-function constrainAutomationBrainForHydration(
-  brain: AutomationBrainSummary | undefined,
-  graph?: WorkflowGraphSummary
-): AutomationBrainSummary | undefined {
-  if (!brain) return undefined;
-  const scheduleDetected = hasScheduleTrigger(graph);
-  if (scheduleDetected) return brain;
-
-  return {
-    ...brain,
-    capabilities: (brain.capabilities ?? []).filter((capability) => capability.key !== 'scheduling'),
-    activatedSkillPacks: (brain.activatedSkillPacks ?? []).map((pack) => ({
-      ...pack,
-      capabilities: (pack.capabilities ?? []).filter((capability) => capability !== 'scheduling'),
-    })),
-    composition: {
-      ...brain.composition,
-      executionFrequency: 'Event-driven',
-    },
-  };
-}
-
 function formatDollars(value: number): string {
   if (value < 0.01) return '<$0.01';
   return `$${value.toFixed(2)}`;
@@ -786,11 +774,14 @@ export function toProgressCards(events: AgentEvent[]): ProgressCard[] {
 }
 
 function toPersistedRuntimeState(state: BuilderRuntimeState): PersistedBuilderRuntimeState {
+  const sanitizedAutomationBrain = sanitizeAutomationBrainForGraph(state.automationBrain, state.workflowGraph);
   return {
     ...state,
+    automationBrain: sanitizedAutomationBrain,
     version: RUNTIME_STATE_VERSION,
     conversation: state.conversation.map((message) => ({
       ...message,
+      automationBrain: sanitizeAutomationBrainForGraph(message.automationBrain, message.workflowGraph ?? state.workflowGraph),
       timestamp: message.timestamp.toISOString(),
     })),
   };
@@ -803,7 +794,7 @@ function fromPersistedRuntimeState(raw: PersistedBuilderRuntimeState): BuilderRu
   }));
 
   const hydratedWorkflowGraph = normalizeHydratedWorkflowGraph(raw.workflowGraph);
-  const hydratedAutomationBrain = constrainAutomationBrainForHydration(raw.automationBrain, hydratedWorkflowGraph);
+  const hydratedAutomationBrain = sanitizeAutomationBrainForGraph(raw.automationBrain, hydratedWorkflowGraph);
   const hydratedWorkflowSummary = hydratedWorkflowGraph ? deriveWorkflowSummary(hydratedWorkflowGraph) : raw.workflowSummary;
 
   const runtimeState = createRuntimeState({
@@ -819,10 +810,12 @@ function fromPersistedRuntimeState(raw: PersistedBuilderRuntimeState): BuilderRu
   });
 
   console.log({
-    persistedSchedule: raw?.workflowSummary?.schedule,
-    persistedCapabilities: raw?.automationBrain?.capabilities,
-    hydratedSchedule: runtimeState?.workflowSummary?.schedule,
-    hydratedCapabilities: runtimeState?.automationBrain?.capabilities,
+    stage: 'STATE-WRITE',
+    source: 'lib/builder/runtime-state.ts fromPersistedRuntimeState',
+    incomingCapabilities: runtimeState.automationBrain?.capabilities?.map((x) => x.key),
+    prevCapabilities: raw.automationBrain?.capabilities?.map((x) => x.key),
+    graphTrigger: hydratedWorkflowGraph?.nodes?.find((n) => n.kind === 'trigger'),
+    schedule: runtimeState.workflowSummary?.schedule,
   });
 
   return runtimeState;

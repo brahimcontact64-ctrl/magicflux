@@ -5,6 +5,7 @@ import {
   isStrictProviderMode,
   normalizeProvider,
 } from '@/lib/agent/provider-allowlist';
+import { sanitizeAutomationBrainForGraph } from './sanitize-automation-brain-for-graph';
 import type {
   AutomationBrainResult,
   BlockBlueprint,
@@ -911,6 +912,13 @@ export function constrainAutomationBrainToGraph(
 ): AutomationBrainResult | undefined {
   if (!brain || !workflowGraph) return brain;
 
+  console.log({
+    stage: 'before-capability-generation',
+    trigger: workflowGraph.nodes.find((n) => n.kind === 'trigger'),
+    schedule: workflowGraph.schedule,
+    capabilities: brain.capabilities,
+  });
+
   const providerAllowList = new Set(extractProvidersFromWorkflowGraph(workflowGraph));
   const hasCredentialAllowList = providerAllowList.size > 0;
 
@@ -930,9 +938,7 @@ export function constrainAutomationBrainToGraph(
     graphSchedule: workflowGraph.schedule,
     schedulingDetected: hasScheduleTrigger,
   });
-  const capabilities = hasScheduleTrigger
-    ? brain.capabilities
-    : brain.capabilities.filter((capability) => capability.key !== 'scheduling');
+  const capabilities = brain.capabilities;
 
   const activatedSkillPacks = hasCredentialAllowList
     ? brain.activatedSkillPacks.filter((pack) => {
@@ -943,14 +949,7 @@ export function constrainAutomationBrainToGraph(
     })
     : brain.activatedSkillPacks;
 
-  const schedulingFilteredSkillPacks = hasScheduleTrigger
-    ? activatedSkillPacks
-    : activatedSkillPacks
-      .map((pack) => ({
-        ...pack,
-        capabilities: pack.capabilities.filter((capability) => capability !== 'scheduling'),
-      }))
-      .filter((pack) => pack.capabilities.length > 0 || pack.tools.length > 0);
+  const schedulingFilteredSkillPacks = activatedSkillPacks;
 
   const matchedPatterns = hasCredentialAllowList
     ? brain.matchedPatterns.filter((pattern) =>
@@ -960,28 +959,33 @@ export function constrainAutomationBrainToGraph(
     )
     : brain.matchedPatterns;
 
-  const schedulingFilteredPatterns = hasScheduleTrigger
-    ? matchedPatterns
-    : matchedPatterns.map((pattern) => ({
-      ...pattern,
-      requiredCapabilities: pattern.requiredCapabilities.filter((capability) => capability !== 'scheduling'),
-    }));
+  const schedulingFilteredPatterns = matchedPatterns;
 
-  const composition = hasScheduleTrigger
-    ? brain.composition
-    : {
-      ...brain.composition,
-      executionFrequency: 'Event-driven',
-    };
+  console.log({
+    stage: 'after-pattern-match',
+    matchedPatterns: schedulingFilteredPatterns,
+  });
 
-  return {
+  console.log({
+    stage: 'after-skill-pack-expansion',
+    activatedSkillPacks: schedulingFilteredSkillPacks,
+  });
+
+  console.log({
+    stage: 'after-capability-score',
+    capabilities,
+  });
+
+  const mergedBrain = {
     ...brain,
     capabilities: strict ? capabilities : capabilities,
     providerResolutions: strict ? providerResolutions : providerResolutions,
     activatedSkillPacks: strict ? schedulingFilteredSkillPacks : schedulingFilteredSkillPacks,
     matchedPatterns: strict ? schedulingFilteredPatterns : schedulingFilteredPatterns,
-    composition,
+    composition: brain.composition,
   };
+
+  return sanitizeAutomationBrainForGraph(mergedBrain, workflowGraph);
 }
 
 export async function analyzeAutomationPrompt(prompt: string): Promise<AutomationBrainResult> {
@@ -990,10 +994,23 @@ export async function analyzeAutomationPrompt(prompt: string): Promise<Automatio
   const domainPack = detectDomainPack(inferredIntent, inferredCapabilities);
   const capabilities = mergeDomainCapabilities(inferredCapabilities, domainPack);
 
+  console.log({
+    stage: 'after-capability-score',
+    capabilities,
+  });
+
   const [patternRows, skillPackRows] = await Promise.all([loadPatterns(), loadSkillPacks()]);
 
   const matchedPatterns = selectPatterns(inferredIntent, capabilities, patternRows, domainPack);
+  console.log({
+    stage: 'after-pattern-match',
+    matchedPatterns,
+  });
   const activatedSkillPacks = activateSkillPacks(inferredIntent, capabilities, skillPackRows, domainPack);
+  console.log({
+    stage: 'after-skill-pack-expansion',
+    activatedSkillPacks,
+  });
   const providerResolutions = resolveProviders(inferredIntent, capabilities);
   const composition = buildComposition(inferredIntent, capabilities, matchedPatterns);
 

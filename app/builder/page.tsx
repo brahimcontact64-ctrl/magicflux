@@ -877,11 +877,11 @@ export default function BuilderPage() {
             initialTemplate={selectedTemplate}
             accessToken={session?.access_token ?? null}
             mode={mode}
-            onPlannerReady={handlePlannerReady}
-            onConversationStateChange={(state) => {
+            onPlannerReadyAction={handlePlannerReady}
+            onConversationStateChangeAction={(state) => {
               setConversationSessionId(state.sessionId);
             }}
-            onOpenIntegrationWizard={handleOpenIntegrationWizard}
+            onOpenIntegrationWizardAction={handleOpenIntegrationWizard}
           />
 
           {plannerRejection && (

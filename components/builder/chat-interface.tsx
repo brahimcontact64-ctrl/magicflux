@@ -9,6 +9,7 @@ import { type ConversationState } from '@/lib/conversation-agent';
 import { AutomationTemplate, PROMPT_EXAMPLES } from '@/lib/templates';
 import { LiveWorkflowPanel, type LiveWorkflowStatus } from './live-workflow-panel';
 import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
+import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import {
   clearRuntimeState,
   createRuntimeState,
@@ -388,18 +389,18 @@ type ChatInterfaceProps = {
   initialTemplate?: AutomationTemplate | null;
   accessToken: string | null;
   mode?: 'safe_preview' | 'staging_deploy' | 'production_deploy';
-  onPlannerReady: (prompt: string) => void | Promise<void>;
-  onConversationStateChange?: (state: ConversationState) => void;
-  onOpenIntegrationWizard?: (providers: string[], sessionId: string) => void;
+  onPlannerReadyAction: (prompt: string) => void | Promise<void>;
+  onConversationStateChangeAction?: (state: ConversationState) => void;
+  onOpenIntegrationWizardAction?: (providers: string[], sessionId: string) => void;
 };
 
 export function ChatInterface({
   initialTemplate,
   accessToken,
   mode = 'production_deploy',
-  onPlannerReady,
-  onConversationStateChange,
-  onOpenIntegrationWizard,
+  onPlannerReadyAction,
+  onConversationStateChangeAction,
+  onOpenIntegrationWizardAction,
 }: ChatInterfaceProps) {
   if (ISOLATE_C) {
     return (
@@ -420,27 +421,21 @@ export function ChatInterface({
   const pendingInitialRestoreRef = useRef(true);
   const messages = runtimeState.conversation;
 
-  useEffect(() => {
-    const graphTrigger = runtimeState.workflowGraph?.nodes.find((node) => node.kind === 'trigger');
-    const renderedTrigger = runtimeState.liveWorkflow?.nodes.find((node) => node.kind === 'trigger');
-    const capabilities = runtimeState.automationBrain?.capabilities.map((capability) => capability.key) ?? [];
-    const inferredSkills = runtimeState.automationBrain?.activatedSkillPacks.map((pack) => pack.name) ?? [];
-    if (graphTrigger || renderedTrigger) {
-      console.log({
-        trigger: graphTrigger,
-        schedule: runtimeState.workflowGraph?.schedule,
-        capabilities,
-        inferredSkills,
-        renderedTrigger,
-      });
-    }
-  }, [runtimeState.liveWorkflow, runtimeState.workflowGraph, runtimeState.automationBrain]);
-
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
     const restored = restoreRuntimeState(window.localStorage);
     sessionId.current = restored.session.id;
-    setRuntimeState(restored);
+    setRuntimeState((prev) => {
+      console.log({
+        stage: 'STATE-WRITE',
+        source: 'components/builder/chat-interface.tsx useLayoutEffect hydration restore',
+        incomingCapabilities: restored.automationBrain?.capabilities?.map((x) => x.key),
+        prevCapabilities: prev?.automationBrain?.capabilities?.map((x) => x.key),
+        graphTrigger: restored.workflowGraph?.nodes?.find((n) => n.kind === 'trigger'),
+        schedule: restored.workflowSummary?.schedule,
+      });
+      return restored;
+    });
   }, []);
 
   useEffect(() => {
@@ -676,7 +671,10 @@ export function ChatInterface({
         }));
 
         const graph = typedPayload.workflowGraph ?? prev.workflowGraph;
-        const brain = typedPayload.automationBrain ?? prev.automationBrain;
+        const brain = sanitizeAutomationBrainForGraph(
+          typedPayload.automationBrain ?? prev.automationBrain,
+          graph
+        );
         const integrationCards = deriveIntegrationCards(
           graph,
           credentialRequests,
@@ -725,6 +723,15 @@ export function ChatInterface({
             : msg
         );
 
+        console.log({
+          stage: 'STATE-WRITE',
+          source: 'components/builder/chat-interface.tsx stream payload merge',
+          incomingCapabilities: brain?.capabilities?.map((x) => x.key),
+          prevCapabilities: prev?.automationBrain?.capabilities?.map((x) => x.key),
+          graphTrigger: graph?.nodes?.find((n) => n.kind === 'trigger'),
+          schedule: workflowSummary?.schedule,
+        });
+
         return {
           ...prev,
           session: { id: typedPayload.sessionId ?? prev.session.id },
@@ -758,15 +765,15 @@ export function ChatInterface({
           planner: typedPayload.planner,
           integrationWizard: typedPayload.integrationWizard,
         };
-        onConversationStateChange?.(typedPayload.state);
+        onConversationStateChangeAction?.(typedPayload.state);
       }
 
       if (typedPayload?.integrationWizard?.autoLaunch && typedPayload.integrationWizard.required.length > 0) {
-        onOpenIntegrationWizard?.(typedPayload.integrationWizard.required, sessionId.current);
+        onOpenIntegrationWizardAction?.(typedPayload.integrationWizard.required, sessionId.current);
       }
 
       if (typedPayload?.planner?.readyToBuild && typedPayload.planner.canonicalPrompt) {
-        await onPlannerReady(typedPayload.planner.canonicalPrompt);
+        await onPlannerReadyAction(typedPayload.planner.canonicalPrompt);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Conversation failed';
@@ -886,7 +893,7 @@ export function ChatInterface({
                   {isActiveAssistant ? (
                     <IntegrationCards
                       cards={runtimeState.integrationCards}
-                      onConnect={(provider) => onOpenIntegrationWizard?.([provider], sessionId.current)}
+                      onConnect={(provider) => onOpenIntegrationWizardAction?.([provider], sessionId.current)}
                     />
                   ) : null}
                   {isActiveAssistant && runtimeState.workflowGraph && !runtimeState.deployState.workflowActive ? (

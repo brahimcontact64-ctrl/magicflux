@@ -14,6 +14,8 @@ import {
   extractProvidersFromWorkflowGraph,
   filterProvidersToGraphAllowList,
 } from '@/lib/agent/provider-allowlist';
+import { constrainAutomationBrainToGraph } from '@/lib/automation';
+import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import { runtimeQueueConfigured } from '@/lib/runtime/queue';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
 import { decryptJson } from '@/lib/security/encryption';
@@ -426,6 +428,15 @@ export async function processConversationTurn(params: {
     }
   }
 
+  const graphConstrainedBrain = constrainAutomationBrainToGraph(
+    agentResult.automation_brain,
+    agentResult.workflow_graph
+  );
+  const sanitizedGraphConstrainedBrain = sanitizeAutomationBrainForGraph(
+    graphConstrainedBrain,
+    agentResult.workflow_graph
+  );
+
   return {
     success: true,
     sessionId,
@@ -456,18 +467,18 @@ export async function processConversationTurn(params: {
       : null,
     workflowGraph: (agentResult.workflow_graph ?? null) as Record<string, unknown> | null,
     agentTasks: agentResult.agent_tasks,
-    automationBrain: agentResult.automation_brain
+    automationBrain: sanitizedGraphConstrainedBrain
       ? {
-          inferredIntent: agentResult.automation_brain.inferredIntent,
-          capabilities: agentResult.automation_brain.capabilities,
-          activatedSkillPacks: agentResult.automation_brain.activatedSkillPacks.map((pack) => ({
+          inferredIntent: sanitizedGraphConstrainedBrain.inferredIntent,
+          capabilities: sanitizedGraphConstrainedBrain.capabilities,
+          activatedSkillPacks: sanitizedGraphConstrainedBrain.activatedSkillPacks.map((pack) => ({
             name: pack.name,
             description: pack.description,
             capabilities: pack.capabilities,
             tools: pack.tools,
             matchScore: pack.matchScore,
           })),
-          matchedPatterns: agentResult.automation_brain.matchedPatterns.map((pattern) => ({
+          matchedPatterns: sanitizedGraphConstrainedBrain.matchedPatterns.map((pattern) => ({
             name: pattern.name,
             category: pattern.category,
             score: pattern.score,
@@ -475,16 +486,16 @@ export async function processConversationTurn(params: {
             estimatedComplexity: pattern.estimatedComplexity,
             risk: pattern.risk,
           })),
-          providerResolutions: agentResult.automation_brain.providerResolutions,
+          providerResolutions: sanitizedGraphConstrainedBrain.providerResolutions,
           composition: {
-            executionFrequency: agentResult.automation_brain.composition.executionFrequency,
-            expectedInputs: agentResult.automation_brain.composition.expectedInputs,
-            expectedOutputs: agentResult.automation_brain.composition.expectedOutputs,
-            complexity: agentResult.automation_brain.composition.complexity,
-            estimatedCostUsd: agentResult.automation_brain.composition.estimatedCostUsd,
-            latencyEstimateMs: agentResult.automation_brain.composition.latencyEstimateMs,
-            risks: agentResult.automation_brain.composition.risks,
-            blocks: agentResult.automation_brain.composition.blocks,
+            executionFrequency: sanitizedGraphConstrainedBrain.composition.executionFrequency,
+            expectedInputs: sanitizedGraphConstrainedBrain.composition.expectedInputs,
+            expectedOutputs: sanitizedGraphConstrainedBrain.composition.expectedOutputs,
+            complexity: sanitizedGraphConstrainedBrain.composition.complexity,
+            estimatedCostUsd: sanitizedGraphConstrainedBrain.composition.estimatedCostUsd,
+            latencyEstimateMs: sanitizedGraphConstrainedBrain.composition.latencyEstimateMs,
+            risks: sanitizedGraphConstrainedBrain.composition.risks,
+            blocks: sanitizedGraphConstrainedBrain.composition.blocks,
           },
         }
       : null,

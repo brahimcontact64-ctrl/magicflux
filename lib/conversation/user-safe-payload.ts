@@ -1,5 +1,6 @@
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 import { hasForbiddenProviderPattern, isCanonicalProvider } from '@/lib/agent/provider-allowlist';
+import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 
 type SafeProgressStatus = 'working' | 'success' | 'warning' | 'error';
 
@@ -492,6 +493,11 @@ function sanitizeFinalPayload(payload: unknown): {
   const options = Array.isArray(assistant.options)
     ? assistant.options.map((option) => sanitizeText(option, '')).filter(Boolean).slice(0, 6)
     : [];
+  const workflowGraph = sanitizeWorkflowGraph(raw.workflowGraph);
+  const automationBrain = sanitizeAutomationBrainForGraph(
+    sanitizeAutomationBrain(raw.automationBrain),
+    (workflowGraph ?? undefined) as any
+  );
 
   return {
     payload: {
@@ -503,8 +509,8 @@ function sanitizeFinalPayload(payload: unknown): {
       credentialRequests: sanitizeCredentialCards(raw.credentialRequests),
       approvalRequests: sanitizeApprovalCards(raw.approvalRequests),
       workflowPreview: sanitizeWorkflowPreview(raw.workflowGraph),
-      workflowGraph: sanitizeWorkflowGraph(raw.workflowGraph),
-      automationBrain: sanitizeAutomationBrain(raw.automationBrain),
+      workflowGraph,
+      automationBrain,
       deploymentStatus: sanitizeDeploymentSummary(raw.workflow),
     },
   };
