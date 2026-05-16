@@ -28,6 +28,7 @@ const CODE_FENCE_PATTERN = /```[\s\S]*?```/g;
 function normalizeProvider(value: string): string {
   const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '');
   if (!cleaned || cleaned === 'core' || cleaned === 'integration') return 'core';
+  if (cleaned.includes('googledrive') || cleaned.includes('drivestorage') || cleaned.includes('savetodrive') || cleaned.includes('uploadtodrive') || cleaned.includes('drive')) return 'google_drive';
   if (cleaned.includes('whatsapp')) return 'whatsapp';
   if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'gmail';
   if (cleaned.includes('openai')) return 'openai';
@@ -47,6 +48,7 @@ function normalizeProvider(value: string): string {
 
 function providerDisplayName(provider: string): string {
   if (provider === 'whatsapp') return 'WhatsApp';
+  if (provider === 'google_drive') return 'Google Drive';
   if (provider === 'gmail') return 'Gmail';
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'claude') return 'Claude';

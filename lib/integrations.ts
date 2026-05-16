@@ -1,4 +1,4 @@
-export type IntegrationProvider = 'shopify' | 'slack' | 'airtable' | 'email';
+export type IntegrationProvider = 'shopify' | 'slack' | 'airtable' | 'gmail' | 'google_drive' | 'email';
 
 export type IntegrationRecord = {
   provider: IntegrationProvider;
@@ -16,7 +16,8 @@ export function requiredProvidersFromWorkflow(workflow: unknown): IntegrationPro
     if (type.includes('shopify')) required.add('shopify');
     if (type.includes('slack')) required.add('slack');
     if (type.includes('airtable')) required.add('airtable');
-    if (type.includes('smtp') || type.includes('email') || type.includes('gmail')) required.add('email');
+    if (type.includes('smtp') || type.includes('email') || type.includes('gmail')) required.add('gmail');
+    if (type.includes('drive')) required.add('google_drive');
   }
 
   return Array.from(required);
@@ -26,7 +27,7 @@ function replaceEnvTokens(raw: string, integrations: Record<IntegrationProvider,
   const shopify = integrations.shopify;
   const slack = integrations.slack;
   const airtable = integrations.airtable;
-  const email = integrations.email;
+  const email = integrations.gmail ?? integrations.email;
 
   return raw
     .replace(/\{\{\s*\$env\.SHOPIFY_ACCESS_TOKEN\s*\}\}/g, shopify?.admin_access_token ?? shopify?.api_key ?? '')
@@ -91,7 +92,9 @@ export function injectCredentialsIntoWorkflow(
     shopify: integrationRows.find(r => r.provider === 'shopify')?.credentials,
     slack: integrationRows.find(r => r.provider === 'slack')?.credentials,
     airtable: integrationRows.find(r => r.provider === 'airtable')?.credentials,
-    email: integrationRows.find(r => r.provider === 'email')?.credentials,
+    google_drive: undefined,
+    gmail: integrationRows.find(r => r.provider === 'gmail')?.credentials ?? integrationRows.find(r => r.provider === 'email')?.credentials,
+    email: integrationRows.find(r => r.provider === 'gmail')?.credentials ?? integrationRows.find(r => r.provider === 'email')?.credentials,
   };
 
   workflow.nodes = (workflow.nodes ?? []).map(node => {

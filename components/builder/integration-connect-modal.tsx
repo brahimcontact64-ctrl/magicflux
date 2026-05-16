@@ -13,9 +13,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 
 type IntegrationUiState = 'not_connected' | 'validating' | 'connected' | 'failed';
-type FieldDef = { key: string; label: string; placeholder: string; type?: 'text' | 'password' };
+type FieldDef = { key: string; label: string; placeholder: string; type?: 'text' | 'password' | 'select'; options?: Array<{ label: string; value: string }> };
 type CredentialSchemaField = { key: string; label: string; required: boolean };
 
 type ProviderConfig = {
@@ -114,15 +115,58 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     quickSetup: ['Create Airtable personal access token and choose base/table'],
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
-  email: {
-    key: 'email',
-    name: 'Gmail / SMTP',
+  gmail: {
+    key: 'gmail',
+    name: 'Gmail',
     logo: <Bot className="w-4 h-4" />,
     helpText: 'Used for email-based triggers and notifications.',
-    quickSetup: ['Use SMTP details and an app password if Gmail is used'],
+    quickSetup: ['Choose SMTP or OAuth, then provide the matching credentials.'],
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
 };
+
+function getVisibleCredentialFields(provider: string, schema: CredentialSchemaField[], providerValues: Record<string, string>): FieldDef[] {
+  if (provider !== 'gmail') {
+    return schema.map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.label,
+      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+    }));
+  }
+
+  const authType = (providerValues.auth_type ?? '').toLowerCase().trim();
+  const visibleKeys = new Set(['auth_type', 'from_email']);
+  if (authType === 'smtp') {
+    ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass'].forEach((key) => visibleKeys.add(key));
+  } else if (authType === 'oauth') {
+    ['client_id', 'client_secret', 'refresh_token'].forEach((key) => visibleKeys.add(key));
+  }
+
+  return schema
+    .filter((field) => visibleKeys.has(field.key))
+    .map((field) => {
+      if (field.key === 'auth_type') {
+        return {
+          key: field.key,
+          label: field.label,
+          placeholder: field.label,
+          type: 'select' as const,
+          options: [
+            { label: 'SMTP', value: 'smtp' },
+            { label: 'OAuth', value: 'oauth' },
+          ],
+        };
+      }
+
+      return {
+        key: field.key,
+        label: field.label,
+        placeholder: field.label,
+        type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+      };
+    });
+}
 
 const STATUS_LABEL: Record<IntegrationUiState, string> = {
   not_connected: 'Not connected',
@@ -160,15 +204,11 @@ export function IntegrationConnectModal({
 
   const currentProvider = supportedProviders.includes(activeProvider) ? activeProvider : (supportedProviders[0] ?? '');
   const currentConfig = PROVIDERS[currentProvider] ?? (currentProvider ? fallbackProviderUiConfig(currentProvider) : undefined);
+  const currentProviderValues = values[currentProvider] ?? {};
   const currentFields: FieldDef[] = useMemo(() => {
-    const schema = providerSchemas[currentProvider] ?? currentConfig?.credentialSchema ?? [];
-    return schema.map((field) => ({
-      key: field.key,
-      label: field.label,
-      placeholder: field.label,
-      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
-    }));
-  }, [currentConfig?.credentialSchema, currentProvider, providerSchemas]);
+    const schema = providerSchemas[currentProvider] ?? currentConfig?.credentialSchema ?? getProviderCredentialSchema(currentProvider);
+    return getVisibleCredentialFields(currentProvider, schema, currentProviderValues);
+  }, [currentConfig?.credentialSchema, currentProvider, currentProviderValues, providerSchemas]);
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -262,13 +302,9 @@ export function IntegrationConnectModal({
     const config = PROVIDERS[provider] ?? fallbackProviderUiConfig(provider);
     if (!config || !accessToken) return;
 
-    const schema = providerSchemas[provider] ?? config.credentialSchema ?? [];
-    const fields: FieldDef[] = schema.map((field) => ({
-      key: field.key,
-      label: field.label,
-      placeholder: field.label,
-      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
-    }));
+    const schema = providerSchemas[provider] ?? config.credentialSchema ?? getProviderCredentialSchema(provider);
+    const providerValues = values[provider] ?? {};
+    const fields = getVisibleCredentialFields(provider, schema, providerValues);
 
     if (schema.length === 0) {
       setProviderState((prev) => ({
@@ -281,9 +317,21 @@ export function IntegrationConnectModal({
       return;
     }
 
-    const providerValues = values[provider] ?? {};
     const requiredFieldKeys = new Set(
-      schema.filter((field) => field.required).map((field) => field.key)
+      schema
+        .filter((field) => field.required)
+        .filter((field) => {
+          if (provider !== 'gmail') return true;
+          const authType = (providerValues.auth_type ?? '').toLowerCase().trim();
+          if (field.key === 'client_id' || field.key === 'client_secret' || field.key === 'refresh_token') {
+            return authType === 'oauth';
+          }
+          if (field.key === 'smtp_host' || field.key === 'smtp_port' || field.key === 'smtp_user' || field.key === 'smtp_pass') {
+            return authType === 'smtp';
+          }
+          return true;
+        })
+        .map((field) => field.key)
     );
     const missingField = fields.find(
       (field) => requiredFieldKeys.has(field.key) && !(providerValues[field.key] ?? '').trim()
@@ -437,21 +485,42 @@ export function IntegrationConnectModal({
                     {currentFields.map((field) => (
                       <div key={field.key}>
                         <label className="block text-xs font-medium mb-1">{field.label}</label>
-                        <input
-                          value={values[currentProvider]?.[field.key] ?? ''}
-                          type={field.type ?? 'text'}
-                          onChange={(e) =>
-                            setValues((prev) => ({
-                              ...prev,
-                              [currentProvider]: {
-                                ...(prev[currentProvider] ?? {}),
-                                [field.key]: e.target.value,
-                              },
-                            }))
-                          }
-                          placeholder={field.placeholder}
-                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                        />
+                        {field.type === 'select' ? (
+                          <select
+                            value={values[currentProvider]?.[field.key] ?? ''}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [currentProvider]: {
+                                  ...(prev[currentProvider] ?? {}),
+                                  [field.key]: e.target.value,
+                                },
+                              }))
+                            }
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="">Select auth type</option>
+                            {(field.options ?? []).map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            value={values[currentProvider]?.[field.key] ?? ''}
+                            type={field.type ?? 'text'}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [currentProvider]: {
+                                  ...(prev[currentProvider] ?? {}),
+                                  [field.key]: e.target.value,
+                                },
+                              }))
+                            }
+                            placeholder={field.placeholder}
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                          />
+                        )}
                       </div>
                     ))}
                   </div>

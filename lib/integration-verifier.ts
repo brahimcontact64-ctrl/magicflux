@@ -75,15 +75,28 @@ async function verifyShopify(credentials: Record<string, string>): Promise<Verif
   }
 }
 
-async function verifyEmail(credentials: Record<string, string>): Promise<VerifyResult> {
+async function verifyGmail(credentials: Record<string, string>): Promise<VerifyResult> {
+  const authType = (credentials.auth_type ?? 'smtp').toLowerCase();
+  const fromEmail = credentials.from_email || '';
+
+  if (!fromEmail) {
+    return { ok: false, error: 'FROM_EMAIL is required' };
+  }
+
+  if (authType === 'oauth') {
+    if (!credentials.client_id || !credentials.client_secret || !credentials.refresh_token) {
+      return { ok: false, error: 'Gmail OAuth requires AUTH_TYPE, CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, FROM_EMAIL' };
+    }
+    return { ok: true };
+  }
+
   const host = credentials.smtp_host;
   const port = Number(credentials.smtp_port ?? '0');
   const user = credentials.smtp_user;
   const pass = credentials.smtp_pass;
-  const fromEmail = credentials.from_email || user;
 
   if (!host || !port || !user || !pass) {
-    return { ok: false, error: 'SMTP host, port, user, and password are required' };
+    return { ok: false, error: 'Gmail SMTP requires AUTH_TYPE, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL' };
   }
 
   try {
@@ -95,11 +108,6 @@ async function verifyEmail(credentials: Record<string, string>): Promise<VerifyR
     });
 
     await transporter.verify();
-
-    // Verification checks transport only; no email is sent here.
-    if (!fromEmail) {
-      return { ok: false, error: 'FROM_EMAIL is required' };
-    }
     return { ok: true };
   } catch (error) {
     return { ok: false, error: safeError(error instanceof Error ? error.message : 'SMTP verification failed') };
@@ -137,9 +145,14 @@ export async function runIntegrationTestAction(
   action: string,
   payload?: Record<string, unknown>
 ): Promise<VerifyResult & { details?: Record<string, unknown> }> {
-  if (provider === 'email' && action === 'send_test_email') {
+  if ((provider === 'gmail' || provider === 'email') && action === 'send_test_email') {
     const destination = String(payload?.destinationEmail ?? '').trim();
     if (!destination) return { ok: false, error: 'destinationEmail is required' };
+
+    const authType = (credentials.auth_type ?? 'smtp').toLowerCase();
+    if (authType !== 'smtp') {
+      return { ok: false, error: 'Test email is only supported for Gmail SMTP connections' };
+    }
 
     try {
       const transporter = nodemailer.createTransport({
@@ -217,7 +230,7 @@ export async function verifyIntegrationCredentials(
 ): Promise<VerifyResult> {
   if (provider === 'slack') return verifySlack(credentials);
   if (provider === 'shopify') return verifyShopify(credentials);
-  if (provider === 'email') return verifyEmail(credentials);
+  if (provider === 'gmail' || provider === 'email') return verifyGmail(credentials);
   if (provider === 'airtable') return verifyAirtable(credentials);
   return { ok: false, error: 'Unsupported provider' };
 }

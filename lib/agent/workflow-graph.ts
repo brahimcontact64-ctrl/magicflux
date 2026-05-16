@@ -24,6 +24,7 @@ function providerDisplayName(provider: string): string {
   if (provider === 'facebook') return 'Facebook';
   if (provider === 'canva') return 'Canva';
   if (provider === 'google_sheets') return 'Google Sheets';
+  if (provider === 'google_drive') return 'Google Drive';
   if (provider === 'twitter') return 'X';
   if (provider === 'whatsapp') return 'WhatsApp';
   if (provider === 'gmail') return 'Gmail';

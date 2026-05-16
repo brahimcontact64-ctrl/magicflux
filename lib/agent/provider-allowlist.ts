@@ -69,7 +69,7 @@ export function normalizeProvider(value: string): string {
   const cleaned = value.toLowerCase().trim();
   if (!cleaned) return '';
 
-  if (cleaned.includes('google drive') || cleaned.includes('googledrive') || cleaned.includes('drive')) return 'google_drive';
+  if (cleaned.includes('google drive') || cleaned.includes('googledrive') || cleaned.includes('drive storage') || cleaned.includes('save to drive') || cleaned.includes('upload to drive') || cleaned.includes('drive')) return 'google_drive';
   if (cleaned.includes('google sheets') || cleaned.includes('googlesheets') || cleaned.includes('sheets')) return 'google_sheets';
   if (cleaned.includes('facebook')) return 'facebook';
   if (cleaned.includes('canva')) return 'canva';
@@ -104,7 +104,7 @@ const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
   { pattern: /\bstripe\b/i, provider: 'stripe' },
   { pattern: /\bairtable\b/i, provider: 'airtable' },
   { pattern: /\bopenai\b|\bgpt[-\s]?4\b|\bgpt\b/i, provider: 'openai' },
-  { pattern: /\bgoogle\s*drive\b|\bgoogledrive\b/i, provider: 'google_drive' },
+  { pattern: /\bgoogle\s*drive\b|\bgoogledrive\b|\bdrive storage\b|\bsave to drive\b|\bupload to google drive\b|\bupload to drive\b/i, provider: 'google_drive' },
   { pattern: /\bgoogle\s*sheets\b|\bgooglesheets\b/i, provider: 'google_sheets' },
   { pattern: /\bslack\b/i, provider: 'slack' },
   { pattern: /\bgmail\b|\bemail\b|\bsmtp\b/i, provider: 'gmail' },

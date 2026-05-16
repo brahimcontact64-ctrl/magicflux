@@ -13,8 +13,12 @@ export function normalizeCredentials(provider: Provider, raw: Record<string, unk
     return '';
   };
 
-  if (provider === 'email') {
+  if (provider === 'gmail' || provider === 'email') {
     return {
+      auth_type: take(['AUTH_TYPE', 'auth_type']).toLowerCase(),
+      client_id: take(['CLIENT_ID', 'client_id']),
+      client_secret: take(['CLIENT_SECRET', 'client_secret']),
+      refresh_token: take(['REFRESH_TOKEN', 'refresh_token']),
       smtp_host: take(['SMTP_HOST', 'smtp_host']),
       smtp_port: take(['SMTP_PORT', 'smtp_port']),
       smtp_user: take(['SMTP_USER', 'smtp_user']),
@@ -46,8 +50,15 @@ export function normalizeCredentials(provider: Provider, raw: Record<string, unk
 export function validateRequiredCredentials(provider: Provider, creds: NormalizedCredentials): string | null {
   const has = (...keys: string[]) => keys.every((k) => !!creds[k]);
 
-  if (provider === 'email' && !has('smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'from_email')) {
-    return 'Email requires SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL';
+  if (provider === 'gmail' || provider === 'email') {
+    const authType = (creds.auth_type ?? 'smtp').toLowerCase();
+    if (authType === 'oauth') {
+      if (!has('client_id', 'client_secret', 'refresh_token', 'from_email')) {
+        return 'Gmail OAuth requires AUTH_TYPE, CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, FROM_EMAIL';
+      }
+    } else if (!has('smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'from_email')) {
+      return 'Gmail SMTP requires AUTH_TYPE, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL';
+    }
   }
 
   if (provider === 'slack' && !has('webhook_url')) {
@@ -72,8 +83,10 @@ export function maskIntegrationInfo(provider: Provider, creds: NormalizedCredent
     return `${value.slice(0, 3)}***${value.slice(-3)}`;
   };
 
-  if (provider === 'email') {
-    return creds.smtp_user ? `SMTP: ${creds.smtp_user}` : 'SMTP configured';
+  if (provider === 'gmail' || provider === 'email') {
+    return creds.auth_type === 'oauth'
+      ? (creds.client_id ? `OAuth: ${creds.client_id}` : 'OAuth configured')
+      : (creds.smtp_user ? `SMTP: ${creds.smtp_user}` : 'SMTP configured');
   }
 
   if (provider === 'slack') {
