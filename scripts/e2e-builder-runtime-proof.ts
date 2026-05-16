@@ -236,7 +236,7 @@ async function readBuilderRuntimeState(page: any): Promise<BuilderRuntimeState> 
   return validated.data;
 }
 
-async function waitForBuilderReady(page: any, timeoutMs = 90_000): Promise<void> {
+async function waitForBuilderReady(page: any, renderMonitor: RenderMonitor, timeoutMs = 90_000): Promise<void> {
   try {
     await page.waitForSelector('textarea[placeholder="What do you want to automate today?"]', {
       timeout: timeoutMs,
@@ -286,15 +286,10 @@ async function waitForBuilderReady(page: any, timeoutMs = 90_000): Promise<void>
     });
 
     const cookieNames = Array.from(new Set((await page.context().cookies()).map((cookie: { name: string }) => cookie.name)));
-    const monitor = (page.__renderMonitor ?? {
-      consoleErrors: [],
-      pageErrors: [],
-      failedRequests: [],
-    }) as RenderMonitor;
     const firstRenderFailureSignal =
-      monitor.pageErrors[0]
-      ?? monitor.failedRequests[0]
-      ?? monitor.consoleErrors[0]
+      renderMonitor.pageErrors[0]
+      ?? renderMonitor.failedRequests[0]
+      ?? renderMonitor.consoleErrors[0]
       ?? 'No console/page/request failure captured before selector timeout';
     const path = (() => {
       try {
@@ -330,9 +325,9 @@ async function waitForBuilderReady(page: any, timeoutMs = 90_000): Promise<void>
       rootElementExists: diagnostics.nextRootExists,
       scrollFocusBoundaryExists: diagnostics.focusBoundaryExists,
       counts: diagnostics.counts,
-      consoleErrors: monitor.consoleErrors,
-      pageErrors: monitor.pageErrors,
-      failedRequests: monitor.failedRequests,
+      consoleErrors: renderMonitor.consoleErrors,
+      pageErrors: renderMonitor.pageErrors,
+      failedRequests: renderMonitor.failedRequests,
       firstRenderFailureSignal,
     }));
 
@@ -429,11 +424,10 @@ async function run(): Promise<void> {
     report.auth.injected = true;
 
     let page = await context.newPage();
-    page.__renderMonitor = renderMonitor;
     attachPageMonitors(page, events, renderMonitor);
 
     await page.goto(`${BASE_URL}/builder`, { waitUntil: 'domcontentloaded' });
-    await waitForBuilderReady(page);
+    await waitForBuilderReady(page, renderMonitor);
 
     const baseline = await generateWorkflowAndSnapshot(page);
     report.baseline = baseline;
@@ -443,7 +437,7 @@ async function run(): Promise<void> {
 
     for (let cycle = 1; cycle <= TOTAL_RELOAD_CYCLES; cycle += 1) {
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await waitForBuilderReady(page);
+      await waitForBuilderReady(page, renderMonitor);
       const state = await readBuilderRuntimeState(page);
       const snapshot = createBuilderSnapshot(state);
       cycleSnapshots.push(snapshot);
@@ -455,10 +449,9 @@ async function run(): Promise<void> {
     }
 
     const newTabPage = await context.newPage();
-    newTabPage.__renderMonitor = renderMonitor;
     attachPageMonitors(newTabPage, events, renderMonitor);
     await newTabPage.goto(`${BASE_URL}/builder`, { waitUntil: 'domcontentloaded' });
-    await waitForBuilderReady(newTabPage);
+    await waitForBuilderReady(newTabPage, renderMonitor);
     const newTabSnapshot = createBuilderSnapshot(await readBuilderRuntimeState(newTabPage));
     report.newTab = compareBuilderSnapshots(baseline, newTabSnapshot);
     report.surfaceValidations.push(await validateBuilderSurface(newTabPage));
@@ -466,10 +459,9 @@ async function run(): Promise<void> {
     await page.close();
 
     const reopenedPage = await context.newPage();
-    reopenedPage.__renderMonitor = renderMonitor;
     attachPageMonitors(reopenedPage, events, renderMonitor);
     await reopenedPage.goto(`${BASE_URL}/builder`, { waitUntil: 'domcontentloaded' });
-    await waitForBuilderReady(reopenedPage);
+    await waitForBuilderReady(reopenedPage, renderMonitor);
     const reopenSnapshot = createBuilderSnapshot(await readBuilderRuntimeState(reopenedPage));
     report.reopen = compareBuilderSnapshots(baseline, reopenSnapshot);
     report.surfaceValidations.push(await validateBuilderSurface(reopenedPage));
