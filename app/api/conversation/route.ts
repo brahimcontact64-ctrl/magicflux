@@ -101,8 +101,30 @@ export async function GET(req: NextRequest) {
   const credentialState = decryptJson(row.collected_credentials ?? {});
   const readyToBuild = row.planner_status === 'ready_to_build';
 
+  let workflowGraph: Record<string, unknown> | null = null;
+  try {
+    let feedbackQuery = db
+      .from('workflow_feedback')
+      .select('generated_workflow, created_at')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (userId) {
+      feedbackQuery = feedbackQuery.eq('user_id', userId);
+    }
+
+    const { data: feedbackRow } = await feedbackQuery.maybeSingle();
+    if (feedbackRow?.generated_workflow && typeof feedbackRow.generated_workflow === 'object') {
+      workflowGraph = feedbackRow.generated_workflow as Record<string, unknown>;
+    }
+  } catch {
+    workflowGraph = null;
+  }
+
   return NextResponse.json({
     success: true,
+    workflowGraph,
     state: {
       sessionId: row.session_id,
       currentGoal: row.current_goal,

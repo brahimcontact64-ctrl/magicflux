@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 
 type IntegrationUiState = 'not_connected' | 'validating' | 'connected' | 'failed';
 type FieldDef = { key: string; label: string; placeholder: string; type?: 'text' | 'password' };
+type CredentialSchemaField = { key: string; label: string; required: boolean };
 
 type ProviderConfig = {
   key: string;
@@ -24,7 +25,7 @@ type ProviderConfig = {
   helpText: string;
   quickSetup: string[];
   docsUrl?: string;
-  fields: FieldDef[];
+  credentialSchema?: CredentialSchemaField[];
   supportsVerifyApi: boolean;
   helperActions?: Array<{ label: string; href?: string; action?: 'generate_telegram_bot' | 'test_connection' }>;
 };
@@ -37,17 +38,13 @@ function titleFromProvider(provider: string): string {
     .join(' ');
 }
 
-function fallbackProviderConfig(provider: string): ProviderConfig {
+function fallbackProviderUiConfig(provider: string): ProviderConfig {
   return {
     key: provider,
     name: titleFromProvider(provider),
     logo: <PlugZap className="w-4 h-4" />,
     helpText: 'Connect credentials for this provider. MagicFlux will validate before saving.',
-    quickSetup: ['Enter API key or token', 'Optionally provide BASE_URL for custom endpoints'],
-    fields: [
-      { key: 'api_key', label: 'API Key', placeholder: 'key_...', type: 'password' },
-      { key: 'base_url', label: 'Base URL (optional)', placeholder: 'https://api.example.com' },
-    ],
+    quickSetup: ['Review required credentials below before connecting.'],
     supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   };
@@ -61,7 +58,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for AI generation logic in your workflow.',
     quickSetup: ['Create an API key in OpenAI dashboard', 'Paste it below to connect'],
     docsUrl: 'https://platform.openai.com/api-keys',
-    fields: [{ key: 'credential', label: 'API Key', placeholder: 'sk-...', type: 'password' }],
     supportsVerifyApi: false,
     helperActions: [
       { label: 'Open OpenAI dashboard', href: 'https://platform.openai.com/api-keys' },
@@ -75,10 +71,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used to send or receive Telegram messages.',
     quickSetup: ['Create bot via @BotFather', 'Copy Bot Token and target Chat ID'],
     docsUrl: 'https://core.telegram.org/bots#6-botfather',
-    fields: [
-      { key: 'credential', label: 'Bot Token', placeholder: '123456:ABC-DEF...', type: 'password' },
-      { key: 'chat_id', label: 'Chat ID', placeholder: 'e.g. -1001234567890' },
-    ],
     supportsVerifyApi: false,
     helperActions: [
       { label: 'Generate Telegram bot', href: 'https://t.me/BotFather' },
@@ -92,7 +84,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for live crypto market pricing data.',
     quickSetup: ['Create API key in CoinMarketCap Developer Portal'],
     docsUrl: 'https://coinmarketcap.com/api/',
-    fields: [{ key: 'credential', label: 'API Key', placeholder: 'cmc_...', type: 'password' }],
     supportsVerifyApi: false,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
@@ -103,7 +94,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     helpText: 'Used for database and auth integration.',
     quickSetup: ['Supabase uses your project environment configuration.'],
     docsUrl: 'https://supabase.com/dashboard',
-    fields: [],
     supportsVerifyApi: false,
   },
   shopify: {
@@ -112,10 +102,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Building2 className="w-4 h-4" />,
     helpText: 'Used for ecommerce order and product automation.',
     quickSetup: ['Create a private app token in Shopify admin'],
-    fields: [
-      { key: 'store_url', label: 'Store URL', placeholder: 'your-store.myshopify.com' },
-      { key: 'access_token', label: 'Admin API Token', placeholder: 'shpat_...', type: 'password' },
-    ],
     supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
@@ -125,7 +111,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Send className="w-4 h-4" />,
     helpText: 'Used for team notifications and message routing.',
     quickSetup: ['Create an incoming webhook in Slack app settings'],
-    fields: [{ key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://hooks.slack.com/...', type: 'password' }],
     supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
@@ -135,11 +120,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Building2 className="w-4 h-4" />,
     helpText: 'Used for records, CRM, and operational tracking.',
     quickSetup: ['Create Airtable personal access token and choose base/table'],
-    fields: [
-      { key: 'api_key', label: 'API Token', placeholder: 'pat...', type: 'password' },
-      { key: 'base_id', label: 'Base ID', placeholder: 'app...' },
-      { key: 'table_name', label: 'Table Name', placeholder: 'Leads' },
-    ],
     supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
@@ -149,13 +129,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Bot className="w-4 h-4" />,
     helpText: 'Used for email-based triggers and notifications.',
     quickSetup: ['Use SMTP details and an app password if Gmail is used'],
-    fields: [
-      { key: 'smtp_host', label: 'SMTP Host', placeholder: 'smtp.gmail.com' },
-      { key: 'smtp_port', label: 'SMTP Port', placeholder: '587' },
-      { key: 'smtp_user', label: 'SMTP User', placeholder: 'you@gmail.com' },
-      { key: 'smtp_pass', label: 'SMTP Password', placeholder: 'app-password', type: 'password' },
-      { key: 'from_email', label: 'From Email', placeholder: 'you@gmail.com' },
-    ],
     supportsVerifyApi: true,
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
@@ -188,6 +161,7 @@ export function IntegrationConnectModal({
   const [activeProvider, setActiveProvider] = useState<string>(providers[0] ?? '');
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
   const [providerState, setProviderState] = useState<Record<string, { state: IntegrationUiState; message?: string }>>({});
+  const [providerSchemas, setProviderSchemas] = useState<Record<string, CredentialSchemaField[]>>({});
 
   const supportedProviders = useMemo(
     () => Array.from(new Set(providers.map((provider) => provider.toLowerCase()).filter(Boolean))),
@@ -195,7 +169,16 @@ export function IntegrationConnectModal({
   );
 
   const currentProvider = supportedProviders.includes(activeProvider) ? activeProvider : (supportedProviders[0] ?? '');
-  const currentConfig = PROVIDERS[currentProvider] ?? (currentProvider ? fallbackProviderConfig(currentProvider) : undefined);
+  const currentConfig = PROVIDERS[currentProvider] ?? (currentProvider ? fallbackProviderUiConfig(currentProvider) : undefined);
+  const currentFields: FieldDef[] = useMemo(() => {
+    const schema = providerSchemas[currentProvider] ?? currentConfig?.credentialSchema ?? [];
+    return schema.map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.label,
+      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+    }));
+  }, [currentConfig?.credentialSchema, currentProvider, providerSchemas]);
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -219,6 +202,44 @@ export function IntegrationConnectModal({
         });
 
         const collected = (conversationRes?.state?.collectedCredentials ?? {}) as Record<string, unknown>;
+        const graphNodes = Array.isArray(conversationRes?.workflowGraph?.nodes)
+          ? (conversationRes.workflowGraph.nodes as Array<Record<string, unknown>>)
+          : [];
+        const nextSchemas: Record<string, CredentialSchemaField[]> = {};
+
+        for (const node of graphNodes) {
+          const rawProvider = typeof node.provider === 'string' ? node.provider.toLowerCase() : '';
+          if (!rawProvider || !supportedProviders.includes(rawProvider)) continue;
+
+          const schema = Array.isArray(node.credentialSchema)
+            ? (node.credentialSchema as Array<Record<string, unknown>>)
+                .map((field) => {
+                  const key = String(field.key ?? '').trim().toLowerCase();
+                  const label = String(field.label ?? '').trim();
+                  if (!key || !label) return null;
+                  return {
+                    key,
+                    label,
+                    required: field.required !== false,
+                  };
+                })
+                .filter((field): field is CredentialSchemaField => Boolean(field))
+            : [];
+
+          if (schema.length === 0) continue;
+
+          if (!nextSchemas[rawProvider]) {
+            nextSchemas[rawProvider] = [];
+          }
+
+          const existingKeys = new Set(nextSchemas[rawProvider].map((field) => field.key));
+          for (const field of schema) {
+            if (existingKeys.has(field.key)) continue;
+            nextSchemas[rawProvider].push(field);
+            existingKeys.add(field.key);
+          }
+        }
+
         const nextState: Record<string, { state: IntegrationUiState; message?: string }> = {};
 
         for (const provider of supportedProviders) {
@@ -238,6 +259,7 @@ export function IntegrationConnectModal({
           }
         }
 
+        setProviderSchemas(nextSchemas);
         setProviderState(nextState);
       } catch {
         // silent hydrate failure
@@ -251,11 +273,19 @@ export function IntegrationConnectModal({
   }, [accessToken, open, sessionId, supportedProviders]);
 
   async function connectProvider(provider: string) {
-    const config = PROVIDERS[provider] ?? fallbackProviderConfig(provider);
+    const config = PROVIDERS[provider] ?? fallbackProviderUiConfig(provider);
     if (!config || !accessToken) return;
 
+    const schema = providerSchemas[provider] ?? config.credentialSchema ?? [];
+    const fields: FieldDef[] = schema.map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.label,
+      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+    }));
+
     const providerValues = values[provider] ?? {};
-    const missingField = config.fields.find((field) => !(providerValues[field.key] ?? '').trim());
+    const missingField = fields.find((field) => !(providerValues[field.key] ?? '').trim());
     if (missingField) {
       setProviderState((prev) => ({
         ...prev,
@@ -277,7 +307,11 @@ export function IntegrationConnectModal({
       }
 
       if (!config.supportsVerifyApi) {
-        const credential = providerValues.credential ?? providerValues.api_key ?? '';
+        const primaryKey = fields[0]?.key;
+        const credential = primaryKey ? (providerValues[primaryKey] ?? '') : '';
+        if (!credential.trim()) {
+          throw new Error('No credential requirements defined.');
+        }
         const res = await fetch('/api/conversation/credentials', {
           method: 'POST',
           headers: {
@@ -295,7 +329,7 @@ export function IntegrationConnectModal({
         return;
       }
 
-      const credentials = config.fields.reduce<Record<string, string>>((acc, field) => {
+      const credentials = fields.reduce<Record<string, string>>((acc, field) => {
         acc[field.key] = providerValues[field.key] ?? '';
         return acc;
       }, {});
@@ -363,7 +397,7 @@ export function IntegrationConnectModal({
         <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 max-h-[65vh] overflow-hidden">
           <div className="rounded-lg border border-border p-2 space-y-1 overflow-auto">
             {supportedProviders.map((provider) => {
-              const config = PROVIDERS[provider] ?? fallbackProviderConfig(provider);
+              const config = PROVIDERS[provider] ?? fallbackProviderUiConfig(provider);
               const status = providerState[provider]?.state ?? 'not_connected';
               return (
                 <button
@@ -429,9 +463,9 @@ export function IntegrationConnectModal({
                   ))}
                 </div>
 
-                {currentConfig.fields.length > 0 ? (
+                {currentFields.length > 0 ? (
                   <div className="space-y-3">
-                    {currentConfig.fields.map((field) => (
+                    {currentFields.map((field) => (
                       <div key={field.key}>
                         <label className="block text-xs font-medium mb-1">{field.label}</label>
                         <input
@@ -453,8 +487,8 @@ export function IntegrationConnectModal({
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
-                    This integration is already configured from your project environment.
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    No credential requirements defined.
                   </div>
                 )}
 
