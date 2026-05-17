@@ -922,6 +922,16 @@ export function constrainAutomationBrainToGraph(
   const providerAllowList = new Set(extractProvidersFromWorkflowGraph(workflowGraph));
   const hasCredentialAllowList = providerAllowList.size > 0;
 
+  console.log({
+    stage: 'PATTERN-TRACE',
+    source: 'constrainAutomationBrainToGraph entry',
+    matchedPatterns: brain.matchedPatterns?.map((x) => x.name),
+    skillPacks: brain.activatedSkillPacks?.map((x) => x.name),
+    providers: brain.providerResolutions,
+    graphProviders: Array.from(providerAllowList),
+    graphTrigger: workflowGraph.nodes.find((n) => n.kind === 'trigger'),
+  });
+
   const providerResolutions = hasCredentialAllowList
     ? brain.providerResolutions
       .map((resolution) => ({
@@ -960,6 +970,16 @@ export function constrainAutomationBrainToGraph(
     : brain.matchedPatterns;
 
   const schedulingFilteredPatterns = matchedPatterns;
+
+  console.log({
+    stage: 'PATTERN-TRACE',
+    source: 'constrainAutomationBrainToGraph filtered',
+    matchedPatterns: schedulingFilteredPatterns?.map((x) => x.name),
+    skillPacks: schedulingFilteredSkillPacks?.map((x) => x.name),
+    providers: providerResolutions?.map((p) => p.provider),
+    graphProviders: Array.from(providerAllowList),
+    graphTrigger: workflowGraph.nodes.find((n) => n.kind === 'trigger'),
+  });
 
   console.log({
     stage: 'after-pattern-match',
@@ -1013,6 +1033,15 @@ export async function analyzeAutomationPrompt(prompt: string): Promise<Automatio
   });
   const providerResolutions = resolveProviders(inferredIntent, capabilities);
   const composition = buildComposition(inferredIntent, capabilities, matchedPatterns);
+
+  console.log({
+    stage: 'PATTERN-TRACE',
+    matchedPatterns: matchedPatterns?.map((x) => x.name),
+    skillPacks: activatedSkillPacks?.map((x) => x.name),
+    providers: providerResolutions,
+    requiredCredentials: undefined,
+    graphProviders: undefined,
+  });
 
   return {
     inferredIntent,
