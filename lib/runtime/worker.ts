@@ -14,6 +14,8 @@ import { withExponentialBackoff } from '@/lib/agent/recovery';
 import { createServiceClient } from '@/lib/supabase-server';
 import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { emitRuntimeEvent } from './events';
+import { appendExecutionEvent } from './event-store';
+import { pinWorkflowVersion, deadLetterExecutionCommands } from './command-bus';
 import type { RuntimeQueuePayload, RuntimeQueueName } from './queue';
 import { endSpan, startSpan } from './tracing';
 import { incrementWorkerJobs } from './worker-registry';
@@ -21,8 +23,15 @@ import {
   claimExecutionOwnership,
   releaseExecutionOwnership,
   renewExecutionOwnership,
+  validateExecutionOwnership,
+  type OwnershipValidationResult,
 } from '@/runtime/hardening-layer';
 import { canUseRuntimeRedis, getRedisConnection } from './redis';
+import { isWorkerDrainingInMemory, getDrainCache, setDrainCache } from './drain-signal';
+import { logger } from './logger';
+import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
+import { releaseConcurrencySlot } from './concurrency-guard';
+import { recordUsageEvent } from './usage-metering';
 
 const QUEUE_NAMES: RuntimeQueueName[] = [
   'planner_queue',
@@ -63,6 +72,7 @@ type RuntimeJob<T> = {
 type RuntimeWorker = {
   on: (event: 'error', handler: (error: Error) => void) => void;
   close: () => Promise<void>;
+  pause: () => Promise<void>;
 };
 
 type WorkflowPayloadData = { nodes: object[]; connections: object };
@@ -380,7 +390,161 @@ async function recordQueueDeadLetter(params: {
   });
 }
 
-async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<Record<string, unknown>> {
+// ── Hot-path in-process cache ────────────────────────────────────────────────
+type HotCacheEntry = { value: boolean; expiresAt: number };
+const hotCache = new Map<string, HotCacheEntry>();
+
+function hotCacheGet(key: string): boolean | null {
+  const entry = hotCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { hotCache.delete(key); return null; }
+  return entry.value;
+}
+
+function hotCacheSet(key: string, value: boolean, ttlMs: number): void {
+  hotCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+// Tool names that involve node execution and should be subject to node quarantine.
+const EXECUTION_TOOL_NAMES = new Set(['test_workflow', 'run_workflow', 'execute_workflow']);
+
+// ── Ownership authority cache (1.5 s TTL) ───────────────────────────────────
+// Short TTL ensures stale-cache window is bounded; forced invalidation on renew failure.
+type OwnershipCacheEntry = { result: OwnershipValidationResult; expiresAt: number };
+const ownershipCache = new Map<string, OwnershipCacheEntry>();
+
+function ownershipCacheGet(key: string): OwnershipValidationResult | null {
+  const entry = ownershipCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { ownershipCache.delete(key); return null; }
+  return entry.result;
+}
+
+function ownershipCacheSet(key: string, result: OwnershipValidationResult, ttlMs: number): void {
+  ownershipCache.set(key, { result, expiresAt: Date.now() + ttlMs });
+}
+
+// Thrown inside processRuntimeJob when ownership is invalid; caught by the
+// BullWorker processor which converts it to BullUnrecoverableError.
+class OwnershipAbortSignal extends Error {
+  constructor(public readonly reason: string) {
+    super(`stale_executor_aborted:${reason}`);
+    this.name = 'OwnershipAbortSignal';
+  }
+}
+
+type OwnerCtx = { workerId: string; ownerToken: string; fencingToken: number };
+
+async function assertOwnership(
+  executionId: string,
+  userId: string | null,
+  ctx: OwnerCtx | null,
+  opName: string
+): Promise<void> {
+  if (!ctx || !userId) return;
+  const cacheKey = `own:${executionId}:${ctx.ownerToken}`;
+  const cached = ownershipCacheGet(cacheKey);
+  if (cached !== null) {
+    if (!cached.valid) {
+      logger.warn('ownership_validation_failed', { execution_id: executionId, reason: cached.reason, op: opName });
+      throw new OwnershipAbortSignal(cached.reason);
+    }
+    return;
+  }
+  const result = await validateExecutionOwnership({
+    executionId,
+    userId,
+    workerId: ctx.workerId,
+    ownerToken: ctx.ownerToken,
+    fencingToken: ctx.fencingToken,
+  });
+  ownershipCacheSet(cacheKey, result, 1_500);
+  if (!result.valid) {
+    logger.warn('ownership_validation_failed', { execution_id: executionId, reason: result.reason, op: opName });
+    if (result.reason === 'FENCED_OUT') {
+      logger.warn('split_brain_prevented', { execution_id: executionId, worker_id: ctx.workerId });
+    }
+    throw new OwnershipAbortSignal(result.reason);
+  }
+}
+
+async function isWorkerDraining(workerId: string): Promise<boolean> {
+  // 1. In-memory drain flag (set instantly on drain signal — no DB read needed).
+  if (isWorkerDrainingInMemory(workerId)) {
+    logger.debug('drain_cache_hit', { worker_id: workerId, source: 'memory' });
+    return true;
+  }
+  // 2. Per-process cache (5 s TTL).
+  const cached = getDrainCache(workerId);
+  if (cached !== null) {
+    logger.debug('drain_cache_hit', { worker_id: workerId, source: 'cache', value: cached });
+    return cached;
+  }
+  // 3. DB fallback — source of truth.
+  logger.debug('drain_cache_miss', { worker_id: workerId });
+  const db = createServiceClient();
+  const { data } = await db
+    .from('runtime_workers')
+    .select('status')
+    .eq('worker_id', workerId)
+    .limit(1)
+    .maybeSingle();
+  const status = (data as { status?: string } | null)?.status ?? '';
+  const draining = status === 'draining' || status === 'restarting' || status === 'stopping';
+  setDrainCache(workerId, draining, 5_000);
+  return draining;
+}
+
+async function isExecutionIsolated(executionId: string): Promise<boolean> {
+  const cacheKey = `iso:${executionId}`;
+  const cached = hotCacheGet(cacheKey);
+  if (cached !== null) {
+    logger.debug('isolation_cache_hit', { execution_id: executionId, value: cached });
+    return cached;
+  }
+  logger.debug('isolation_cache_miss', { execution_id: executionId });
+  const db = createServiceClient();
+  const { data } = await db
+    .from('runtime_healing_actions')
+    .select('id')
+    .eq('action_type', 'isolate_execution')
+    .eq('target', executionId)
+    .gt('cooldown_until', new Date().toISOString())
+    .limit(1)
+    .maybeSingle();
+  const result = data !== null;
+  hotCacheSet(cacheKey, result, 10_000);
+  return result;
+}
+
+async function isNodeQuarantined(workflowId: string, nodeId?: string): Promise<boolean> {
+  const target = nodeId ? `${workflowId}:${nodeId}` : null;
+  const cacheKey = target ? `qua:${target}` : `qua:${workflowId}:*`;
+  const cached = hotCacheGet(cacheKey);
+  if (cached !== null) {
+    logger.debug('quarantine_cache_hit', { workflow_id: workflowId, target, value: cached });
+    return cached;
+  }
+  logger.debug('quarantine_cache_miss', { workflow_id: workflowId, target });
+  const db = createServiceClient();
+  const base = db
+    .from('runtime_healing_actions')
+    .select('id')
+    .eq('action_type', 'quarantine_node')
+    .gt('cooldown_until', new Date().toISOString());
+  const { data } = await (target
+    ? base.eq('target', target)
+    : base.like('target', `${workflowId}:%`)
+  ).limit(1).maybeSingle();
+  const result = data !== null;
+  hotCacheSet(cacheKey, result, 10_000);
+  return result;
+}
+
+// Exported for direct testability (see tests/production-hardening.security.test.ts's
+// queue-payload-tampering proof) — not called externally in production, which always
+// goes through startRuntimeWorkers()'s BullMQ processor below.
+export async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>, ownerCtx: OwnerCtx | null): Promise<Record<string, unknown>> {
   const payload = job.data;
   const n8n = getN8nConfig();
   await updateQueueJob({
@@ -410,10 +574,105 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
 
   try {
 
+  if (toolName === 'run_workflow_execution') {
+    const workflowId = payload.workflowId ?? '';
+    const executionId = payload.executionId;
+    const deploymentVersionId = args.deploymentVersionId ? String(args.deploymentVersionId) : null;
+    const inputData = (args.inputData ?? {}) as Record<string, unknown>;
+    const mode = (args.mode === 'test' ? 'test' : 'live') as 'test' | 'live';
+    const startedAt = Date.now();
+
+    // Resolve the frozen deployment snapshot ourselves, keyed only by IDs
+    // from the job payload — never trust a workflow_json blob riding along
+    // in the queue payload (there isn't one; this re-fetch is the whole
+    // point). A tampered/stale queue payload cannot change what executes.
+    const db = createServiceClient();
+    let workflowJsonToRun: unknown = null;
+
+    if (deploymentVersionId) {
+      const { data: version } = await db
+        .from('deployment_versions')
+        .select('workflow_data')
+        .eq('id', deploymentVersionId)
+        .eq('user_id', payload.userId ?? '')
+        .eq('workflow_id', workflowId)
+        .maybeSingle();
+      workflowJsonToRun = version?.workflow_data ?? null;
+    }
+
+    if (!workflowJsonToRun) {
+      const { data: wf } = await db
+        .from('workflows')
+        .select('workflow_json')
+        .eq('id', workflowId)
+        .eq('user_id', payload.userId ?? '')
+        .maybeSingle();
+      workflowJsonToRun = wf?.workflow_json ?? null;
+    }
+
+    if (!workflowJsonToRun || !payload.userId) {
+      await releaseConcurrencySlot({ executionId });
+      throw new Error('EXECUTION_RESOLVE_FAILED: could not resolve a workflow snapshot to execute');
+    }
+
+    try {
+      const result = await runWorkflowExecution({
+        workflowJson: workflowJsonToRun,
+        inputData,
+        userId: payload.userId,
+        workflowId,
+        mode,
+        executionId,
+        deploymentVersionId,
+      });
+
+      // execution_completed / execution_failed usage events are recorded by
+      // RuntimeStateStore.setExecutionState() — the single chokepoint every
+      // execution mode (test, live, async worker, resume) already funnels
+      // through on every terminal transition — not duplicated here.
+      await endSpan({ userId: payload.userId, spanId: workerSpanId, status: result.status === 'failed' ? 'error' : 'success', errorMessage: result.error });
+
+      return {
+        execution_id: result.executionId,
+        status: result.status,
+        error: result.error ?? null,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await recordUsageEvent({
+        userId: payload.userId,
+        workflowId,
+        executionId,
+        eventType: 'execution_failed',
+        quantity: Date.now() - startedAt,
+        metadata: { error: message, duration_ms: Date.now() - startedAt },
+        idempotencyKey: `${executionId}:execution_failed`,
+      }).catch(() => undefined);
+      await db
+        .from('workflow_executions_v2')
+        .update({ status: 'failed', error_message: message, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', executionId)
+        .eq('user_id', payload.userId)
+        .in('status', ['queued', 'running']);
+      throw err;
+    } finally {
+      await releaseConcurrencySlot({ executionId });
+    }
+  }
+
   if (toolName === 'deploy_workflow_to_n8n') {
     const workflowName = String(args.workflow_name ?? 'MagicFlux Workflow');
     const workflowData = readWorkflowData(args);
     const workflowId = payload.workflowId ?? (args.workflow_id ? String(args.workflow_id) : undefined);
+
+    if (workflowId) {
+      void pinWorkflowVersion({
+        workflowId,
+        userId: payload.userId,
+        nodes: workflowData.nodes,
+        connections: workflowData.connections,
+      }).catch(() => undefined);
+    }
 
     await upsertDeploymentAttempt({
       userId: payload.userId,
@@ -427,6 +686,18 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
       },
     });
 
+    const deployRequestRef = await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: 'side_effect_requested',
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'deploy_workflow_to_n8n', workflow_name: workflowName },
+    }).catch(() => null);
+
+    await assertOwnership(payload.executionId, payload.userId, ownerCtx, 'deploy_workflow_to_n8n');
     const deployAttempt = await withExponentialBackoff(
       async () => createWorkflow(n8n, {
         name: workflowName,
@@ -497,6 +768,18 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
         },
       });
 
+      await appendExecutionEvent({
+        executionId: payload.executionId,
+        workflowId,
+        userId: payload.userId,
+        workerId: ownerCtx?.workerId,
+        eventType: 'side_effect_failed',
+        causationId: deployRequestRef?.eventId,
+        correlationId: payload.correlationId,
+        fencingToken: ownerCtx?.fencingToken,
+        payload: { operation: 'deploy_workflow_to_n8n', error_code: errorCode, error: deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed' },
+      }).catch(() => undefined);
+
       throw new Error(`${errorCode}: ${deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed'}`);
     }
 
@@ -512,6 +795,18 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
         workflow_url: deployAttempt.value.workflowUrl,
       },
     });
+
+    await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId: deployAttempt.value.workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: 'side_effect_completed',
+      causationId: deployRequestRef?.eventId,
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'deploy_workflow_to_n8n', n8n_workflow_id: deployAttempt.value.workflowId },
+    }).catch(() => undefined);
 
     await emitRuntimeEvent({
       eventType: 'workflow.deployed',
@@ -551,6 +846,18 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
       }
     }
 
+    const activateRequestRef = await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: 'side_effect_requested',
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'activate_workflow', workflow_id: workflowId },
+    }).catch(() => null);
+
+    await assertOwnership(payload.executionId, payload.userId, ownerCtx, 'activate_workflow');
     await n8nActivate(n8n, workflowId);
 
     if (isProductionActivate) {
@@ -558,6 +865,17 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
         const postActivationStatus = await getWorkflowStatus(n8n, workflowId);
         if (!postActivationStatus.active) {
           await n8nDeactivate(n8n, workflowId);
+          await appendExecutionEvent({
+            executionId: payload.executionId,
+            workflowId,
+            userId: payload.userId,
+            workerId: ownerCtx?.workerId,
+            eventType: 'side_effect_failed',
+            causationId: activateRequestRef?.eventId,
+            correlationId: payload.correlationId,
+            fencingToken: ownerCtx?.fencingToken,
+            payload: { operation: 'activate_workflow', error: 'Health gate failed after activation' },
+          }).catch(() => undefined);
           throw new Error('Health gate failed after activation: workflow is not active.');
         }
       } catch (error) {
@@ -565,6 +883,18 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
         throw error;
       }
     }
+
+    await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: 'side_effect_completed',
+      causationId: activateRequestRef?.eventId,
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'activate_workflow', workflow_id: workflowId, active: true },
+    }).catch(() => undefined);
 
     await emitRuntimeEvent({
       eventType: 'workflow.activated',
@@ -587,11 +917,36 @@ async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>): Promise<
 
   if (toolName === 'test_workflow') {
     const workflowId = String(args.workflow_id ?? '');
+
+    const testRequestRef = await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: 'side_effect_requested',
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'test_workflow', workflow_id: workflowId },
+    }).catch(() => null);
+
+    await assertOwnership(payload.executionId, payload.userId, ownerCtx, 'test_workflow');
     const result = await runTestExecution(
       n8n,
       workflowId,
       args.trigger_node ? String(args.trigger_node) : undefined
     );
+
+    await appendExecutionEvent({
+      executionId: payload.executionId,
+      workflowId,
+      userId: payload.userId,
+      workerId: ownerCtx?.workerId,
+      eventType: result.status === 'success' ? 'side_effect_completed' : 'side_effect_failed',
+      causationId: testRequestRef?.eventId,
+      correlationId: payload.correlationId,
+      fencingToken: ownerCtx?.fencingToken,
+      payload: { operation: 'test_workflow', status: result.status, execution_id: result.executionId },
+    }).catch(() => undefined);
 
     await emitRuntimeEvent({
       eventType: result.status === 'success' ? 'execution.completed' : 'execution.failed',
@@ -676,6 +1031,7 @@ export async function startRuntimeWorkers(
   if (typeof window !== 'undefined') return [];
 
   const bullmq = await import("bullmq");
+  const BullUnrecoverableError = bullmq.UnrecoverableError as new (message: string) => Error;
   const BullWorker = bullmq.Worker as new (
     queueName: string,
     processor: (job: RuntimeJob<RuntimeQueuePayload>) => Promise<Record<string, unknown>>,
@@ -691,6 +1047,37 @@ export async function startRuntimeWorkers(
       async (job) => {
         const effectiveWorkerId = workerId ?? `worker-${process.pid}`;
         const ownerToken = `${effectiveWorkerId}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+
+        if (await isWorkerDraining(effectiveWorkerId)) {
+          logger.info('drain_signal_received', { worker_id: effectiveWorkerId, job_id: String(job.id), queue: queueName });
+          throw new Error(`Worker ${effectiveWorkerId} is draining, requeueing job`);
+        }
+
+        if (job.data.executionId && await isExecutionIsolated(job.data.executionId)) {
+          logger.warn('execution_isolated', { execution_id: job.data.executionId, worker_id: effectiveWorkerId, queue: queueName });
+          await updateQueueJob({
+            userId: job.data.userId,
+            jobId: String(job.id),
+            status: 'failed',
+            errorMessage: 'Execution isolated by healing system',
+          });
+          throw new BullUnrecoverableError(`Execution ${job.data.executionId.slice(0, 8)} is isolated`);
+        }
+
+        if (
+          job.data.workflowId &&
+          EXECUTION_TOOL_NAMES.has(job.data.toolName) &&
+          await isNodeQuarantined(job.data.workflowId)
+        ) {
+          logger.warn('node_quarantined', { workflow_id: job.data.workflowId, tool: job.data.toolName, queue: queueName });
+          await updateQueueJob({
+            userId: job.data.userId,
+            jobId: String(job.id),
+            status: 'failed',
+            errorMessage: 'Workflow has a quarantined node, skipping job',
+          });
+          throw new BullUnrecoverableError(`Workflow ${job.data.workflowId.slice(0, 8)} has a quarantined node`);
+        }
 
         const queueLeaseClaimed = await claimQueueJobLease({
           userId: job.data.userId,
@@ -713,7 +1100,7 @@ export async function startRuntimeWorkers(
               workerId: effectiveWorkerId,
               leaseSeconds: 45,
             })
-          : { claimed: true as const, ownerToken: undefined };
+          : { claimed: true as const, ownerToken: undefined, fencingToken: undefined };
 
         if (!ownership.claimed) {
           await releaseQueueJobLease({
@@ -725,28 +1112,57 @@ export async function startRuntimeWorkers(
           throw new Error('Execution ownership lease already held by another worker');
         }
 
-        const renewTimer = setInterval(() => {
-          void renewQueueJobLease({
-            userId: job.data.userId,
-            jobId: String(job.id),
-            workerId: effectiveWorkerId,
-            ownerToken,
-            leaseSeconds: 45,
-          });
+        const ownerCtx: OwnerCtx | null =
+          ownership.ownerToken !== undefined && ownership.fencingToken !== undefined
+            ? { workerId: effectiveWorkerId, ownerToken: ownership.ownerToken, fencingToken: ownership.fencingToken }
+            : null;
 
-          if (job.data.userId && ownership.ownerToken) {
-            void renewExecutionOwnership({
-              executionId: job.data.executionId,
+        let renewTimerHandle: ReturnType<typeof setTimeout> | null = null;
+        let renewMissCount = 0;
+        let renewActive = true;
+        const BASE_RENEW_MS = 15_000;
+        const RENEW_JITTER_MS = 1_500;
+
+        const scheduleRenew = (): void => {
+          if (!renewActive) return;
+          const jitter = Math.floor(Math.random() * RENEW_JITTER_MS * 2) - RENEW_JITTER_MS;
+          renewTimerHandle = setTimeout(async () => {
+            if (!renewActive) return;
+            void renewQueueJobLease({
               userId: job.data.userId,
+              jobId: String(job.id),
               workerId: effectiveWorkerId,
-              ownerToken: ownership.ownerToken,
+              ownerToken,
               leaseSeconds: 45,
-            });
-          }
-        }, 15_000);
+            }).catch(() => undefined);
+
+            if (job.data.userId && ownership.ownerToken && ownership.fencingToken !== undefined) {
+              const ok = await renewExecutionOwnership({
+                executionId: job.data.executionId,
+                userId: job.data.userId,
+                workerId: effectiveWorkerId,
+                ownerToken: ownership.ownerToken,
+                leaseSeconds: 45,
+              }).catch(() => false as boolean);
+              if (!ok) {
+                renewMissCount++;
+                ownershipCache.delete(`own:${job.data.executionId}:${ownership.ownerToken}`);
+                logger.warn('lease_renewal_lag', { execution_id: job.data.executionId, worker_id: effectiveWorkerId, miss_count: renewMissCount });
+                if (renewMissCount >= 3) {
+                  logger.warn('stale_executor_aborted', { execution_id: job.data.executionId, worker_id: effectiveWorkerId, reason: 'LEASE_EXPIRED' });
+                }
+              } else {
+                renewMissCount = 0;
+              }
+            }
+
+            scheduleRenew();
+          }, BASE_RENEW_MS + jitter);
+        };
+        scheduleRenew();
 
         try {
-          const result = await processRuntimeJob(job);
+          const result = await processRuntimeJob(job, ownerCtx);
           await updateQueueJob({
             userId: job.data.userId,
             jobId: String(job.id),
@@ -761,6 +1177,18 @@ export async function startRuntimeWorkers(
 
           return result;
         } catch (err) {
+          if (err instanceof OwnershipAbortSignal) {
+            const reason = err.reason;
+            logger.warn('stale_executor_aborted', { execution_id: job.data.executionId, worker_id: effectiveWorkerId, reason, queue: queueName });
+            await updateQueueJob({ userId: job.data.userId, jobId: String(job.id), status: 'failed', attempts: job.attemptsStarted, errorMessage: `stale_executor_aborted:${reason}` });
+            void deadLetterExecutionCommands({
+              executionId: job.data.executionId,
+              userId: job.data.userId,
+              workerId: effectiveWorkerId,
+              reason: `stale_executor_aborted:${reason}`,
+            }).catch(() => undefined);
+            throw new BullUnrecoverableError(`stale_executor_aborted:${reason}`);
+          }
           const message = err instanceof Error ? err.message : String(err);
           const stack = err instanceof Error ? err.stack : undefined;
           const maxAttempts = Number(job.opts?.attempts ?? 1);
@@ -810,7 +1238,8 @@ export async function startRuntimeWorkers(
 
           throw err;
         } finally {
-          clearInterval(renewTimer);
+          renewActive = false;
+          if (renewTimerHandle) clearTimeout(renewTimerHandle);
           await releaseQueueJobLease({
             userId: job.data.userId,
             jobId: String(job.id),
@@ -837,11 +1266,8 @@ export async function startRuntimeWorkers(
 
     worker.on('error', (error: Error) => {
       const message = error.message ?? String(error);
-      if (message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED')) {
-        console.warn(`[runtime-worker:${queueName}] ${message}`);
-        return;
-      }
-      console.error(`[runtime-worker:${queueName}] ${message}`);
+      const isTransient = message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED');
+      logger[isTransient ? 'warn' : 'error']('worker_error', { queue: queueName, error: message });
     });
 
     return worker;

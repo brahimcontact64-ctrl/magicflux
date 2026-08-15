@@ -1,6 +1,7 @@
 import { dispatchNode } from '@/lib/workflow-runtime/node-handlers';
 import type { EngineNode, NodeHandlerContext, NodeStatus } from '@/lib/workflow-runtime/types';
 import { emitRuntimeEvent } from '@/lib/runtime/events';
+import { recordUsageEventSafe } from '@/lib/runtime/usage-metering';
 import { RuntimeStateStore } from './runtime-state';
 
 type RunNodeInput = {
@@ -97,6 +98,48 @@ export class NodeRunner {
 
       const result = await dispatchNode(input.node, input.inputData, input.handlerContext);
       const terminalStatus = result.status === 'simulated_success' ? 'success' : result.status;
+
+      // Usage metering — fire-and-forget, never blocks or fails node execution.
+      // Only recorded for live mode: test/simulated runs make no real calls and
+      // must not be billed as if they did.
+      if (input.mode === 'live') {
+        recordUsageEventSafe({
+          userId: input.userId,
+          workflowId: input.workflowId,
+          executionId: input.executionId,
+          nodeId,
+          eventType: 'node_executed',
+          metadata: { nodeType, attempt, status: terminalStatus },
+          idempotencyKey: `${input.executionId}:${nodeId}:${attempt}:node_executed`,
+        });
+
+        const outputRecord = (result.outputData ?? null) as Record<string, unknown> | null;
+        const usage = outputRecord?.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
+        if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
+          recordUsageEventSafe({
+            userId: input.userId,
+            workflowId: input.workflowId,
+            executionId: input.executionId,
+            nodeId,
+            eventType: 'ai_tokens',
+            quantity: (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0),
+            metadata: { prompt_tokens: usage.prompt_tokens ?? 0, completion_tokens: usage.completion_tokens ?? 0, nodeType, attempt },
+            idempotencyKey: `${input.executionId}:${nodeId}:${attempt}:ai_tokens`,
+          });
+        }
+
+        if (nodeType.toLowerCase().includes('httprequest')) {
+          recordUsageEventSafe({
+            userId: input.userId,
+            workflowId: input.workflowId,
+            executionId: input.executionId,
+            nodeId,
+            eventType: 'http_request',
+            metadata: { nodeType, attempt, status: outputRecord?.status ?? null },
+            idempotencyKey: `${input.executionId}:${nodeId}:${attempt}:http_request`,
+          });
+        }
+      }
 
       if (terminalStatus === 'success' || terminalStatus === 'skipped' || terminalStatus === 'waiting') {
         await this.stateStore.persistNodeState({

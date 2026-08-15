@@ -3,6 +3,7 @@ import "server-only";
 import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from './events';
 import { canUseRuntimeRedis, getRedisConnection } from './redis';
+import { logger } from './logger';
 
 export type RuntimeQueueName =
   | 'planner_queue'
@@ -23,7 +24,8 @@ export type RuntimeQueueTaskType =
   | 'retry_action'
   | 'recovery_action'
   | 'planner_followup'
-  | 'ai_reasoning';
+  | 'ai_reasoning'
+  | 'run_workflow_execution';
 
 export const RUNTIME_QUEUE_NAMES: RuntimeQueueName[] = [
   'planner_queue',
@@ -73,6 +75,8 @@ type RuntimeQueue = {
     }
   ) => Promise<{ id: string | number | undefined }>;
   on: (event: 'error', handler: (error: Error) => void) => void;
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
 };
 
 type RuntimeQueueEvents = {
@@ -130,20 +134,14 @@ async function getQueueHandle(queueName: RuntimeQueueName): Promise<QueueHandle>
   // Prevent noisy unhandled error events during transient redis disconnects.
   queue.on('error', (error: Error) => {
     const message = error.message ?? String(error);
-    if (message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED')) {
-      console.warn(`[runtime-queue:${queueName}] ${message}`);
-      return;
-    }
-    console.error(`[runtime-queue:${queueName}] ${message}`);
+    const isTransient = message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED');
+    logger[isTransient ? 'warn' : 'error']('queue_error', { queue: queueName, error: message });
   });
 
   events.on('error', (error: Error) => {
     const message = error.message ?? String(error);
-    if (message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED')) {
-      console.warn(`[runtime-queue-events:${queueName}] ${message}`);
-      return;
-    }
-    console.error(`[runtime-queue-events:${queueName}] ${message}`);
+    const isTransient = message.includes('ECONNRESET') || message.includes('ECONNABORTED') || message.includes('ECONNREFUSED');
+    logger[isTransient ? 'warn' : 'error']('queue_events_error', { queue: queueName, error: message });
   });
 
   const handle = { queue, events };
@@ -269,4 +267,16 @@ export function runtimeTaskTypeForTool(toolName: string): RuntimeQueueTaskType {
   if (toolName === 'get_execution_logs') return 'get_execution_logs';
   if (toolName.includes('ai_') || toolName.includes('reason')) return 'ai_reasoning';
   return 'planner_followup';
+}
+
+export async function pauseRuntimeQueue(queueName: RuntimeQueueName): Promise<void> {
+  if (!isQueueEnabled()) return;
+  const { queue } = await getQueueHandle(queueName);
+  await queue.pause();
+}
+
+export async function resumeRuntimeQueue(queueName: RuntimeQueueName): Promise<void> {
+  if (!isQueueEnabled()) return;
+  const { queue } = await getQueueHandle(queueName);
+  await queue.resume();
 }

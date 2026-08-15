@@ -1,6 +1,10 @@
+import "server-only";
+
 import { createHash, randomUUID } from 'crypto';
 
 import { createServiceClient } from '@/lib/supabase-server';
+import { appendExecutionEvent } from '@/lib/runtime/event-store';
+import { reclaimExpiredConcurrencyReservations } from '@/lib/runtime/concurrency-guard';
 
 export type LockAcquireResult = {
   acquired: boolean;
@@ -263,6 +267,10 @@ export async function releaseNodeMutex(params: {
     .eq('owner_id', params.ownerId);
 }
 
+export type OwnershipValidationResult =
+  | { valid: true }
+  | { valid: false; reason: 'OWNER_REPLACED' | 'LEASE_EXPIRED' | 'FENCED_OUT' | 'NOT_FOUND' };
+
 export async function claimExecutionOwnership(params: {
   executionId: string;
   workflowId: string;
@@ -270,14 +278,14 @@ export async function claimExecutionOwnership(params: {
   queueJobId?: string;
   workerId: string;
   leaseSeconds?: number;
-}): Promise<{ claimed: boolean; ownerToken?: string }> {
+}): Promise<{ claimed: boolean; ownerToken?: string; fencingToken?: number }> {
   const db = createServiceClient();
   const leaseSeconds = params.leaseSeconds ?? 45;
   const now = new Date();
 
   const { data: existing } = await db
     .from('runtime_execution_ownership')
-    .select('worker_id, lease_expires_at, owner_token')
+    .select('worker_id, lease_expires_at, owner_token, fencing_token')
     .eq('execution_id', params.executionId)
     .eq('user_id', params.userId)
     .limit(1)
@@ -291,22 +299,116 @@ export async function claimExecutionOwnership(params: {
   }
 
   const ownerToken = randomUUID();
-  const { error } = await db.from('runtime_execution_ownership').upsert({
-    execution_id: params.executionId,
-    workflow_id: params.workflowId,
-    user_id: params.userId,
-    queue_job_id: params.queueJobId ?? null,
-    worker_id: params.workerId,
-    owner_token: ownerToken,
-    lease_expires_at: addSeconds(now, leaseSeconds),
-    heartbeat_at: nowIso(),
-    state: 'active',
-    metadata: {},
-    updated_at: nowIso(),
-  });
+  const existingFencingToken = Number((existing as Record<string, unknown> | null)?.fencing_token ?? 0);
+  const nextFencingToken = existingFencingToken + 1;
 
-  if (error) return { claimed: false };
-  return { claimed: true, ownerToken };
+  if (existing) {
+    // Optimistic update: reject if a concurrent takeover incremented the token first.
+    const { error } = await db
+      .from('runtime_execution_ownership')
+      .update({
+        worker_id: params.workerId,
+        owner_token: ownerToken,
+        queue_job_id: params.queueJobId ?? null,
+        lease_expires_at: addSeconds(now, leaseSeconds),
+        heartbeat_at: nowIso(),
+        state: 'active',
+        fencing_token: nextFencingToken,
+        updated_at: nowIso(),
+      })
+      .eq('execution_id', params.executionId)
+      .eq('user_id', params.userId)
+      .eq('fencing_token', existingFencingToken);
+
+    if (error) return { claimed: false };
+  } else {
+    const { error } = await db.from('runtime_execution_ownership').insert({
+      execution_id: params.executionId,
+      workflow_id: params.workflowId,
+      user_id: params.userId,
+      queue_job_id: params.queueJobId ?? null,
+      worker_id: params.workerId,
+      owner_token: ownerToken,
+      lease_expires_at: addSeconds(now, leaseSeconds),
+      heartbeat_at: nowIso(),
+      state: 'active',
+      fencing_token: 1,
+      metadata: {},
+      updated_at: nowIso(),
+    });
+
+    if (error) return { claimed: false };
+    void appendExecutionEvent({
+      executionId: params.executionId,
+      workflowId: params.workflowId,
+      userId: params.userId,
+      workerId: params.workerId,
+      eventType: 'ownership_claimed',
+      fencingToken: 1,
+      payload: { worker_id: params.workerId, fencing_token: 1 },
+    }).catch(() => undefined);
+    return { claimed: true, ownerToken, fencingToken: 1 };
+  }
+
+  void appendExecutionEvent({
+    executionId: params.executionId,
+    workflowId: params.workflowId,
+    userId: params.userId,
+    workerId: params.workerId,
+    eventType: 'ownership_claimed',
+    fencingToken: nextFencingToken,
+    payload: { worker_id: params.workerId, fencing_token: nextFencingToken },
+  }).catch(() => undefined);
+  return { claimed: true, ownerToken, fencingToken: nextFencingToken };
+}
+
+export async function validateExecutionOwnership(params: {
+  executionId: string;
+  userId: string;
+  workerId: string;
+  ownerToken: string;
+  fencingToken: number;
+}): Promise<OwnershipValidationResult> {
+  const db = createServiceClient();
+  const now = new Date();
+
+  const { data } = await db
+    .from('runtime_execution_ownership')
+    .select('worker_id, owner_token, lease_expires_at, fencing_token, state')
+    .eq('execution_id', params.executionId)
+    .eq('user_id', params.userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return { valid: false, reason: 'NOT_FOUND' };
+
+  const dbFencingToken = Number((data as Record<string, unknown>).fencing_token ?? 0);
+  if (dbFencingToken > params.fencingToken) {
+    void appendExecutionEvent({
+      executionId: params.executionId,
+      userId: params.userId,
+      workerId: params.workerId,
+      eventType: 'split_brain_prevented',
+      fencingToken: dbFencingToken,
+      payload: {
+        stale_worker_id: params.workerId,
+        authoritative_fencing_token: dbFencingToken,
+        stale_fencing_token: params.fencingToken,
+      },
+    }).catch(() => undefined);
+    return { valid: false, reason: 'FENCED_OUT' };
+  }
+
+  if (data.worker_id !== params.workerId || data.owner_token !== params.ownerToken) {
+    return { valid: false, reason: 'OWNER_REPLACED' };
+  }
+
+  const leaseExpiresAt = new Date(String(data.lease_expires_at));
+  if (leaseExpiresAt <= now) {
+    return { valid: false, reason: 'LEASE_EXPIRED' };
+  }
+
+  return { valid: true };
 }
 
 export async function renewExecutionOwnership(params: {
@@ -354,12 +456,31 @@ export async function releaseExecutionOwnership(params: {
     .eq('user_id', params.userId)
     .eq('worker_id', params.workerId)
     .eq('owner_token', params.ownerToken);
+
+  const releaseEventType =
+    params.state === 'orphaned' ? 'ownership_expired' as const :
+    params.state === 'failed_over' ? 'ownership_replaced' as const :
+    null;
+  if (releaseEventType) {
+    void appendExecutionEvent({
+      executionId: params.executionId,
+      userId: params.userId,
+      workerId: params.workerId,
+      eventType: releaseEventType,
+      payload: { worker_id: params.workerId, state: params.state },
+    }).catch(() => undefined);
+  }
 }
 
 export async function recoverOrphanExecutions(params: {
   staleAfterMinutes?: number;
   limit?: number;
 }): Promise<Array<{ executionId: string; userId: string; workflowId: string }>> {
+  // Proactively reclaim any concurrency reservation left behind by a worker
+  // that crashed before its finally-block release ran. Cheap, idempotent —
+  // safe to run on every orphan-recovery sweep alongside the existing checks.
+  await reclaimExpiredConcurrencyReservations().catch(() => 0);
+
   const db = createServiceClient();
   const staleAfterMinutes = params.staleAfterMinutes ?? 3;
   const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000).toISOString();
@@ -420,4 +541,38 @@ export async function cleanupExpiredRuntimeLocks(): Promise<void> {
   const db = createServiceClient();
   const now = nowIso();
   await db.from('runtime_node_mutexes').delete().lt('lease_expires_at', now);
+}
+
+export async function markOrphanExecutionsFailed(params?: {
+  staleAfterMinutes?: number;
+  limit?: number;
+}): Promise<number> {
+  const db = createServiceClient();
+  const staleAfterMinutes = params?.staleAfterMinutes ?? 10;
+  const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000).toISOString();
+
+  const { data } = await db
+    .from('workflow_executions_v2')
+    .select('id, user_id')
+    .eq('status', 'running')
+    .lt('updated_at', cutoff)
+    .limit(params?.limit ?? 50);
+
+  const rows = (data ?? []) as Array<{ id: string; user_id: string }>;
+  if (rows.length === 0) return 0;
+
+  for (const row of rows) {
+    await db
+      .from('workflow_executions_v2')
+      .update({
+        status: 'failed',
+        error_message: 'worker timeout',
+        updated_at: nowIso(),
+      })
+      .eq('id', row.id)
+      .eq('user_id', row.user_id)
+      .eq('status', 'running');
+  }
+
+  return rows.length;
 }
