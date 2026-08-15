@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/reverify-credentials",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/dispatch-schedules",
+      "schedule": "* * * * *"
+    }
+  ]
+}

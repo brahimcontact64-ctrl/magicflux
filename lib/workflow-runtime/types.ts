@@ -105,4 +105,11 @@ export type RunExecutionOptions = {
   /** Current retry count */
   retryCount?: number;
   maxRetries?: number;
+  /**
+   * The deployment_versions.id this execution is pinned to (if the workflow
+   * has been activated). Persisted on the execution row so resume reads the
+   * SAME frozen workflow_json snapshot the execution started with, not
+   * whatever workflow_json is live at resume time.
+   */
+  deploymentVersionId?: string | null;
 };

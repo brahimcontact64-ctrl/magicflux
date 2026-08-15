@@ -206,6 +206,7 @@ export class WorkflowEngine {
       mode: opts.mode,
       inputData: opts.inputData,
       maxRetries,
+      deploymentVersionId: opts.deploymentVersionId,
     });
 
     const lock = await acquireExecutionLock({
@@ -264,6 +265,15 @@ export class WorkflowEngine {
           nodeName,
           input: opts.inputData,
         }));
+
+    // Fan-in guard: a node reachable from more than one upstream edge (e.g. two
+    // parallel branches that both feed into the same downstream node) must not
+    // be queued twice — this engine has no join/merge semantics that wait for
+    // every predecessor, so a duplicate queue entry means a duplicate execution
+    // (duplicate side effects: two emails, two Slack messages, ...). Tracks
+    // names currently pending in `queue`; does not prevent a node that already
+    // ran from being queued again later (e.g. a cyclic/loop-back edge).
+    const pendingInQueue = new Set(queue.map((item) => item.nodeName));
 
     let snapshotVersion = (await this.state.getLatestSnapshot(executionId, opts.userId))?.snapshotVersion ?? 0;
     const persistCheckpoint = async (input: {
@@ -454,6 +464,7 @@ export class WorkflowEngine {
 
       const next = queue.shift();
       if (!next) continue;
+      pendingInQueue.delete(next.nodeName);
 
       const node = nodeMap.get(next.nodeName);
       if (!node) continue;
@@ -473,6 +484,7 @@ export class WorkflowEngine {
 
       if (!nodeMutex.acquired) {
         queue.push(next);
+        pendingInQueue.add(next.nodeName);
         if (totalExecutions > nodes.length * 3) {
           await this.state.setExecutionState({
             executionId,
@@ -688,14 +700,20 @@ export class WorkflowEngine {
       const outputData = asRecord(runResult.outputData);
       const conditionBranch = typeof outputData._conditionBranch === 'number' ? outputData._conditionBranch : null;
 
+      const enqueueTarget = (target: string) => {
+        if (pendingInQueue.has(target)) return; // fan-in guard — see pendingInQueue declaration above
+        pendingInQueue.add(target);
+        queue.push({ nodeName: target, input: runResult.outputData });
+      };
+
       if (conditionBranch !== null && outputPorts[conditionBranch]) {
         for (const target of outputPorts[conditionBranch]) {
-          queue.push({ nodeName: target, input: runResult.outputData });
+          enqueueTarget(target);
         }
       } else {
         for (const port of outputPorts) {
           for (const target of port) {
-            queue.push({ nodeName: target, input: runResult.outputData });
+            enqueueTarget(target);
           }
         }
       }

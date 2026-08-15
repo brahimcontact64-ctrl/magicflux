@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from '@/lib/runtime/events';
+import { recordUsageEvent } from '@/lib/runtime/usage-metering';
 
 export type RuntimeNodeStatus = 'queued' | 'running' | 'success' | 'failed' | 'retrying' | 'cancelled';
 export type RuntimeExecutionState = 'queued' | 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | 'cancelled';
@@ -57,6 +58,8 @@ export class RuntimeStateStore {
     mode: 'test' | 'live';
     inputData: Record<string, unknown>;
     maxRetries: number;
+    /** deployment_versions.id this execution is pinned to, if the workflow is activated. */
+    deploymentVersionId?: string | null;
   }): Promise<string> {
     if (params.executionId) {
       await this.db
@@ -84,12 +87,27 @@ export class RuntimeStateStore {
         input_data: params.inputData,
         retry_count: 0,
         max_retries: params.maxRetries,
+        deployment_version_id: params.deploymentVersionId ?? null,
         started_at: nowIso(),
       })
       .select('id')
       .maybeSingle();
 
-    return data?.id ?? crypto.randomUUID();
+    const executionId = data?.id ?? crypto.randomUUID();
+
+    // Only the fresh-insert branch reaches here — the async production
+    // dispatch path (lib/runtime/execution-dispatch.ts) creates its own row
+    // up front and records execution_started itself, then calls this with an
+    // existing executionId (the branch above), so this never double-counts.
+    recordUsageEvent({
+      userId: params.userId,
+      workflowId: params.workflowId,
+      executionId,
+      eventType: 'execution_started',
+      idempotencyKey: `${executionId}:execution_started`,
+    }).catch(() => undefined);
+
+    return executionId;
   }
 
   async setExecutionState(params: {
@@ -117,11 +135,27 @@ export class RuntimeStateStore {
     }
 
     try {
-      await this.db
+      const { data: updated } = await this.db
         .from('workflow_executions_v2')
         .update(patch)
         .eq('id', params.executionId)
-        .eq('user_id', params.userId);
+        .eq('user_id', params.userId)
+        .select('workflow_id, started_at')
+        .maybeSingle();
+
+      if ((params.state === 'completed' || params.state === 'failed') && updated?.workflow_id) {
+        const startedAtMs = updated.started_at ? new Date(String(updated.started_at)).getTime() : Date.now();
+        const durationMs = Math.max(0, Date.now() - startedAtMs);
+        recordUsageEvent({
+          userId: params.userId,
+          workflowId: String(updated.workflow_id),
+          executionId: params.executionId,
+          eventType: params.state === 'failed' ? 'execution_failed' : 'execution_completed',
+          quantity: durationMs,
+          metadata: { duration_ms: durationMs },
+          idempotencyKey: `${params.executionId}:${params.state === 'failed' ? 'execution_failed' : 'execution_completed'}`,
+        }).catch(() => undefined);
+      }
     } catch {
       if (params.state === 'paused' || params.state === 'cancelled') {
         await this.db
@@ -158,7 +192,7 @@ export class RuntimeStateStore {
       started_at: startedAt,
       completed_at: completedAt,
       updated_at: nowIso(),
-    });
+    }, { onConflict: 'execution_id,node_id,user_id' });
 
     await this.db.from('workflow_execution_steps').insert({
       execution_id: input.executionId,
@@ -203,7 +237,7 @@ export class RuntimeStateStore {
       pending_queue: input.pendingQueue,
       metadata: input.metadata ?? {},
       created_at: nowIso(),
-    });
+    }, { onConflict: 'execution_id,snapshot_version,user_id' });
   }
 
   async getLatestSnapshot(executionId: string, userId: string): Promise<{
@@ -318,7 +352,7 @@ export class RuntimeStateStore {
       resume_requested: params.resumeRequested ?? false,
       reason: params.reason ?? null,
       updated_at: nowIso(),
-    });
+    }, { onConflict: 'execution_id,user_id' });
 
     if (params.pauseRequested) {
       await emitRuntimeEvent({

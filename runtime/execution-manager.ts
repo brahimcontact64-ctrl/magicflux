@@ -88,10 +88,11 @@ export class ExecutionManager {
     input_data: Record<string, unknown>;
     retry_count: number;
     max_retries: number;
+    deployment_version_id: string | null;
   } | null> {
     const { data } = await this.db
       .from('workflow_executions_v2')
-      .select('id, workflow_id, mode, input_data, retry_count, max_retries')
+      .select('id, workflow_id, mode, input_data, retry_count, max_retries, deployment_version_id')
       .eq('id', executionId)
       .eq('user_id', userId)
       .limit(1)
@@ -106,6 +107,7 @@ export class ExecutionManager {
       input_data: (data.input_data ?? {}) as Record<string, unknown>,
       retry_count: Number(data.retry_count ?? 0),
       max_retries: Number(data.max_retries ?? 3),
+      deployment_version_id: (data.deployment_version_id as string | null) ?? null,
     };
   }
 

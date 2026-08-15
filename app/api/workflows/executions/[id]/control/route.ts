@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { ExecutionManager } from '@/runtime/execution-manager';
+import { assertExecutionOwnership } from '@/lib/security/ownership';
 
 type Ctx = { params: { id: string } };
 
@@ -24,6 +25,12 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'action must be pause, cancel, resume, or rewind' }, { status: 400 });
   }
 
+  try {
+    await assertExecutionOwnership(user.id, params.id);
+  } catch {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   const executionManager = new ExecutionManager();
 
   if (action === 'pause') {
@@ -42,15 +49,31 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   const db = createServiceClient();
-  const { data: workflow } = await db
-    .from('workflows')
-    .select('workflow_json')
-    .eq('id', execution.workflow_id)
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle();
 
-  if (!workflow?.workflow_json) {
+  // If this execution was started against a frozen deployment_versions
+  // snapshot, resume/rewind with THAT exact snapshot — not whatever
+  // workflow_json is live now (see resume/route.ts for the same fix).
+  let workflowJsonForResume: unknown = null;
+  if (execution.deployment_version_id) {
+    const { data: version } = await db
+      .from('deployment_versions')
+      .select('workflow_data')
+      .eq('id', execution.deployment_version_id)
+      .maybeSingle();
+    workflowJsonForResume = version?.workflow_data ?? null;
+  }
+  if (!workflowJsonForResume) {
+    const { data: workflow } = await db
+      .from('workflows')
+      .select('workflow_json')
+      .eq('id', execution.workflow_id)
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle();
+    workflowJsonForResume = workflow?.workflow_json ?? null;
+  }
+
+  if (!workflowJsonForResume) {
     return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
   }
 
@@ -63,7 +86,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       executionId: execution.id,
       userId: user.id,
       workflowId: execution.workflow_id,
-      workflowJson: workflow.workflow_json,
+      workflowJson: workflowJsonForResume,
       mode: execution.mode,
       toSnapshotVersion: Number(body.snapshotVersion),
       reason: body.reason,
@@ -76,7 +99,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     executionId: execution.id,
     userId: user.id,
     workflowId: execution.workflow_id,
-    workflowJson: workflow.workflow_json,
+    workflowJson: workflowJsonForResume,
     mode: execution.mode,
     inputData: execution.input_data,
     retryCount: execution.retry_count,

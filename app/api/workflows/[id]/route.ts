@@ -12,7 +12,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const db = createServiceClient();
   const { data, error } = await db
     .from('workflows')
-    .select('id, user_id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, deployed_at, created_at, updated_at')
+    .select('id, user_id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, deployed_at, created_at, updated_at, active_deployment_version_id, activated_at, deployment_error')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .maybeSingle();
@@ -20,7 +20,23 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
-  return NextResponse.json({ success: true, workflow: data });
+  let deployedVersion: number | null = null;
+  if (data.active_deployment_version_id) {
+    const { data: version } = await db
+      .from('deployment_versions')
+      .select('version')
+      .eq('id', data.active_deployment_version_id)
+      .maybeSingle();
+    deployedVersion = version?.version ?? null;
+  }
+
+  const { data: schedules } = await db
+    .from('workflow_schedules')
+    .select('id, node_id, node_name, schedule_type, cron_expression, interval_seconds, timezone, enabled, next_run_at, last_run_at, last_error')
+    .eq('workflow_id', params.id)
+    .eq('user_id', user.id);
+
+  return NextResponse.json({ success: true, workflow: { ...data, deployed_version: deployedVersion }, schedules: schedules ?? [] });
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {

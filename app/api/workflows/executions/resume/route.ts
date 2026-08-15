@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   let query = db
     .from('workflow_executions_v2')
-    .select('id, workflow_id, user_id, current_node_id, input_data, retry_count, max_retries, mode')
+    .select('id, workflow_id, user_id, current_node_id, input_data, retry_count, max_retries, mode, deployment_version_id')
     .eq('status', 'waiting')
     .eq('user_id', user.id)
     .lte('next_run_at', new Date().toISOString());
@@ -37,20 +37,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ resumed: 0, message: 'No waiting executions ready to resume' });
   }
 
-  // Load workflow JSONs
+  // Load workflow JSONs. Every execution that was started against a frozen
+  // deployment_versions snapshot (deployment_version_id set) resumes with
+  // THAT exact snapshot, not whatever workflow_json is live now — editing a
+  // workflow must not change what an in-flight execution runs when it wakes
+  // back up. Executions with no pinned version (pre-migration rows, or
+  // workflows never natively activated) fall back to the live workflow_json.
   const workflowIds = Array.from(new Set(executions.map((e) => e.workflow_id)));
+  const versionIds = Array.from(new Set(executions.map((e) => e.deployment_version_id).filter(Boolean)));
+
   const { data: workflows } = await db
     .from('workflows')
     .select('id, workflow_json')
-    .in('id', workflowIds);
+    .in('id', workflowIds)
+    .eq('user_id', user.id);
+
+  const { data: versions } = versionIds.length > 0
+    ? await db.from('deployment_versions').select('id, workflow_data').in('id', versionIds)
+    : { data: [] as Array<{ id: string; workflow_data: unknown }> };
 
   const workflowMap = new Map<string, unknown>(
     (workflows ?? []).map((w) => [w.id, w.workflow_json])
   );
+  const versionMap = new Map<string, unknown>(
+    (versions ?? []).map((v) => [v.id, v.workflow_data])
+  );
 
   const results = await Promise.allSettled(
     executions.map(async (exec) => {
-      const workflowJson = workflowMap.get(exec.workflow_id);
+      const workflowJson = (exec.deployment_version_id && versionMap.has(exec.deployment_version_id))
+        ? versionMap.get(exec.deployment_version_id)
+        : workflowMap.get(exec.workflow_id);
       if (!workflowJson) return Promise.resolve({ id: exec.id, error: 'Workflow not found' });
 
       return executionManager.resumeExecution({

@@ -19,6 +19,12 @@ import {
   ExternalLink,
   History,
   Clock,
+  Pause,
+  PlayCircle,
+  Ban,
+  Archive,
+  CalendarClock,
+  Webhook,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,6 +35,9 @@ import { requiredProvidersFromWorkflow } from '@/lib/integrations';
 import { apiRequest } from '@/lib/api/client';
 import { ExecutionStatusBadge } from '@/components/app/execution-status-badge';
 import { SetupRequiredAlert } from '@/components/app/setup-required-alert';
+import { WorkflowEditor } from '@/components/workflow-editor/WorkflowEditor';
+import type { WorkflowJson } from '@/lib/workflow-editor/types';
+import { validateWorkflow } from '@/lib/workflow-validator';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,11 +58,29 @@ type Workflow = {
   prompt: string;
   workflow_json: Record<string, unknown>;
   integrations: string[];
-  status: 'draft' | 'deployed';
+  status: 'draft' | 'deployed' | 'validating' | 'active' | 'paused' | 'disabled' | 'error' | 'archived';
   n8n_workflow_id: string | null;
   deployed_at?: string | null;
+  active_deployment_version_id?: string | null;
+  activated_at?: string | null;
+  deployment_error?: string | null;
+  deployed_version?: number | null;
   created_at: string;
   updated_at: string;
+};
+
+type WorkflowSchedule = {
+  id: string;
+  node_id: string;
+  node_name: string;
+  schedule_type: 'cron' | 'interval';
+  cron_expression: string | null;
+  interval_seconds: number | null;
+  timezone: string;
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_error: string | null;
 };
 
 type TestStep = {
@@ -182,6 +209,9 @@ export default function WorkflowDetailsPage() {
   const [workflowIntegrations, setWorkflowIntegrations] = useState<WorkflowIntegrationsPayload | null>(null);
   const [selectedIntegrationByProvider, setSelectedIntegrationByProvider] = useState<Record<string, string>>({});
   const [attachingProvider, setAttachingProvider] = useState<string | null>(null);
+  const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
+  const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
+  const [lifecycleErrors, setLifecycleErrors] = useState<string[]>([]);
 
   // DEV ONLY - remove before production
   const SHOW_DEV = true;
@@ -210,6 +240,11 @@ export default function WorkflowDetailsPage() {
   const [promptInput, setPromptInput] = useState('');
   const [jsonInput, setJsonInput] = useState('{}');
 
+  // Visual editor tab state
+  const [activeTab, setActiveTab] = useState<'visual' | 'json'>('visual');
+  // Incremented to force-remount the visual editor when the workflow is reloaded/regenerated
+  const [editorKey, setEditorKey] = useState(0);
+
   const withAuthHeaders = useCallback(async (): Promise<HeadersInit | null> => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
@@ -230,7 +265,7 @@ export default function WorkflowDetailsPage() {
       const headers = await withAuthHeaders();
       if (!headers) return;
 
-      const payload = await apiRequest<{ workflow?: Workflow }>(
+      const payload = await apiRequest<{ workflow?: Workflow; schedules?: WorkflowSchedule[] }>(
         `/api/workflows/${params.id}`,
         {
           headers,
@@ -242,11 +277,13 @@ export default function WorkflowDetailsPage() {
       if (!wf) throw new Error('Workflow not found');
 
       setWorkflow(wf);
+      setSchedules(payload?.schedules ?? []);
       setNameInput(wf.name ?? '');
       setDescriptionInput(wf.description ?? '');
       setPromptInput(wf.prompt ?? '');
       setJsonInput(JSON.stringify(wf.workflow_json ?? {}, null, 2));
       setMissingIntegrations([]);
+      setEditorKey((k) => k + 1); // remount visual editor with fresh data
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load workflow');
     } finally {
@@ -343,6 +380,49 @@ export default function WorkflowDetailsPage() {
     loadWorkflowIntegrations();
   }, [loadWorkflow, loadRuns, loadExecutions, loadWorkflowIntegrations]);
 
+  // Called by the visual editor's Save button.
+  const handleSaveFromEditor = useCallback(async (wf: WorkflowJson) => {
+    if (!workflow) return;
+
+    const result = validateWorkflow(wf as unknown);
+    if (!result.valid) {
+      toast.error(`Cannot save: ${result.errors[0]?.message ?? 'validation failed'}`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+
+      const res = await fetch(`/api/workflows/${workflow.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          name: wf.name || nameInput.trim(),
+          description: descriptionInput.trim(),
+          prompt: promptInput,
+          workflow_json: wf,
+          status: 'draft',
+        }),
+      });
+
+      const payload = await res.json().catch(() => null) as { workflow?: Workflow; error?: string } | null;
+      if (!res.ok) throw new Error(payload?.error ?? 'Failed to save workflow');
+
+      if (payload?.workflow) {
+        setWorkflow(payload.workflow);
+        setJsonInput(JSON.stringify(payload.workflow.workflow_json ?? {}, null, 2));
+        setEditorKey((k) => k + 1);
+      }
+      toast.success('Workflow saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save workflow');
+    } finally {
+      setSaving(false);
+    }
+  }, [workflow, withAuthHeaders, nameInput, descriptionInput, promptInput]);
+
   const nodesCount = useMemo(() => {
     const nodes = workflow?.workflow_json?.nodes;
     return Array.isArray(nodes) ? nodes.length : 0;
@@ -352,6 +432,25 @@ export default function WorkflowDetailsPage() {
     if (!workflow) return [] as string[];
     return requiredProvidersFromWorkflow(workflow.workflow_json);
   }, [workflow]);
+
+  const webhookInfo = useMemo(() => {
+    const nodes = workflow?.workflow_json?.nodes;
+    const list = Array.isArray(nodes) ? (nodes as Array<Record<string, unknown>>) : [];
+    const webhookNode = list.find((n) => String(n.type ?? '').toLowerCase().includes('webhook') && !String(n.type ?? '').toLowerCase().includes('trigger.'));
+    if (!webhookNode) return null;
+    const method = String((webhookNode.parameters as Record<string, unknown> | undefined)?.httpMethod ?? 'POST').toUpperCase();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return {
+      method,
+      url: workflow ? `${origin}/api/workflows/${workflow.id}/webhook` : '',
+      hasSecret: Boolean((((workflow?.workflow_json?.security ?? workflow?.workflow_json?.webhook_security) as Record<string, unknown> | undefined)?.webhook_secret)),
+    };
+  }, [workflow]);
+
+  const handleCopyWebhookUrl = useCallback(() => {
+    if (!webhookInfo?.url) return;
+    navigator.clipboard.writeText(webhookInfo.url).then(() => toast.success('Webhook URL copied')).catch(() => toast.error('Copy failed'));
+  }, [webhookInfo]);
 
   const latestRun = runs[0] ?? null;
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null;
@@ -537,6 +636,46 @@ export default function WorkflowDetailsPage() {
       setDeploying(false);
     }
   }, [workflow, withAuthHeaders, router]);
+
+  const handleLifecycleAction = useCallback(async (action: 'activate' | 'pause' | 'resume' | 'deactivate' | 'archive') => {
+    if (!workflow) return;
+
+    setLifecycleBusy(action);
+    setLifecycleErrors([]);
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+
+      const res = await fetch(`/api/workflows/${workflow.id}/lifecycle`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action }),
+      });
+      const payload = await res.json().catch(() => null) as { success?: boolean; errors?: string[]; error?: string } | null;
+
+      if (!res.ok || !payload?.success) {
+        const errors = payload?.errors ?? (payload?.error ? [payload.error] : ['Action failed']);
+        setLifecycleErrors(errors);
+        toast.error(errors[0] ?? 'Action failed');
+        await loadWorkflow();
+        return;
+      }
+
+      const successLabel: Record<typeof action, string> = {
+        activate: 'Workflow activated',
+        pause: 'Workflow paused',
+        resume: 'Workflow resumed',
+        deactivate: 'Workflow deactivated',
+        archive: 'Workflow archived',
+      };
+      toast.success(successLabel[action]);
+      await loadWorkflow();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Action failed');
+    } finally {
+      setLifecycleBusy(null);
+    }
+  }, [workflow, withAuthHeaders, loadWorkflow]);
 
   const handleDelete = useCallback(async () => {
     if (!workflow) return;
@@ -882,6 +1021,124 @@ export default function WorkflowDetailsPage() {
           )}
         </div>
 
+        <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Production Control</p>
+            <span className={
+              'text-[11px] px-2 py-1 rounded-full border ' +
+              (workflow.status === 'active' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                : workflow.status === 'paused' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                : workflow.status === 'error' ? 'bg-red-500/15 text-red-300 border-red-500/30'
+                : workflow.status === 'archived' ? 'bg-muted/40 text-muted-foreground border-border'
+                : workflow.status === 'disabled' ? 'bg-muted/40 text-muted-foreground border-border'
+                : 'bg-blue-500/15 text-blue-300 border-blue-500/30')
+            }>
+              {workflow.status}
+            </span>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-3 text-xs">
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <p className="text-muted-foreground">Deployed Version</p>
+              <p className="font-medium mt-0.5">{workflow.deployed_version ?? '—'}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <p className="text-muted-foreground">Activated At</p>
+              <p className="font-medium mt-0.5">{formatDate(workflow.activated_at)}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <p className="text-muted-foreground">Last Run</p>
+              <p className="font-medium mt-0.5">{formatDate(executions[0]?.started_at)}</p>
+            </div>
+          </div>
+
+          {workflow.status === 'error' && workflow.deployment_error && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {workflow.deployment_error}
+            </div>
+          )}
+
+          {lifecycleErrors.length > 0 && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 space-y-1">
+              {lifecycleErrors.map((err, idx) => <p key={idx}>{err}</p>)}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(workflow.status === 'draft' || workflow.status === 'disabled' || workflow.status === 'error') && (
+              <Button size="sm" className="gap-1.5" onClick={() => handleLifecycleAction('activate')} disabled={lifecycleBusy !== null}>
+                {lifecycleBusy === 'activate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                Activate
+              </Button>
+            )}
+            {workflow.status === 'active' && (
+              <>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLifecycleAction('pause')} disabled={lifecycleBusy !== null}>
+                  {lifecycleBusy === 'pause' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
+                  Pause
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLifecycleAction('deactivate')} disabled={lifecycleBusy !== null}>
+                  {lifecycleBusy === 'deactivate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+                  Deactivate
+                </Button>
+              </>
+            )}
+            {workflow.status === 'paused' && (
+              <>
+                <Button size="sm" className="gap-1.5" onClick={() => handleLifecycleAction('resume')} disabled={lifecycleBusy !== null}>
+                  {lifecycleBusy === 'resume' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+                  Resume
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLifecycleAction('deactivate')} disabled={lifecycleBusy !== null}>
+                  {lifecycleBusy === 'deactivate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+                  Deactivate
+                </Button>
+              </>
+            )}
+            {workflow.status !== 'archived' && (
+              <Button size="sm" variant="destructive" className="gap-1.5" onClick={() => handleLifecycleAction('archive')} disabled={lifecycleBusy !== null}>
+                {lifecycleBusy === 'archive' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+                Archive
+              </Button>
+            )}
+          </div>
+
+          {webhookInfo && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1.5">
+              <p className="text-xs font-medium flex items-center gap-1.5"><Webhook className="w-3.5 h-3.5" /> Production Webhook</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground font-mono">{webhookInfo.method}</span>
+                <code className="flex-1 min-w-[220px] truncate rounded bg-black/20 border border-border px-2 py-1">{webhookInfo.url}</code>
+                <Button size="sm" variant="outline" className="gap-1.5 h-7" onClick={handleCopyWebhookUrl}>
+                  <Copy className="w-3.5 h-3.5" /> Copy
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {webhookInfo.hasSecret ? 'Signature verification is configured for this webhook.' : 'No webhook secret configured — requests are accepted unsigned.'}
+                {' '}Only fires while the workflow is Active.
+              </p>
+            </div>
+          )}
+
+          {schedules.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-medium flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Schedules</p>
+              {schedules.map((s) => (
+                <div key={s.id} className="rounded-md border border-border bg-background/40 px-2.5 py-2 text-xs flex flex-wrap items-center gap-3">
+                  <span className="font-medium">{s.node_name}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground font-mono">
+                    {s.schedule_type === 'cron' ? s.cron_expression : `every ${s.interval_seconds}s`}
+                  </span>
+                  <span className="text-muted-foreground">{s.timezone}</span>
+                  <span className={s.enabled ? 'text-emerald-400' : 'text-muted-foreground'}>{s.enabled ? 'enabled' : 'disabled'}</span>
+                  {s.next_run_at && <span className="text-muted-foreground">Next: {formatDate(s.next_run_at)}</span>}
+                  {s.last_error && <span className="text-red-300 truncate max-w-[200px]">{s.last_error}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div id="workflow-integrations" className="rounded-xl border border-border bg-card p-4 space-y-3">
           <div>
             <p className="text-sm font-semibold">Workflow Integrations</p>
@@ -939,74 +1196,118 @@ export default function WorkflowDetailsPage() {
           )}
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold flex items-center gap-2">
-              <FileJson className="w-4 h-4 text-primary" />
-              Workflow JSON
-            </p>
-            {editing && (
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRegenerate} disabled={regenerating}>
-                  {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                  Regenerate
-                </Button>
-                <Button size="sm" className="gap-1.5" onClick={handleSave} disabled={saving}>
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  Save Changes
-                </Button>
-              </div>
-            )}
+        {/* ── Visual / JSON / Settings tabs ── */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          {/* Tab bar */}
+          <div className="flex items-center border-b border-border bg-muted/20 px-4">
+            {(['visual', 'json'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={
+                  'px-4 py-3 text-xs font-medium border-b-2 transition-colors ' +
+                  (activeTab === tab
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground')
+                }
+              >
+                {tab === 'visual' ? 'Visual Editor' : 'JSON Editor'}
+              </button>
+            ))}
+
+            {/* Regenerate (JSON tab) / Save (JSON tab) */}
+            <div className="ml-auto flex items-center gap-2 py-2">
+              {activeTab === 'json' && editing && (
+                <>
+                  <Button size="sm" variant="outline" className="gap-1.5 h-7" onClick={handleRegenerate} disabled={regenerating}>
+                    {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    Regenerate
+                  </Button>
+                  <Button size="sm" className="gap-1.5 h-7" onClick={handleSave} disabled={saving}>
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Save
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
-          {editing ? (
-            <div className="space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground">Workflow Name</label>
-                  <input
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Description</label>
-                  <input
-                    value={descriptionInput}
-                    onChange={(e) => setDescriptionInput(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">Prompt</label>
-                <textarea
-                  value={promptInput}
-                  onChange={(e) => setPromptInput(e.target.value)}
-                  rows={3}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary resize-y"
+          {/* Visual Editor tab */}
+          {activeTab === 'visual' && (
+            <div className="p-4">
+              {workflow.workflow_json ? (
+                <WorkflowEditor
+                  key={editorKey}
+                  initialWorkflow={workflow.workflow_json as unknown as WorkflowJson}
+                  onWorkflowChange={(wf) => {
+                    setJsonInput(JSON.stringify(wf, null, 2));
+                  }}
+                  showSaveButton
+                  onSave={handleSaveFromEditor}
+                  height="580px"
                 />
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">Editable Workflow JSON</label>
-                <textarea
-                  value={jsonInput}
-                  onChange={(e) => setJsonInput(e.target.value)}
-                  rows={18}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono leading-relaxed focus:outline-none focus:border-primary resize-y"
-                />
-              </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No workflow data available.</p>
+              )}
             </div>
-          ) : (
-            <details className="rounded-lg border border-border bg-muted/20 p-3 text-xs">
-              <summary className="cursor-pointer font-medium text-foreground">Advanced JSON</summary>
-              <pre className="mt-2 whitespace-pre-wrap break-words overflow-auto max-h-[560px]">
-                {JSON.stringify(workflow.workflow_json, null, 2)}
-              </pre>
-            </details>
+          )}
+
+          {/* JSON Editor tab */}
+          {activeTab === 'json' && (
+            <div className="p-4 space-y-3">
+              {editing ? (
+                <div className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground">Workflow Name</label>
+                      <input
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Description</label>
+                      <input
+                        value={descriptionInput}
+                        onChange={(e) => setDescriptionInput(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-muted-foreground">Prompt</label>
+                    <textarea
+                      value={promptInput}
+                      onChange={(e) => setPromptInput(e.target.value)}
+                      rows={3}
+                      className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary resize-y"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-muted-foreground">Editable Workflow JSON</label>
+                    <textarea
+                      value={jsonInput}
+                      onChange={(e) => setJsonInput(e.target.value)}
+                      rows={18}
+                      className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono leading-relaxed focus:outline-none focus:border-primary resize-y"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <details className="rounded-lg border border-border bg-muted/20 p-3 text-xs">
+                  <summary className="cursor-pointer font-medium text-foreground flex items-center gap-2">
+                    <FileJson className="w-3.5 h-3.5 text-primary" />
+                    Workflow JSON
+                  </summary>
+                  <pre className="mt-2 whitespace-pre-wrap break-words overflow-auto max-h-[560px]">
+                    {JSON.stringify(workflow.workflow_json, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
           )}
         </div>
 

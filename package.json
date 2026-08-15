@@ -13,7 +13,13 @@
     "runtime:soak": "tsx --env-file=.env.local scripts/runtime-soak.ts",
     "e2e:sse-safety": "tsx --env-file=.env.local scripts/e2e-sse-safety.ts",
     "e2e:production-deploy": "tsx --env-file=.env.local scripts/e2e-production-deploy.ts",
-    "e2e:builder-runtime-proof": "tsx --env-file=.env.local scripts/e2e-builder-runtime-proof.ts"
+    "e2e:builder-runtime-proof": "tsx --env-file=.env.local scripts/e2e-builder-runtime-proof.ts",
+    "validate:production": "tsx --env-file=.env.local scripts/validate-production.ts",
+    "seed:large": "tsx --env-file=.env.local scripts/seed-large-dataset.ts",
+    "load:test": "tsx --env-file=.env.local scripts/load-test-runtime.ts",
+    "stress:sse": "tsx --env-file=.env.local scripts/stress-test-sse.ts",
+    "chaos:webhooks": "tsx --env-file=.env.local scripts/chaos-webhooks.ts",
+    "backup:drill": "tsx --env-file=.env.local scripts/backup-drill.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -50,11 +56,13 @@
     "@types/node": "20.6.2",
     "@types/react": "18.2.22",
     "@types/react-dom": "18.2.7",
+    "@xyflow/react": "^12.11.0",
     "autoprefixer": "10.4.15",
     "bullmq": "^5.76.6",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
+    "cron-parser": "^4.9.0",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
     "eslint": "8.49.0",
@@ -79,12 +87,14 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "5.2.2",
     "vaul": "^0.9.9",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.0",
     "concurrently": "^9.1.2",
     "playwright": "^1.60.0",
-    "tsx": "^4.20.3"
+    "tsx": "^4.20.3",
+    "vitest": "^4.1.8"
   }
 }
