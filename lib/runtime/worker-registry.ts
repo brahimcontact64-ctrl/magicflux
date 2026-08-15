@@ -1,3 +1,5 @@
+import "server-only";
+
 import os from 'os';
 
 import { createServiceClient } from '@/lib/supabase-server';
@@ -30,18 +32,33 @@ export async function registerWorker(params: {
   });
 }
 
+const LIFECYCLE_STATES = new Set(['draining', 'restarting', 'stopping', 'stopped', 'crashed']);
+
 export async function heartbeatWorker(workerId: string): Promise<void> {
   const db = createServiceClient();
-  await db
+  const now = new Date().toISOString();
+
+  const { data } = await db
     .from('runtime_workers')
-    .update({
-      status: 'healthy',
-      heartbeat_at: new Date().toISOString(),
-      cpu_load: os.loadavg()[0] ?? null,
-      memory_mb: Number((process.memoryUsage().rss / 1024 / 1024).toFixed(2)),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('worker_id', workerId);
+    .select('status')
+    .eq('worker_id', workerId)
+    .limit(1)
+    .maybeSingle();
+
+  const currentStatus = (data as { status?: string } | null)?.status ?? '';
+
+  const patch: Record<string, unknown> = {
+    heartbeat_at: now,
+    cpu_load: os.loadavg()[0] ?? null,
+    memory_mb: Number((process.memoryUsage().rss / 1024 / 1024).toFixed(2)),
+    updated_at: now,
+  };
+
+  if (!LIFECYCLE_STATES.has(currentStatus)) {
+    patch.status = 'healthy';
+  }
+
+  await db.from('runtime_workers').update(patch).eq('worker_id', workerId);
 }
 
 export async function incrementWorkerJobs(workerId: string): Promise<void> {
@@ -66,7 +83,7 @@ export async function incrementWorkerJobs(workerId: string): Promise<void> {
     .eq('worker_id', workerId);
 }
 
-export async function markWorkerState(workerId: string, state: 'degraded' | 'stopping' | 'stopped' | 'crashed', error?: string): Promise<void> {
+export async function markWorkerState(workerId: string, state: 'degraded' | 'draining' | 'restarting' | 'stopping' | 'stopped' | 'crashed', error?: string): Promise<void> {
   const db = createServiceClient();
   await db
     .from('runtime_workers')

@@ -31,6 +31,7 @@ import {
   filterProvidersToGraphAllowList,
   parseRequestedProvidersFromPrompt,
 } from '@/lib/agent/provider-allowlist';
+import { filterProviders } from '@/lib/automation/extract-hard-constraints';
 
 // New autonomous systems
 import { persistentMemory } from '@/lib/memory/persistent-memory';
@@ -355,7 +356,29 @@ export async function runAgentLoop(
       }
 
       if (toolName === 'generate_workflow_json' && requestedProvidersFromPrompt.length > 0) {
-        args.requested_providers = requestedProvidersFromPrompt;
+        const constraints = automationBrain?.constraintContext;
+
+        // Under identity lock ("Telegram only", "Email only", etc.) the only
+        // valid providers are the ones explicitly allowed — use that list directly
+        // instead of the raw parser output which has no negation awareness.
+        // Otherwise filter out any providers the user explicitly negated.
+        const constrainedProviders = constraints?.identityLocked && constraints.allowedProviders.length > 0
+          ? constraints.allowedProviders
+          : (constraints ? filterProviders(requestedProvidersFromPrompt, constraints) : requestedProvidersFromPrompt);
+
+        console.log({
+          stage: 'UI-render-source',
+          source: 'loop.ts:generate_workflow_json override',
+          requestedProvidersFromPrompt,
+          constrainedProviders,
+          identityLocked: constraints?.identityLocked ?? false,
+          allowedProviders: constraints?.allowedProviders ?? [],
+          forbiddenProviders: constraints?.forbiddenProviders ?? [],
+        });
+
+        if (constrainedProviders.length > 0) {
+          args.requested_providers = constrainedProviders;
+        }
       }
 
       const task = createTask(toolName, args);

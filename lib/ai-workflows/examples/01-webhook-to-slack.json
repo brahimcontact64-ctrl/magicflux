@@ -1,0 +1,14 @@
+{
+  "name": "Webhook to Slack",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Send Slack Message",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#general", "text": "New webhook event received" }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Send Slack Message" }]] }
+  }
+}

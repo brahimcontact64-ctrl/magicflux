@@ -1,0 +1,24 @@
+{
+  "name": "Wait Then Send Follow-up Email",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Wait 10 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "parameters": { "amount": 600 }
+    },
+    {
+      "name": "Send Follow-up Email",
+      "type": "n8n-nodes-base.emailsend",
+      "parameters": {
+        "to": "user@example.com",
+        "subject": "Following Up",
+        "text": "Thank you for your recent submission. Here is your follow-up."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Wait 10 Minutes" }]] },
+    "Wait 10 Minutes":  { "main": [[{ "node": "Send Follow-up Email" }]] }
+  }
+}

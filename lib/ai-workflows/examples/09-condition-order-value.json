@@ -1,0 +1,32 @@
+{
+  "name": "Shopify Order Value Router",
+  "nodes": [
+    { "name": "Shopify Order Trigger", "type": "n8n-nodes-base.shopifytrigger" },
+    {
+      "name": "Check Order Value",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": [{ "field": "total_price", "operator": "greaterThan", "value": "100" }]
+      }
+    },
+    {
+      "name": "High Value Order Alert",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#big-orders", "text": "High value order received — total over $100!" }
+    },
+    {
+      "name": "Log Standard Order",
+      "type": "n8n-nodes-base.airtable",
+      "parameters": { "table": "Standard Orders", "baseId": "" }
+    }
+  ],
+  "connections": {
+    "Shopify Order Trigger": { "main": [[{ "node": "Check Order Value" }]] },
+    "Check Order Value": {
+      "main": [
+        [{ "node": "High Value Order Alert" }],
+        [{ "node": "Log Standard Order" }]
+      ]
+    }
+  }
+}

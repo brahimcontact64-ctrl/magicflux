@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getUserFromRequest } from '@/lib/supabase-server';
 import { GraphMutationEngine } from '@/graph/mutation-engine';
+import { assertWorkflowOwnership } from '@/lib/security/ownership';
 
 type Ctx = { params: { id: string } };
 
@@ -27,6 +28,12 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   if (!body.action || !body.reason || !body.sessionId) {
     return NextResponse.json({ error: 'sessionId, reason, and action are required' }, { status: 400 });
+  }
+
+  try {
+    await assertWorkflowOwnership(user.id, params.id);
+  } catch {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   const mutationEngine = new GraphMutationEngine();

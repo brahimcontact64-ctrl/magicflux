@@ -1,0 +1,4724 @@
+[
+  {
+    "prompt": "telegram only",
+    "constraints": {
+      "requiredProviders": [
+        "telegram"
+      ],
+      "allowedProviders": [
+        "telegram"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.542Z"
+  },
+  {
+    "prompt": "slack only",
+    "constraints": {
+      "requiredProviders": [
+        "slack"
+      ],
+      "allowedProviders": [
+        "slack"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.549Z"
+  },
+  {
+    "prompt": "shopify only",
+    "constraints": {
+      "requiredProviders": [
+        "shopify"
+      ],
+      "allowedProviders": [
+        "shopify"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.552Z"
+  },
+  {
+    "prompt": "gmail only",
+    "constraints": {
+      "requiredProviders": [
+        "gmail"
+      ],
+      "allowedProviders": [
+        "gmail"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "email",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.553Z"
+  },
+  {
+    "prompt": "whatsapp only",
+    "constraints": {
+      "requiredProviders": [
+        "whatsapp"
+      ],
+      "allowedProviders": [
+        "whatsapp"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "whatsapp"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.555Z"
+  },
+  {
+    "prompt": "openai only",
+    "constraints": {
+      "requiredProviders": [
+        "openai"
+      ],
+      "allowedProviders": [
+        "openai"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "openai"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.557Z"
+  },
+  {
+    "prompt": "google sheets only",
+    "constraints": {
+      "requiredProviders": [
+        "google_sheets"
+      ],
+      "allowedProviders": [
+        "google_sheets"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.559Z"
+  },
+  {
+    "prompt": "stripe only",
+    "constraints": {
+      "requiredProviders": [
+        "stripe"
+      ],
+      "allowedProviders": [
+        "stripe"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.561Z"
+  },
+  {
+    "prompt": "airtable only",
+    "constraints": {
+      "requiredProviders": [
+        "airtable"
+      ],
+      "allowedProviders": [
+        "airtable"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "airtable"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.563Z"
+  },
+  {
+    "prompt": "hubspot only",
+    "constraints": {
+      "requiredProviders": [
+        "hubspot"
+      ],
+      "allowedProviders": [
+        "hubspot"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.564Z"
+  },
+  {
+    "prompt": "telegram only. No whatsapp.",
+    "constraints": {
+      "requiredProviders": [
+        "telegram"
+      ],
+      "allowedProviders": [
+        "telegram"
+      ],
+      "forbiddenProviders": [
+        "whatsapp"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.566Z"
+  },
+  {
+    "prompt": "slack only. No hubspot. No airtable.",
+    "constraints": {
+      "requiredProviders": [
+        "slack"
+      ],
+      "allowedProviders": [
+        "slack"
+      ],
+      "forbiddenProviders": [
+        "airtable",
+        "hubspot"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.567Z"
+  },
+  {
+    "prompt": "shopify only. No openai.",
+    "constraints": {
+      "requiredProviders": [
+        "shopify"
+      ],
+      "allowedProviders": [
+        "shopify"
+      ],
+      "forbiddenProviders": [
+        "openai"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.568Z"
+  },
+  {
+    "prompt": "telegram only. No AI. No monitoring. No logging.",
+    "constraints": {
+      "requiredProviders": [
+        "telegram"
+      ],
+      "allowedProviders": [
+        "telegram"
+      ],
+      "forbiddenProviders": [
+        "openai",
+        "claude",
+        "cloudflare_ai",
+        "elevenlabs",
+        "deepgram",
+        "twitter"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [
+        "chatbot",
+        "memory",
+        "text_to_speech",
+        "speech_to_text",
+        "vision_analysis",
+        "vector_search",
+        "ai_scoring",
+        "monitoring",
+        "analytics",
+        "reporting",
+        "database_storage"
+      ],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.569Z"
+  },
+  {
+    "prompt": "whatsapp only. No meta messaging. No telegram.",
+    "constraints": {
+      "requiredProviders": [
+        "whatsapp"
+      ],
+      "allowedProviders": [
+        "whatsapp"
+      ],
+      "forbiddenProviders": [
+        "telegram"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "whatsapp"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.571Z"
+  },
+  {
+    "prompt": "Forward Gmail to Slack. No Airtable.",
+    "constraints": {
+      "requiredProviders": [
+        "slack",
+        "gmail"
+      ],
+      "allowedProviders": [
+        "slack",
+        "gmail"
+      ],
+      "forbiddenProviders": [
+        "airtable"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "email",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.572Z"
+  },
+  {
+    "prompt": "Shopify + HubSpot integration",
+    "constraints": {
+      "requiredProviders": [
+        "hubspot",
+        "shopify"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.572Z"
+  },
+  {
+    "prompt": "Telegram + Google Sheets. No AI.",
+    "constraints": {
+      "requiredProviders": [
+        "google_sheets",
+        "telegram"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [
+        "openai",
+        "claude",
+        "cloudflare_ai",
+        "elevenlabs",
+        "deepgram",
+        "twitter"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [
+        "chatbot",
+        "memory",
+        "text_to_speech",
+        "speech_to_text",
+        "vision_analysis",
+        "vector_search",
+        "ai_scoring"
+      ],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.574Z"
+  },
+  {
+    "prompt": "Stripe + Shopify. No Slack.",
+    "constraints": {
+      "requiredProviders": [
+        "stripe",
+        "shopify"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [
+        "slack"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.574Z"
+  },
+  {
+    "prompt": "WA only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.575Z"
+  },
+  {
+    "prompt": "tg only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.575Z"
+  },
+  {
+    "prompt": "chatgpt only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [
+        "receive_message"
+      ],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "message",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.577Z"
+  },
+  {
+    "prompt": "gpt only",
+    "constraints": {
+      "requiredProviders": [
+        "openai"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.577Z"
+  },
+  {
+    "prompt": "hub spot only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.578Z"
+  },
+  {
+    "prompt": "google drive only",
+    "constraints": {
+      "requiredProviders": [
+        "google_drive"
+      ],
+      "allowedProviders": [
+        "google_drive"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 30
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 15
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.579Z"
+  },
+  {
+    "prompt": "gdrive only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.579Z"
+  },
+  {
+    "prompt": "telegram only. No AI. No monitoring. No extraction.",
+    "constraints": {
+      "requiredProviders": [
+        "telegram"
+      ],
+      "allowedProviders": [
+        "telegram"
+      ],
+      "forbiddenProviders": [
+        "openai",
+        "claude",
+        "cloudflare_ai",
+        "elevenlabs",
+        "deepgram",
+        "twitter"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [
+        "chatbot",
+        "memory",
+        "text_to_speech",
+        "speech_to_text",
+        "vision_analysis",
+        "vector_search",
+        "ai_scoring",
+        "document_extraction",
+        "scraping",
+        "search",
+        "lead_enrichment",
+        "monitoring"
+      ],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "transform",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.581Z"
+  },
+  {
+    "prompt": "When a message arrives.",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [
+        "receive_message"
+      ],
+      "forbiddenCapabilities": [
+        "scheduling",
+        "calendar"
+      ],
+      "executionMode": "event-driven",
+      "triggerMode": "message",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.581Z"
+  },
+  {
+    "prompt": "Every day at 9am.",
+    "constraints": {
+      "requiredProviders": [
+        "scheduler"
+      ],
+      "allowedProviders": [
+        "scheduler"
+      ],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [
+        "scheduling"
+      ],
+      "forbiddenCapabilities": [],
+      "executionMode": "scheduled",
+      "triggerMode": "scheduler",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.582Z"
+  },
+  {
+    "prompt": "Use telegram_bot only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.582Z"
+  },
+  {
+    "prompt": "WA-Business only",
+    "constraints": {
+      "requiredProviders": [],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.583Z"
+  },
+  {
+    "prompt": "GPT-4 workflow",
+    "constraints": {
+      "requiredProviders": [
+        "openai"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.583Z"
+  },
+  {
+    "prompt": "Telegram seulement, pas WhatsApp",
+    "constraints": {
+      "requiredProviders": [
+        "telegram",
+        "whatsapp"
+      ],
+      "allowedProviders": [],
+      "forbiddenProviders": [],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": false
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ]
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": [
+          "openai",
+          "claude",
+          "supabase"
+        ]
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 0
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 0
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 0
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 0
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 0
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.583Z"
+  },
+  {
+    "prompt": "telegram only. no whatsapp whatsoever.",
+    "constraints": {
+      "requiredProviders": [
+        "telegram"
+      ],
+      "allowedProviders": [
+        "telegram"
+      ],
+      "forbiddenProviders": [
+        "whatsapp"
+      ],
+      "requiredCapabilities": [],
+      "forbiddenCapabilities": [],
+      "executionMode": "unknown",
+      "triggerMode": "unknown",
+      "actionMode": "unknown",
+      "identityLocked": true
+    },
+    "providerFilterResults": [
+      {
+        "candidates": [
+          "stripe",
+          "airtable",
+          "openai",
+          "slack",
+          "gmail"
+        ],
+        "surviving": []
+      },
+      {
+        "candidates": [
+          "telegram",
+          "whatsapp",
+          "slack"
+        ],
+        "surviving": [
+          "telegram"
+        ]
+      },
+      {
+        "candidates": [
+          "openai",
+          "claude",
+          "supabase"
+        ],
+        "surviving": []
+      }
+    ],
+    "penaltyResults": [
+      {
+        "patternName": "Telegram Reply Agent",
+        "penalty": 0
+      },
+      {
+        "patternName": "Telegram+WhatsApp Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Telegram + WA Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "Generic Summarizer",
+        "penalty": 0
+      },
+      {
+        "patternName": "WhatsApp Commerce Pack",
+        "penalty": 15
+      },
+      {
+        "patternName": "Slack Notifier",
+        "penalty": 15
+      },
+      {
+        "patternName": "GPT-4 Bot",
+        "penalty": 15
+      },
+      {
+        "patternName": "hub-spot integration",
+        "penalty": 15
+      },
+      {
+        "patternName": "whatsapp_commerce",
+        "penalty": 15
+      },
+      {
+        "patternName": "telegram_bot",
+        "penalty": 0
+      }
+    ],
+    "normalizationResults": [
+      {
+        "input": "WA-Business",
+        "output": "wa business"
+      },
+      {
+        "input": "telegram_bot",
+        "output": "telegram bot"
+      },
+      {
+        "input": "GPT-4",
+        "output": "gpt 4"
+      },
+      {
+        "input": "hub-spot",
+        "output": "hub spot"
+      },
+      {
+        "input": "whatsapp_commerce",
+        "output": "whatsapp commerce"
+      },
+      {
+        "input": "FACEBOOK_BOT",
+        "output": "facebook bot"
+      },
+      {
+        "input": "google_sheets_sync",
+        "output": "google sheets sync"
+      },
+      {
+        "input": "Open-AI",
+        "output": "open ai"
+      },
+      {
+        "input": "Canva-Design",
+        "output": "canva design"
+      },
+      {
+        "input": "slack-notify",
+        "output": "slack notify"
+      }
+    ],
+    "timestamp": "2026-05-19T19:45:03.584Z"
+  }
+]

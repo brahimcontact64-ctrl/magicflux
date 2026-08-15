@@ -1,7 +1,7 @@
 import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
 
 type BrainCapability = { key: string; reason?: string; confidence?: number };
-type SkillPack = { capabilities?: string[]; [key: string]: unknown };
+type SkillPack = { capabilities?: string[]; classification?: { identityLocked?: boolean }; [key: string]: unknown };
 type BrainPattern = { requiredCapabilities?: string[]; [key: string]: unknown };
 type Composition = { executionFrequency?: string };
 
@@ -16,8 +16,14 @@ function hasScheduleTrigger(workflowGraph?: WorkflowGraphSummary | null): boolea
   if (!workflowGraph) return false;
   return (workflowGraph.nodes ?? []).some((node) => {
     if (node.kind !== 'trigger') return false;
-    const signal = `${node.type ?? ''} ${node.provider ?? ''} ${node.label ?? ''} ${node.name ?? ''}`.toLowerCase();
-    return /cron|schedule|interval|scheduler/.test(signal);
+    const type = String(node.type ?? '').toLowerCase();
+    const provider = String(node.provider ?? '').toLowerCase();
+    const capability = String(node.capability ?? '').toLowerCase();
+    return provider === 'scheduler'
+      || capability === 'scheduling'
+      || type === 'cron'
+      || type.endsWith('.cron')
+      || type.endsWith('.scheduletrigger');
   });
 }
 
@@ -46,7 +52,7 @@ export function sanitizeAutomationBrainForGraph<T extends AutomationBrainLike>(
       ...pack,
       capabilities: (pack.capabilities ?? []).filter((capability) => capability !== 'scheduling'),
     }))
-    .filter((pack) => (pack.capabilities ?? []).length > 0);
+    .filter((pack) => (pack.capabilities ?? []).length > 0 || pack.classification?.identityLocked === true);
   const cleanedPatterns = (brain.matchedPatterns ?? []).map((pattern) => ({
     ...pattern,
     ...(Array.isArray(pattern.requiredCapabilities)

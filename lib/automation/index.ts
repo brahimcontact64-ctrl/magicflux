@@ -1,9 +1,13 @@
-export { analyzeAutomationPrompt, constrainAutomationBrainToGraph, toAutomationBrainPromptContext } from './engine';
+export { analyzeAutomationPrompt, constrainAutomationBrainToGraph, enforceHardConstraintsInvariant, toAutomationBrainPromptContext } from './engine';
 export { sanitizeAutomationBrainForGraph } from './sanitize-automation-brain-for-graph';
 export { recordWorkflowFeedback } from './feedback';
 export type {
   AutomationBrainResult,
   CapabilityInference,
+  LockEvidenceItem,
+  PatternClassification,
+  PatternKind,
+  PatternLockReason,
   PatternMatch,
   ProviderResolution,
   SkillPackActivation,

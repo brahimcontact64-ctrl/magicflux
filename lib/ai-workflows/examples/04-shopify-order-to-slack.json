@@ -1,0 +1,14 @@
+{
+  "name": "Shopify Order to Slack",
+  "nodes": [
+    { "name": "Shopify Order Trigger", "type": "n8n-nodes-base.shopifytrigger" },
+    {
+      "name": "Notify Orders Channel",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#orders", "text": "New Shopify order received!" }
+    }
+  ],
+  "connections": {
+    "Shopify Order Trigger": { "main": [[{ "node": "Notify Orders Channel" }]] }
+  }
+}

@@ -1,0 +1,2408 @@
+[
+  {
+    "path": ".gitignore",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/admin/deploy/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/admin/generate/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/health/runtime/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/n8n/orchestrate/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/n8n/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/repair/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/[id]/graph/mutate/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/[id]/live-test/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/[id]/route.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/api/workflows/[id]/test/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/[id]/webhook/route.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "app/api/workflows/executions/[id]/control/route.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/api/workflows/executions/[id]/steps/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/executions/resume/route.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/api/workflows/test/route.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/dashboard/workflows/[id]/page.tsx",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/globals.css",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/builder/chat-interface.tsx",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/agent/executor.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/agent/loop.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/agent/provider-allowlist.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/agent/workflow-graph.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/engine.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/index.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/sanitize-automation-brain-for-graph.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/types.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/billing/plan-limits.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "lib/builder/runtime-state.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/conversation/service.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/integrations.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/planner/index.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/queue.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/runtime/redis.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/worker-registry.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/worker.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/security/encryption.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/user-integrations.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/airtable.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/code.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/email.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/index.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/shopify.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/slack.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/types.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "package-lock.json",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "package.json",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "runtime/execution-manager.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "runtime/hardening-layer.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "runtime/node-runner.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "runtime/runtime-state.ts",
+    "status": "modified",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "runtime/workflow-engine.ts",
+    "status": "modified",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "scripts/runtime-worker.ts",
+    "status": "modified",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/integration-crypto.ts",
+    "status": "deleted",
+    "phase": "7",
+    "reason": "Already showed as deleted in the git status captured at the very start of this multi-session engagement, predating Phase 8 — attributed to the Phase 7/7.5 credential-security rework (e.g. lib/integration-crypto.ts superseded by lib/security/encryption.ts), per retained session memory, not independently re-verified this session. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/workflow-runtime/index.ts",
+    "status": "deleted",
+    "phase": "7",
+    "reason": "Already showed as deleted in the git status captured at the very start of this multi-session engagement, predating Phase 8 — attributed to the Phase 7/7.5 credential-security rework (e.g. lib/integration-crypto.ts superseded by lib/security/encryption.ts), per retained session memory, not independently re-verified this session. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/.temp/cli-latest",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/gotrue-version",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/linked-project.json",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/pooler-url",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/postgres-version",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/project-ref",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/rest-version",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/storage-migration",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "supabase/.temp/storage-version",
+    "status": "deleted",
+    "phase": "generated",
+    "reason": "Tracked CLI-generated Supabase state file, now absent from disk (regenerated/removed by a local `supabase` CLI run). Recommend committing the removal and relying on the new .gitignore entry to prevent re-tracking."
+  },
+  {
+    "path": "__mocks__/server-only.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/ai/workflows/generate/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/credentials/connect/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/credentials/delete/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/credentials/health/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/credentials/status/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/cron/dispatch-schedules/route.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/api/cron/reverify-credentials/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/executions/[id]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/executions/metrics/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/executions/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/integrations/intelligence/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/oauth/callback/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/oauth/refresh/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/oauth/start/route.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "app/api/runtime/commands/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/compaction/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/alerts/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/commands/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/cost/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/executions/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/executions/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/health-history/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/incidents/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/metrics/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/operator-actions/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/overview/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/rbac/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/replay-visualizer/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/retention/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/sla/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/stream/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/traces/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/workers/[workerId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/control/workers/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/replay-integrity/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/replay/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/self-heal/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/snapshot/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/runtime/timeline/[executionId]/route.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/api/workflows/[id]/lifecycle/route.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "app/executions/[id]/loading.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/executions/[id]/page.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/executions/loading.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/executions/page.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/runtime/control/page.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "app/workflows/new-ai/page.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/ai-workflows/AiWorkflowGeneratorPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/ai-workflows/WorkflowNodeFlow.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/builder/AutomationBrain.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/AlertsPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/CommandsPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/CostPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/ExecutionDetailModal.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/ExecutionsPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/GlobalRuntimeAlerts.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/HealthTrendChart.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/IncidentsPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/ObservabilityPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/OperatorAuditDrawer.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/OverviewPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/ReplayVisualizer.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/SlaPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/TraceViewer.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/WorkerDetailSheet.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/WorkersPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/types.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/use-auto-refresh.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/use-control-api.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/control/use-runtime-stream.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/credentials/CredentialCard.tsx",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "components/credentials/CredentialPicker.tsx",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "components/credentials/CredentialsPage.tsx",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "components/execution/DurationBadge.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/ExecutionFilterBar.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/ExecutionListTable.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/ExecutionMetricsBar.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/ExecutionStepCard.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/ExecutionTimeline.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/NodeDetailDrawer.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/NodeTypeIcon.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/execution/StatusBadge.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/integrations/ConnectionModal.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/runs/RunDetails.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/runs/RunHistory.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/runs/RunTimeline.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/ExecutionPreview.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/FieldInput.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/NodePalette.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/NodeSettingsPanel.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/WorkflowEditor.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/WorkflowNodeCard.tsx",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "components/workflow-editor/context.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/PRODUCTION_DEPLOYMENT_CHECKLIST.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/command-ownership-security-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/database-chaos-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/database-performance-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/logging-migration-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/observability-audit.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/phase21-final-certification.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/phase22-final-launch-decision.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/phase23-security-remediation-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/phase231-security-hardening-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/phase232-auth-failure-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/production-certification.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/red-team-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/redis-chaos-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/release/phase8_2-file-manifest.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/scalability-report.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "docs/security-audit.md",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/agent/capability-graph.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/ai-workflow-spec.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/01-webhook-to-slack.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/02-webhook-to-email.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/03-webhook-to-airtable.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/04-shopify-order-to-slack.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/05-shopify-order-to-email.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/06-shopify-order-to-airtable.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/07-shopify-slack-airtable.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/08-condition-vip-customer.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/09-condition-order-value.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/10-wait-then-email.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/11-wait-then-slack.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/12-shopify-wait-slack.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/13-multi-notification.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/14-fanout-workflow.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/examples/index.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/prompt-templates.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/training-dataset.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/workflow-generator.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/ai-workflows/workflow-repair.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/explain-pattern-decision.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/automation/extract-hard-constraints.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/credentials/automation-brain-utils.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/intelligence.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/oauth-providers.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/oauth-refresh.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/oauth-state.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/provider-registry.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/provider-verifier.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/stale-verifier.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/storage.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/store.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/types.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/credentials/validation.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "lib/execution/client.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/compiler.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/airtable.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/code.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/condition.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/delay.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/email.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/http.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/index.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/openai.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/slack.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/handlers/trigger.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/plan-types.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/execution/types.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/index.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/ai.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/control.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/http.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/messaging.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/storage.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/nodes/triggers.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/node-registry/types.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/alert-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/anomaly-detector.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/command-bus.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/compaction.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/concurrency-guard.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/runtime/cost-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/deterministic-clock.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/drain-signal.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/event-store.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/execution-dispatch.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/runtime/health-score-v2.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/idempotency.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/runtime/incident-manager.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/logger.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/metrics-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/metrics.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/rbac.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/replay-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/replay-integrity.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/runtime-context.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/runtime-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/runtime-result.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/scheduler.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "lib/runtime/self-healer.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/sla-engine.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/runtime/usage-metering.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "lib/runtime/worker-lifecycle.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/security/ownership.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-editor/convert.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-editor/layout.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-editor/types.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/googledrive.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/http.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/openai.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/node-handlers/ssrf-guard.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-runtime/sample-data.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow-validator/index.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "lib/workflow/lifecycle.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "scripts/_tmp_build_manifest.js",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/backup-drill.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/chaos-webhooks.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/load-test-runtime.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/poc-credential-exfiltration.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/probe-normalize.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/redis-chaos-test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/replay-dataset.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/replay-fixtures.json",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/seed-large-dataset.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/smoke-test-providers.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/stress-test-sse.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-adversarial-prompts.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-automation-brain-refresh.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-automation-brain-ui.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-capability-graph.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-capability-integration.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-chaos-runtime.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-classification.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-command-ownership-security.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-credential-finalization.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-credential-intelligence.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-credential-storage.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-golden-rankings.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-integration-intelligence.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-negation-aware-providers.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-negation-provider.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-oauth-e2e.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-oauth-flow.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-oauth-migration.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-observability.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-ownership-security.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-pattern-filtering.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-phase23-security.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-phase231-security.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-phase232-auth-failure.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-production-readiness.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-provider-validation.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-queue-reliability.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/test-telegram-only.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/validate-phase7-environment.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "scripts/validate-production.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "store/execution-store.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/.gitignore",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/config.toml",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "supabase/migrations/20260509091500_execution_v2_tables.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260518000001_add_pattern_kind_classification.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260520000001_integration_credentials.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260520000002_credential_verifications.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260520000003_save_credentials_with_verification_fn.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260520000004_get_stale_credential_users_fn.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260522000001_migrate_google_oauth_credential_keys.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260522000002_ownership_rls_hardening.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260522000003_workflow_deployments_rls.sql",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "supabase/migrations/20260523000001_runtime_multitenant_hardening.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260524000001_runtime_anomaly_observability.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260525000001_runtime_self_healing.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260525000002_runtime_phase8_hardening.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260525000003_runtime_phase11_node_key.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260528000001_runtime_phase12_fencing_tokens.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260528000002_runtime_phase13_event_sourcing.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260529000001_runtime_phase14_command_bus.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260530000001_runtime_phase15_incidents_control.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260530000002_runtime_phase17_health_history.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000001_runtime_phase18_metrics.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000002_runtime_phase18_sla.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000003_runtime_phase18_cost.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000004_runtime_phase18_rbac.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000005_runtime_phase18_alerts.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260531000006_runtime_phase18_hardening.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260601000001_runtime_event_immutability.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260601000002_metrics_retention.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260601000003_fix_permissive_rls.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260601000004_preserve_operator_access.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260602000001_command_ownership_guard.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260603000001_execution_debugger.sql",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "supabase/migrations/20260605000001_phase8_workflow_lifecycle_and_scheduler.sql",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "supabase/migrations/20260610000001_phase8_1_production_hardening.sql",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/ai-workflow-builder-integration.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/ai-workflow-generate-api.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/ai-workflows.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/allowlist-consistency.security.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/code-node-sandbox.security.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/concurrency-and-quota.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/concurrency-atomic.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/control-plane.security.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Originally introduced/modified in Phase 8, modified again in Phase 8.1; the current uncommitted diff reflects Phase 8.1 work on top of it."
+  },
+  {
+    "path": "tests/crash-safety-concurrency-reclaim.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/crash-safety-dispatch.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/crash-safety-usage-resume.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/credential-bridge.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/credential-e2e-mocked.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/credential-injection-allowlist.security.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/credential-injection.security.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/credentials.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/dag-branching.test.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "tests/encryption-consolidation.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/execution-compiler.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/execution-dispatch.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/execution-engine.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/execution-v2-migration.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/final-verification.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/generic-api-key-credential.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/idempotency.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/n8n-auth-fix.integration.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/node-config-save.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/node-handlers-real.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/node-registry.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/red-team-credential-injection.security.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/required-providers.security.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/run-history.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/run-viewer-authorization.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/runtime-auth-failure.integration.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/runtime-e2e-mocked.test.ts",
+    "status": "untracked",
+    "phase": "7",
+    "reason": "Credential/OAuth/production-runtime-foundation path, attributed to Phase 7/7.5 per retained session memory; git history has no per-file granularity to independently confirm 7 vs 7.5, so both are reported together rather than guessing a split. (Bucketed as Phase 7 rather than a combined label to match the required A-G schema; Phase 7.5 may have also touched a subset of these files, but per-file 7-vs-7.5 attribution is not independently verifiable from git history — the repository has no granular per-file commit history for this uncommitted working-tree diff.)"
+  },
+  {
+    "path": "tests/runtime-engine.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/scheduler.test.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "tests/security-cross-tenant-idempotency.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/security-forged-webhook-id.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/security-queue-payload.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/security-webhook-response-leakage.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/security-worker-tamper-resistance.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/ssrf-guard.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/usage-metering.test.ts",
+    "status": "untracked",
+    "phase": "8.1",
+    "reason": "Created or modified directly by this session's Phase 8.1 work (execution-dispatch/concurrency/idempotency/usage-metering)."
+  },
+  {
+    "path": "tests/workflow-editor-convert.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/workflow-editor-history.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/workflow-editor-layout.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/workflow-editor-save-load.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/workflow-generator.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "tests/workflow-lifecycle.test.ts",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "tests/workflow-validator.test.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  },
+  {
+    "path": "vercel.json",
+    "status": "untracked",
+    "phase": "8",
+    "reason": "Created or modified directly by this session's Phase 8 work (workflow lifecycle, scheduler, webhook hardening v1)."
+  },
+  {
+    "path": "vitest.config.ts",
+    "status": "untracked",
+    "phase": "pre-existing",
+    "reason": "Present in the working tree with no direct session record of being authored in Phase 7, 7.5, 8, or 8.1; classified as pre-existing/unrelated rather than guessed into a specific phase."
+  }
+]

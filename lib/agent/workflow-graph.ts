@@ -106,6 +106,24 @@ function classifyNode(node: N8nNode): Pick<WorkflowGraphNode, 'kind' | 'integrat
 }
 
 function inferScheduleLabel(node: N8nNode): string {
+  const type = String(node.type ?? '').toLowerCase();
+  const provider = String(node.provider ?? '').toLowerCase();
+  const capability = String(node.capability ?? '').toLowerCase();
+  const paramsMeta = ((node.parameters ?? {})['providerMeta'] ?? {}) as Record<string, unknown>;
+  const triggerKind = String(paramsMeta.triggerKind ?? '').toLowerCase();
+  const triggerType = String(paramsMeta.triggerType ?? paramsMeta.type ?? '').toLowerCase();
+
+  const schedulerNode =
+    provider === 'scheduler'
+    || capability === 'scheduling'
+    || triggerKind === 'scheduler'
+    || triggerType === 'cron'
+    || type === 'cron'
+    || type.endsWith('.cron')
+    || type.endsWith('.scheduletrigger');
+
+  if (!schedulerNode) return String(node.name ?? 'Event trigger');
+
   const raw = JSON.stringify(node.parameters ?? {}).toLowerCase();
   if (/\*\/15\s+\*\s+\*\s+\*\s+\*/.test(raw) || (/15/.test(raw) && /minute|minutely/.test(raw))) {
     return 'Every 15 minutes';
@@ -120,8 +138,12 @@ function inferScheduleLabel(node: N8nNode): string {
 
 function isScheduleTrigger(node: Pick<WorkflowGraphNode, 'kind' | 'label' | 'name' | 'provider' | 'type'>): boolean {
   if (node.kind !== 'trigger') return false;
-  const haystack = `${node.label} ${node.name} ${node.provider ?? ''} ${node.type}`.toLowerCase();
-  return /schedule|cron|interval|hourly|daily|minutely/.test(haystack);
+  const type = String(node.type ?? '').toLowerCase();
+  const provider = String(node.provider ?? '').toLowerCase();
+  return provider === 'scheduler'
+    || type === 'cron'
+    || type.endsWith('.cron')
+    || type.endsWith('.scheduletrigger');
 }
 
 function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'provider' | 'capability' | 'requiresCredentials' | 'credentialSchema' | 'displayName' | 'label' | 'kind' | 'integration'> {
@@ -148,9 +170,9 @@ function extractExplicitNodeMetadata(node: N8nNode): Pick<WorkflowGraphNode, 'pr
       : classified.kind;
 
   const name = String(node.name ?? 'Workflow step');
-  const label = String(node.label ?? paramsMeta.label ?? (kind === 'trigger' ? inferScheduleLabel(node) : name));
-  const displayName = String(node.displayName ?? paramsMeta.displayName ?? (canonicalProvider ? providerDisplayName(canonicalProvider) : name));
   const capability = String(node.capability ?? paramsMeta.capability ?? (canonicalProvider ? `${canonicalProvider}_operation` : 'workflow_step'));
+  const label = String(node.label ?? paramsMeta.label ?? (kind === 'trigger' ? inferScheduleLabel({ ...node, provider: canonicalProvider, capability }) : name));
+  const displayName = String(node.displayName ?? paramsMeta.displayName ?? (canonicalProvider ? providerDisplayName(canonicalProvider) : name));
 
   return {
     provider: canonicalProvider,

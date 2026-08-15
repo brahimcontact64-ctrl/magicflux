@@ -1,0 +1,20 @@
+{
+  "name": "Shopify Order to Slack then Airtable",
+  "nodes": [
+    { "name": "Shopify Order Trigger", "type": "n8n-nodes-base.shopifytrigger" },
+    {
+      "name": "Notify Team on Slack",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#orders", "text": "New order received — recording in database." }
+    },
+    {
+      "name": "Log Order in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "parameters": { "table": "Orders", "baseId": "" }
+    }
+  ],
+  "connections": {
+    "Shopify Order Trigger": { "main": [[{ "node": "Notify Team on Slack" }]] },
+    "Notify Team on Slack":  { "main": [[{ "node": "Log Order in Airtable" }]] }
+  }
+}

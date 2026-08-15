@@ -8,6 +8,7 @@ import {
   normalizeProvider as normalizeGraphProvider,
 } from '@/lib/agent/provider-allowlist';
 import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
+import type { PatternClassification } from '@/lib/automation/types';
 
 const RUNTIME_STATE_VERSION = 2;
 const RUNTIME_PERSIST_KEY = 'magicflux.builder.runtime_state';
@@ -91,6 +92,7 @@ export type AutomationBrainSummary = {
     capabilities: string[];
     tools: string[];
     matchScore: number;
+    classification?: PatternClassification;
   }>;
   matchedPatterns: Array<{
     name: string;
@@ -99,6 +101,7 @@ export type AutomationBrainSummary = {
     estimatedCost: number;
     estimatedComplexity: 'simple' | 'moderate' | 'complex';
     risk: 'low' | 'medium' | 'high';
+    classification?: PatternClassification;
   }>;
   composition: {
     executionFrequency: string;
@@ -294,23 +297,37 @@ export function validateRuntimeState(input: unknown): {
 }
 
 export function createRuntimeState(seed?: Partial<BuilderRuntimeState>): BuilderRuntimeState {
+  const normalizedWorkflowGraph = normalizeHydratedWorkflowGraph(seed?.workflowGraph);
+  const normalizedAutomationBrain = sanitizeAutomationBrainForGraph(seed?.automationBrain, normalizedWorkflowGraph);
+  const normalizedConversation = (seed?.conversation ?? [defaultWelcomeMessage()]).map((message) => {
+    const messageWorkflowGraph = normalizeHydratedWorkflowGraph(message.workflowGraph ?? normalizedWorkflowGraph);
+    return {
+      ...message,
+      workflowGraph: messageWorkflowGraph,
+      automationBrain: sanitizeAutomationBrainForGraph(message.automationBrain, messageWorkflowGraph),
+    };
+  });
+  const normalizedWorkflowSummary = normalizedWorkflowGraph
+    ? deriveWorkflowSummary(normalizedWorkflowGraph)
+    : seed?.workflowSummary;
+
   console.log({
     stage: 'STATE-WRITE',
     source: 'lib/builder/runtime-state.ts createRuntimeState',
-    incomingCapabilities: seed?.automationBrain?.capabilities?.map((x) => x.key),
+    incomingCapabilities: normalizedAutomationBrain?.capabilities?.map((x) => x.key),
     prevCapabilities: undefined,
-    graphTrigger: seed?.workflowGraph?.nodes?.find((n) => n.kind === 'trigger'),
-    schedule: seed?.workflowSummary?.schedule,
+    graphTrigger: normalizedWorkflowGraph?.nodes?.find((n) => n.kind === 'trigger'),
+    schedule: normalizedWorkflowSummary?.schedule,
   });
 
   return {
     version: RUNTIME_STATE_VERSION,
     session: { id: seed?.session?.id ?? `conv-${Date.now()}` },
-    conversation: seed?.conversation ?? [defaultWelcomeMessage()],
-    workflowGraph: seed?.workflowGraph,
-    automationBrain: seed?.automationBrain,
+    conversation: normalizedConversation,
+    workflowGraph: normalizedWorkflowGraph,
+    automationBrain: normalizedAutomationBrain,
     integrationCards: seed?.integrationCards ?? [],
-    workflowSummary: seed?.workflowSummary,
+    workflowSummary: normalizedWorkflowSummary,
     deployState: seed?.deployState ?? {
       blocked: false,
       ready: false,
@@ -404,27 +421,9 @@ export function sanitizeVisibleText(input: unknown, fallback = ''): string {
 
 export function normalizeAssistantCopy(
   content: string,
-  brain?: AutomationBrainSummary | null
+  _brain?: AutomationBrainSummary | null
 ): string {
-  let normalized = normalizeProviderMentions(content);
-  const hasSpeechCapabilities = (brain?.capabilities ?? []).some(
-    (capability) => capability.key === 'speech_to_text' || capability.key === 'audio_processing'
-  );
-  const hasVoiceCopy = /voice|transcrib|speech/i.test(normalized);
-  if (hasSpeechCapabilities && hasVoiceCopy) {
-    normalized = normalized.replace(/\bOpenAI\b/g, 'Deepgram');
-    normalized = normalized.replace(/OpenAI's Whisper model/gi, 'Deepgram speech-to-text');
-  }
-
-  if (hasSpeechCapabilities) {
-    normalized = normalized
-      .replace(/\bVoice Processing\b/gi, 'Deepgram Voice Processing')
-      .replace(/\bVoice to Text\b/gi, 'Deepgram Speech-to-Text')
-      .replace(/\bVoice Transcription\b/gi, 'Deepgram Speech-to-Text')
-      .replace(/\bVoice notes to text\b/gi, 'voice notes to text with Deepgram');
-  }
-
-  return normalized;
+  return normalizeProviderMentions(content);
 }
 
 function toTitleCase(value: string): string {
@@ -698,8 +697,14 @@ function hasScheduleTrigger(graph?: WorkflowGraphSummary): boolean {
   if (!graph) return false;
   return graph.nodes.some((node) => {
     if (node.kind !== 'trigger') return false;
-    const haystack = `${node.type ?? ''} ${node.provider ?? ''} ${node.label ?? ''} ${node.name ?? ''}`.toLowerCase();
-    return /cron|schedule|interval|scheduler/.test(haystack);
+    const type = String(node.type ?? '').toLowerCase();
+    const provider = String(node.provider ?? '').toLowerCase();
+    const capability = String(node.capability ?? '').toLowerCase();
+    return provider === 'scheduler'
+      || capability === 'scheduling'
+      || type === 'cron'
+      || type.endsWith('.cron')
+      || type.endsWith('.scheduletrigger');
   });
 }
 
@@ -720,17 +725,63 @@ function formatDollars(value: number): string {
 function detectSchedule(graph: WorkflowGraphSummary): string {
   const trigger = selectPreferredTrigger(graph);
   if (!trigger) return 'On-demand/manual';
-  const haystack = `${trigger.type ?? ''} ${trigger.provider ?? ''} ${trigger.label ?? ''} ${trigger.name ?? ''}`.toLowerCase();
-  if (!/cron|schedule|interval|scheduler/.test(haystack)) return 'On-demand/manual';
+  const type = String(trigger.type ?? '').toLowerCase();
+  const provider = String(trigger.provider ?? '').toLowerCase();
+  const capability = String(trigger.capability ?? '').toLowerCase();
+  const isScheduled = provider === 'scheduler'
+    || capability === 'scheduling'
+    || type === 'cron'
+    || type.endsWith('.cron')
+    || type.endsWith('.scheduletrigger');
+  if (!isScheduled) return 'On-demand/manual';
   return String(trigger.displayName || trigger.label || trigger.name || 'Scheduled trigger');
+}
+
+const AI_PROVIDER_IDS = new Set(['openai', 'claude', 'cloudflare_ai', 'elevenlabs', 'deepgram']);
+
+/**
+ * Classifies workflow risk from provider/capability profile and node counts.
+ * Single-provider, low-capability, no-AI/storage/monitoring workflows are
+ * always Low regardless of how many nodes the graph emitted.
+ */
+export function classifyWorkflowRisk(
+  providers: string[],
+  capabilities: string[],
+  aiNodeCount: number,
+  actionCount: number,
+  branches: number
+): 'Low' | 'Medium' | 'High' {
+  const containsAI = aiNodeCount > 0 || providers.some((p) => AI_PROVIDER_IDS.has(p));
+  const containsStorage = capabilities.some((c) => c === 'database_storage');
+  const containsMonitoring = capabilities.includes('monitoring');
+  const containsDatabase = capabilities.some((c) => c === 'database_storage' || c === 'memory');
+
+  if (
+    providers.length <= 1 &&
+    capabilities.length <= 2 &&
+    !containsAI &&
+    !containsStorage &&
+    !containsMonitoring &&
+    !containsDatabase
+  ) {
+    return 'Low';
+  }
+
+  if (actionCount >= 4 || aiNodeCount >= 2 || branches >= 2) return 'High';
+  if (actionCount >= 2 || aiNodeCount >= 1 || branches >= 1) return 'Medium';
+  return 'Low';
 }
 
 function riskLevel(graph: WorkflowGraphSummary): 'Low' | 'Medium' | 'High' {
   const actionCount = graph.nodes.filter((node) => node.kind === 'action').length;
   const aiCount = graph.nodes.filter((node) => node.kind === 'ai').length;
-  if (actionCount >= 4 || aiCount >= 2 || graph.branches >= 2) return 'High';
-  if (actionCount >= 2 || aiCount >= 1 || graph.branches >= 1) return 'Medium';
-  return 'Low';
+  const providers = [...new Set(
+    graph.nodes.map((n) => n.provider).filter((p): p is string => Boolean(p))
+  )];
+  const capabilities = [...new Set(
+    graph.nodes.map((n) => n.capability).filter(Boolean)
+  )];
+  return classifyWorkflowRisk(providers, capabilities, aiCount, actionCount, graph.branches);
 }
 
 export function deriveWorkflowSummary(graph?: WorkflowGraphSummary): WorkflowSummarySnapshot | undefined {

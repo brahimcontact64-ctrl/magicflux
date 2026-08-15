@@ -1,0 +1,36 @@
+{
+  "name": "VIP Customer Routing",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Check VIP Status",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": [{ "field": "customer_type", "operator": "equals", "value": "vip" }]
+      }
+    },
+    {
+      "name": "VIP Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#vip-customers", "text": "VIP customer event received — priority handling required." }
+    },
+    {
+      "name": "Standard Support Email",
+      "type": "n8n-nodes-base.emailsend",
+      "parameters": {
+        "to": "support@example.com",
+        "subject": "Standard Customer Event",
+        "text": "A standard customer event has been received."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger":  { "main": [[{ "node": "Check VIP Status" }]] },
+    "Check VIP Status": {
+      "main": [
+        [{ "node": "VIP Slack Alert" }],
+        [{ "node": "Standard Support Email" }]
+      ]
+    }
+  }
+}

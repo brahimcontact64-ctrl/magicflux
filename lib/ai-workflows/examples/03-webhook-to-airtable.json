@@ -1,0 +1,14 @@
+{
+  "name": "Webhook to Airtable",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Log Event in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "parameters": { "table": "Events", "baseId": "" }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Log Event in Airtable" }]] }
+  }
+}

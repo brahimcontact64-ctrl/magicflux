@@ -1,0 +1,24 @@
+{
+  "name": "Multi-Channel Notification",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#alerts", "text": "New event received — sending multi-channel notification." }
+    },
+    {
+      "name": "Email Alert",
+      "type": "n8n-nodes-base.emailsend",
+      "parameters": {
+        "to": "team@example.com",
+        "subject": "New Event Alert",
+        "text": "A new event has been received. Please review."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Slack Alert" }]] },
+    "Slack Alert":     { "main": [[{ "node": "Email Alert" }]] }
+  }
+}

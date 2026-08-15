@@ -1,0 +1,18 @@
+{
+  "name": "Webhook to Email",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Send Notification Email",
+      "type": "n8n-nodes-base.emailsend",
+      "parameters": {
+        "to": "team@example.com",
+        "subject": "New Event Received",
+        "text": "A new webhook event has been received and processed."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Send Notification Email" }]] }
+  }
+}

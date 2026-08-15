@@ -1,0 +1,36 @@
+{
+  "name": "Fan-out to Slack, Airtable, and Email",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#general", "text": "New event broadcast to all channels." }
+    },
+    {
+      "name": "Airtable Log",
+      "type": "n8n-nodes-base.airtable",
+      "parameters": { "table": "Events", "baseId": "" }
+    },
+    {
+      "name": "Email Summary",
+      "type": "n8n-nodes-base.emailsend",
+      "parameters": {
+        "to": "admin@example.com",
+        "subject": "Event Broadcast Summary",
+        "text": "A new event has been broadcast to Slack, Airtable, and email."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Slack Notification" },
+          { "node": "Airtable Log" },
+          { "node": "Email Summary" }
+        ]
+      ]
+    }
+  }
+}

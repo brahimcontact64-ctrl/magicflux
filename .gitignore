@@ -34,3 +34,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local backups (never committed)
+/backups/
+
+# test artifacts
+/test-results/
+/playwright-report/
+
+# supabase local CLI state
+/supabase/.temp/
+/supabase/.branches/
+
+# local secret/credential material
+*.pem
+*.key
+service-account*.json
+credentials.json
+*.env.backup

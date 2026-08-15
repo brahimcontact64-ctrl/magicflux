@@ -11,6 +11,23 @@ import {
   BLOCKS, PlacedBlock, BlockConnection, ComposedWorkflow,
   getBlocksByTags, collectEnvVars, collectDependencies, EnvVar, N8nNodePayload
 } from '../blocks';
+import {
+  extractWorkflowCapabilities,
+  buildWorkflowGrammar,
+  resolveProvidersFromCapabilities,
+  detectMissingRequirements,
+  requestMissingRequirements,
+  simulateWorkflow,
+} from '@/lib/agent/capability-graph';
+import type {
+  WorkflowCapability,
+  WorkflowGrammar,
+  CapabilityResolverResult,
+  RequirementCheckResult,
+  MissingRequirement,
+  SimulationResult,
+  CapabilityGraphProvider,
+} from '@/lib/agent/capability-graph';
 
 // ─── PLAN TYPES ──────────────────────────────────────────────────────────────
 
@@ -52,6 +69,25 @@ export interface AutomationPlan {
   confidenceReason?: string;
 }
 
+// ── Capability Intelligence types ────────────────────────────────────────────
+
+export type CapabilityIntelligenceResult = {
+  extractedCapabilities: WorkflowCapability[];
+  workflowGrammar: WorkflowGrammar;
+  resolvedProviders: CapabilityResolverResult[];
+  missingRequirements: RequirementCheckResult;
+  simulation: SimulationResult;
+  inferredIntegrations: string[];
+};
+
+export type DeploymentGateResult = {
+  deploymentReady: boolean;
+  missingRequirements: MissingRequirement[];
+  userMessages: string[];
+  simulation: SimulationResult;
+  preservedResult: PlannerResult | null;
+};
+
 export interface PlannerResult {
   plan: AutomationPlan;
   composition: ComposedWorkflow;
@@ -60,6 +96,7 @@ export interface PlannerResult {
   dependencies: ReturnType<typeof collectDependencies>;
   generationAdjusted?: boolean;
   generationWarning?: string;
+  capabilityIntelligence?: CapabilityIntelligenceResult;
   proPlanner?: {
     intent: {
       trigger: { service: string; event: string; description: string };
@@ -270,6 +307,81 @@ function validatePlan(plan: AutomationPlan): void {
       throw new Error(`AutomationPlan references unknown block "${id}". Only registry blocks are permitted.`);
     }
   }
+}
+
+// ─── CAPABILITY INTELLIGENCE ─────────────────────────────────────────────────
+
+const PROVIDER_INTEGRATION_NAMES: Record<string, string> = {
+  telegram:      'Telegram',
+  whatsapp:      'WhatsApp',
+  slack:         'Slack',
+  gmail:         'Gmail / SMTP',
+  google_drive:  'Google Drive',
+  google_sheets: 'Google Sheets',
+  google_calendar: 'Google Calendar',
+  stripe:        'Stripe',
+  shopify:       'Shopify',
+  hubspot:       'HubSpot',
+  airtable:      'Airtable',
+  supabase:      'Supabase',
+  notion:        'Notion',
+  openai:        'OpenAI',
+  claude:        'Claude AI',
+  cloudflare_ai: 'Cloudflare AI',
+  elevenlabs:    'ElevenLabs',
+  deepgram:      'Deepgram',
+  canva:         'Canva',
+  facebook:      'Facebook',
+  twitter:       'X (Twitter)',
+};
+
+function providerToIntegrationName(provider: CapabilityGraphProvider | string): string {
+  return PROVIDER_INTEGRATION_NAMES[provider] ?? provider;
+}
+
+function mergeInferredIntegrations(existing: string[], inferred: string[]): string[] {
+  const result = [...existing];
+  const existingLower = existing.map(s => s.toLowerCase());
+  for (const item of inferred) {
+    const itemLower = item.toLowerCase();
+    const alreadyCovered = existingLower.some(
+      e => e.includes(itemLower) || itemLower.includes(e),
+    );
+    if (!alreadyCovered) result.push(item);
+  }
+  return result;
+}
+
+function enrichWithCapabilityIntelligence(
+  prompt: string,
+  installedProviders: Set<string> = new Set(),
+): CapabilityIntelligenceResult {
+  const extractedCapabilities = extractWorkflowCapabilities(prompt);
+  const workflowGrammar = buildWorkflowGrammar(prompt);
+  const resolvedProviders = resolveProvidersFromCapabilities(extractedCapabilities);
+  const missingRequirements = detectMissingRequirements(workflowGrammar, installedProviders);
+  const simulation = simulateWorkflow(workflowGrammar, installedProviders);
+
+  const allGrammarProviders: string[] = [
+    ...workflowGrammar.trigger,
+    ...workflowGrammar.action,
+    ...workflowGrammar.storage,
+    ...workflowGrammar.notification,
+    ...workflowGrammar.transform,
+    ...workflowGrammar.condition,
+  ];
+  const inferredIntegrations = [...new Set(allGrammarProviders)]
+    .map(p => providerToIntegrationName(p))
+    .filter(Boolean);
+
+  return {
+    extractedCapabilities,
+    workflowGrammar,
+    resolvedProviders,
+    missingRequirements,
+    simulation,
+    inferredIntegrations,
+  };
 }
 
 // ─── INTENT SIGNALS ──────────────────────────────────────────────────────────
@@ -798,7 +910,8 @@ function buildEnvConfig(plan: AutomationPlan, envVars: EnvVar[]): string {
  */
 export function createAutomationPlan(
   prompt: string,
-  modeOverride?: AutomationPlan['plannerModeUsed']
+  modeOverride?: AutomationPlan['plannerModeUsed'],
+  installedProviders?: Set<string>,
 ): PlannerResult {
   const trigger = detectTrigger(prompt);
   if (!trigger) {
@@ -822,6 +935,9 @@ export function createAutomationPlan(
     throw new Error('INCOMPLETE_INTENT: Missing action. Describe at least one executable action.');
   }
 
+  const capabilityIntelligence = enrichWithCapabilityIntelligence(prompt, installedProviders);
+  const mergedIntegrations = mergeInferredIntegrations(integrations, capabilityIntelligence.inferredIntegrations);
+
   const totalNodes = 1 + steps.length;
   const triggerBlockId = TRIGGER_TO_BLOCK[trigger];
 
@@ -844,7 +960,7 @@ export function createAutomationPlan(
       description: BLOCKS[triggerBlockId]?.description || 'Trigger'
     },
     steps,
-    integrations,
+    integrations: mergedIntegrations,
     pattern: pattern.name,
     confidence,
     estimatedNodes: totalNodes,
@@ -859,7 +975,7 @@ export function createAutomationPlan(
     plannerModeUsed: modeOverride ?? 'deterministic',
     assumptions: detectExternalWebhookAssumptions(prompt, trigger),
     unsupportedRequirements: [],
-    requiredCredentials: integrations,
+    requiredCredentials: mergedIntegrations,
     confidenceReason: 'Strict intent match and capability validation passed.'
   };
 
@@ -873,7 +989,7 @@ export function createAutomationPlan(
   const dependencies = collectDependencies([triggerBlockId, ...steps.map(s => s.blockId)]);
   const envConfig = buildEnvConfig(plan, envVars);
 
-  return { plan, composition, n8nJson, envConfig, dependencies };
+  return { plan, composition, n8nJson, envConfig, dependencies, capabilityIntelligence };
 }
 
 /**
@@ -881,7 +997,10 @@ export function createAutomationPlan(
  * Called by /api/planner after validating the structured output.
  * Throws if the plan references any unknown block IDs.
  */
-export function assemblePlannerResult(rawPlan: Omit<AutomationPlan, 'id' | 'createdAt' | 'estimatedNodes'>): PlannerResult {
+export function assemblePlannerResult(
+  rawPlan: Omit<AutomationPlan, 'id' | 'createdAt' | 'estimatedNodes'>,
+  installedProviders?: Set<string>,
+): PlannerResult {
   const planId = `plan_${Date.now()}`;
   const createdAt = new Date().toISOString();
 
@@ -903,7 +1022,31 @@ export function assemblePlannerResult(rawPlan: Omit<AutomationPlan, 'id' | 'crea
   const dependencies = collectDependencies(allBlockIds);
   const envConfig = buildEnvConfig(plan, envVars);
 
-  return { plan, composition, n8nJson, envConfig, dependencies };
+  const descriptionPrompt = [rawPlan.title, rawPlan.description, ...(rawPlan.integrations ?? [])].join(' ');
+  const capabilityIntelligence = enrichWithCapabilityIntelligence(descriptionPrompt, installedProviders);
+
+  return { plan, composition, n8nJson, envConfig, dependencies, capabilityIntelligence };
+}
+
+export function checkDeploymentGate(
+  prompt: string,
+  result: PlannerResult | null,
+  installedProviders?: Set<string>,
+): DeploymentGateResult {
+  const intelligence = result?.capabilityIntelligence
+    ?? enrichWithCapabilityIntelligence(prompt, installedProviders);
+
+  const simulation = intelligence.simulation;
+  const missingRequirements = intelligence.missingRequirements.missing;
+  const userMessages = requestMissingRequirements(intelligence.missingRequirements);
+
+  return {
+    deploymentReady: simulation.deploymentReady && missingRequirements.length === 0,
+    missingRequirements,
+    userMessages,
+    simulation,
+    preservedResult: result,
+  };
 }
 
 /**

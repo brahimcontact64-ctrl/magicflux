@@ -1,4 +1,5 @@
 import type IORedis from 'ioredis';
+import { logger } from './logger';
 
 type RedisConnectionOptions = {
   key?: string;
@@ -67,7 +68,7 @@ export async function getRedisConnection(options?: RedisConnectionOptions): Prom
   client.on('error', (error: Error) => {
     const message = error.message ?? String(error);
     if (message.includes('ECONNRESET') || message.includes('ECONNREFUSED')) {
-      console.warn(`[runtime-redis:${key}] ${message}`);
+      logger.warn('redis_connection_error', { key, error: message });
     }
   });
 

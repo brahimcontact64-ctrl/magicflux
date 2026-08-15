@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { type ConversationState } from '@/lib/conversation-agent';
 import { AutomationTemplate, PROMPT_EXAMPLES } from '@/lib/templates';
 import { LiveWorkflowPanel, type LiveWorkflowStatus } from './live-workflow-panel';
+import { AutomationBrain } from './AutomationBrain';
 import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
 import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import {
@@ -76,6 +77,24 @@ type MessageUi = Message & {
   automationBrain?: AutomationBrainSummary;
 };
 
+type CredentialFieldItem = {
+  key: string;
+  label: string;
+  secret: boolean;
+  source: string;
+  description: string;
+  required: boolean;
+};
+
+type CredentialIntelligenceItem = {
+  provider: string;
+  displayName: string;
+  missing: CredentialFieldItem[];
+  optional: CredentialFieldItem[];
+  ready: boolean;
+  confidence: number;
+};
+
 type AutomationBrainSummary = {
   inferredIntent: string;
   capabilities: Array<{ key: string; reason: string; confidence: number }>;
@@ -104,6 +123,7 @@ type AutomationBrainSummary = {
     risks: string[];
     blocks: Array<{ id: string; category: string; name: string; capabilities: string[] }>;
   };
+  credentialIntelligence?: CredentialIntelligenceItem[];
 };
 
 type IntegrationCardItem = {
@@ -327,11 +347,257 @@ function AutomationBrainCard({ brain }: { brain: AutomationBrainSummary }) {
   );
 }
 
+type ConnectionStage = 'idle' | 'connecting' | 'success' | 'failed';
+
+function CredentialIntelligenceCard({
+  items,
+  accessToken,
+  onCredentialSaved,
+}: {
+  items: CredentialIntelligenceItem[];
+  accessToken: string | null;
+  onCredentialSaved: (provider: string) => void;
+}) {
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [connectionStage, setConnectionStage] = useState<ConnectionStage>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  if (items.length === 0) return null;
+
+  const sourceLabel: Record<string, string> = {
+    oauth: 'OAuth',
+    api_key: 'API Key',
+    token: 'Token',
+    manual: 'Manual',
+  };
+
+  const activeItem = items.find((i) => i.provider === activeProvider) ?? null;
+  const isConnecting = connectionStage === 'connecting';
+
+  function openModal(provider: string) {
+    setActiveProvider(provider);
+    setFormValues({});
+    setSaveError(null);
+    setConnectionStage('idle');
+  }
+
+  function closeModal() {
+    setActiveProvider(null);
+    setFormValues({});
+    setSaveError(null);
+    setConnectionStage('idle');
+  }
+
+  async function handleSave() {
+    if (!activeProvider) return;
+    setConnectionStage('connecting');
+    setSaveError(null);
+
+    let data: {
+      success?: boolean;
+      error?: string;
+      errors?: string[];
+      connected?: boolean;
+      requiresOAuthFlow?: boolean;
+    };
+
+    try {
+      const res = await fetch('/api/credentials/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ provider: activeProvider, credentials: formValues }),
+      });
+      data = (await res.json()) as typeof data;
+
+      if (!res.ok || !data.success) {
+        // Prefer the errors array (validation failures), fall back to single error
+        const errMsg =
+          Array.isArray(data.errors) && data.errors.length > 0
+            ? data.errors.join('\n')
+            : (data.error ?? 'Failed to save credentials. Please try again.');
+        setConnectionStage('failed');
+        setSaveError(errMsg);
+        return;
+      }
+    } catch {
+      setConnectionStage('failed');
+      setSaveError('Network error. Please check your connection and try again.');
+      return;
+    }
+
+    const savedProvider = activeProvider;
+    setConnectionStage('success');
+
+    // Brief success flash before the modal closes
+    setTimeout(() => {
+      closeModal();
+      onCredentialSaved(savedProvider);
+    }, 1100);
+  }
+
+  return (
+    <>
+      <div className="mt-2 space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.provider}
+            className={`rounded-lg border px-3 py-2 ${
+              item.ready
+                ? 'border-emerald-500/30 bg-emerald-500/10'
+                : 'border-blue-500/25 bg-blue-500/8'
+            }`}
+          >
+            <p className={`text-xs font-semibold flex items-center gap-1.5 ${
+              item.ready ? 'text-emerald-700 dark:text-emerald-300' : 'text-blue-700 dark:text-blue-300'
+            }`}>
+              <Link2 className="w-3.5 h-3.5" />
+              {`Configure ${item.displayName}`}
+            </p>
+
+            {item.ready ? (
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Connected
+              </p>
+            ) : (
+              <>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">Status: Missing credentials</p>
+                {item.missing.length > 0 && (
+                  <div className="mt-1.5">
+                    <p className="text-[11px] text-muted-foreground font-medium">Required:</p>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {item.missing.map((field) => (
+                        <li key={field.key} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <span className="text-muted-foreground/60">•</span>
+                          <span className="font-medium">{field.label}</span>
+                          <span className="text-muted-foreground/50">({sourceLabel[field.source] ?? field.source})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <button
+                  onClick={() => openModal(item.provider)}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-blue-500/30 hover:bg-blue-500/15 transition-colors"
+                >
+                  Connect now
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {activeItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm mx-4 rounded-xl border border-border bg-card shadow-2xl">
+            <div className="px-4 pt-4 pb-3 border-b border-border flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">Connect {activeItem.displayName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {connectionStage === 'connecting'
+                    ? 'Verifying credentials…'
+                    : connectionStage === 'success'
+                    ? 'Connection successful'
+                    : 'Enter your credentials below'}
+                </p>
+              </div>
+              <button
+                onClick={closeModal}
+                disabled={isConnecting}
+                className="text-muted-foreground hover:text-foreground text-xs px-2 py-1 rounded-md hover:bg-muted/50 transition-colors disabled:opacity-40"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-4 py-3 space-y-3">
+              {/* Connection state banner */}
+              {connectionStage === 'connecting' && (
+                <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                  Connecting to {activeItem.displayName}…
+                </div>
+              )}
+              {connectionStage === 'success' && (
+                <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                  {activeItem.displayName} connected successfully
+                </div>
+              )}
+
+              {/* Input fields — hidden while connecting or on success */}
+              {connectionStage !== 'success' && activeItem.missing.map((field) => (
+                <div key={field.key}>
+                  <label className="block text-xs font-medium text-foreground mb-1">
+                    {field.label}
+                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                  </label>
+                  <input
+                    type={field.secret ? 'password' : 'text'}
+                    placeholder={field.description}
+                    value={formValues[field.key] ?? ''}
+                    disabled={isConnecting}
+                    onChange={(e) =>
+                      setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                    autoComplete="off"
+                    data-1p-ignore
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{sourceLabel[field.source] ?? field.source}</p>
+                </div>
+              ))}
+
+              {/* Error display — shown per-line for multi-error validation failures */}
+              {saveError && connectionStage === 'failed' && (
+                <div className="rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1.5 space-y-0.5">
+                  {saveError.split('\n').map((line, i) => (
+                    <p key={i} className="text-[11px] text-red-600 dark:text-red-400">{line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 pb-4 flex justify-end gap-2">
+              <button
+                onClick={closeModal}
+                disabled={isConnecting}
+                className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              {connectionStage !== 'success' && (
+                <button
+                  onClick={handleSave}
+                  disabled={
+                    isConnecting ||
+                    activeItem.missing.some((f) => f.required && !formValues[f.key]?.trim())
+                  }
+                  className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isConnecting ? 'Verifying…' : 'Save credentials'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function DeployActionCard({
   blocked,
+  blockedReason,
   onDeploy,
 }: {
   blocked: boolean;
+  blockedReason?: string;
   onDeploy: () => void;
 }) {
   return (
@@ -339,7 +605,7 @@ function DeployActionCard({
       <p className="text-xs font-semibold text-violet-700 dark:text-violet-300">Deploy action</p>
       <p className="text-xs text-muted-foreground mt-1">
         {blocked
-          ? 'Connect required integrations first, then approve deployment.'
+          ? (blockedReason ?? 'Connect required integrations first, then approve deployment.')
           : 'Workflow is ready for approval and deployment.'}
       </p>
       <button
@@ -671,10 +937,12 @@ export function ChatInterface({
         }));
 
         const graph = typedPayload.workflowGraph ?? prev.workflowGraph;
-        const brain = sanitizeAutomationBrainForGraph(
-          typedPayload.automationBrain ?? prev.automationBrain,
-          graph
-        );
+        const rawBrain = typedPayload.automationBrain ?? prev.automationBrain;
+        const credIntelFromPayload = (typedPayload.automationBrain as typeof rawBrain & { credentialIntelligence?: CredentialIntelligenceItem[] })?.credentialIntelligence;
+        const brain = sanitizeAutomationBrainForGraph(rawBrain, graph);
+        const brainWithCredIntel = brain && credIntelFromPayload
+          ? { ...brain, credentialIntelligence: credIntelFromPayload }
+          : brain;
         const integrationCards = deriveIntegrationCards(
           graph,
           credentialRequests,
@@ -688,7 +956,8 @@ export function ChatInterface({
         }));
         const workflowSummary = deriveWorkflowSummary(graph);
         const workflowActive = Boolean(typedPayload.workflow?.active);
-        const blocked = integrationCards.some((card) => !card.connected && card.requiredFields.length > 0);
+        const credentialBlocked = (credIntelFromPayload ?? []).some((c) => !c.ready && c.missing.length > 0);
+        const blocked = integrationCards.some((card) => !card.connected && card.requiredFields.length > 0) || credentialBlocked;
         const liveWorkflow = graph
           ? updateLiveWorkflow(createLiveWorkflowStatus(graph), {
               status: workflowActive ? 'deployed' : 'design',
@@ -701,7 +970,7 @@ export function ChatInterface({
                 ...msg,
                 content: normalizeAssistantCopy(
                   sanitizeVisibleText(typedPayload.assistant?.content, msg.content),
-                  brain
+                  brainWithCredIntel
                 ),
                 options: typedPayload.assistant?.options,
                 progressCards: toProgressCards(
@@ -717,7 +986,7 @@ export function ChatInterface({
                 workflowUrl: typedPayload.workflow?.url,
                 workflowActive,
                 workflowGraph: graph,
-                automationBrain: brain,
+                automationBrain: brainWithCredIntel,
                 liveWorkflow,
               }
             : msg
@@ -737,7 +1006,7 @@ export function ChatInterface({
           session: { id: typedPayload.sessionId ?? prev.session.id },
           conversation: nextConversation,
           workflowGraph: graph,
-          automationBrain: brain,
+          automationBrain: brainWithCredIntel,
           integrationCards,
           workflowSummary,
           deployState: {
@@ -823,7 +1092,8 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex flex-col h-full rounded-xl border border-border bg-card overflow-hidden">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 h-full">
+      <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden min-h-0">
       <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center gap-3 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shadow-sm">
           <Sparkles className="w-4 h-4 text-primary" />
@@ -896,9 +1166,42 @@ export function ChatInterface({
                       onConnect={(provider) => onOpenIntegrationWizardAction?.([provider], sessionId.current)}
                     />
                   ) : null}
+                  {isActiveAssistant && runtimeState.automationBrain?.credentialIntelligence && runtimeState.automationBrain.credentialIntelligence.length > 0 ? (
+                    <CredentialIntelligenceCard
+                      items={runtimeState.automationBrain.credentialIntelligence}
+                      accessToken={accessToken}
+                      onCredentialSaved={(provider) => {
+                        setRuntimeState((prev) => {
+                          const updatedCredIntel = prev.automationBrain?.credentialIntelligence?.map((c) =>
+                            c.provider === provider ? { ...c, ready: true, missing: [] } : c
+                          ) ?? [];
+                          const credBlocked = updatedCredIntel.some((c) => !c.ready && c.missing.length > 0);
+                          const intBlocked = prev.integrationCards.some((card) => !card.connected && card.requiredFields.length > 0);
+                          return {
+                            ...prev,
+                            automationBrain: prev.automationBrain
+                              ? { ...prev.automationBrain, credentialIntelligence: updatedCredIntel }
+                              : prev.automationBrain,
+                            deployState: {
+                              ...prev.deployState,
+                              blocked: credBlocked || intBlocked,
+                              ready: Boolean(prev.workflowGraph) && !credBlocked && !intBlocked,
+                            },
+                          };
+                        });
+                      }}
+                    />
+                  ) : null}
                   {isActiveAssistant && runtimeState.workflowGraph && !runtimeState.deployState.workflowActive ? (
                     <DeployActionCard
                       blocked={runtimeState.deployState.blocked}
+                      blockedReason={
+                        runtimeState.deployState.blocked
+                          ? runtimeState.automationBrain?.credentialIntelligence?.some((c) => !c.ready && c.missing.length > 0)
+                            ? `Connect required integrations first: ${runtimeState.automationBrain.credentialIntelligence.filter((c) => !c.ready).map((c) => c.displayName).join(', ')}`
+                            : 'Connect required integrations first, then approve deployment.'
+                          : undefined
+                      }
                       onDeploy={() => handleSend('Approve and deploy this workflow now.')}
                     />
                   ) : null}
@@ -967,6 +1270,10 @@ export function ChatInterface({
           Enter to send • Shift+Enter for new line
         </p>
       </div>
+      </div>{/* end inner chat column */}
+      <aside className="hidden lg:flex flex-col overflow-y-auto">
+        <AutomationBrain prompt={input} accessToken={accessToken} />
+      </aside>
     </div>
   );
 }

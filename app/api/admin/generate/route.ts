@@ -12,7 +12,7 @@ import {
   type IntegrationProvider,
 } from '@/lib/integrations';
 import { runProPlanner } from '@/lib/ai-engine/pro-planner';
-import { decryptIntegrationCredentials } from '@/lib/integration-crypto';
+import { decryptIntegrationCredentials } from '@/lib/security/encryption';
 
 async function assertAdmin(req: NextRequest): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
   const token = getBearerToken(req);

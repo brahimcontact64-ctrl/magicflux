@@ -11,7 +11,7 @@ import {
   requiredProvidersFromWorkflow,
   type IntegrationProvider,
 } from '@/lib/integrations';
-import { decryptIntegrationCredentials } from '@/lib/integration-crypto';
+import { decryptIntegrationCredentials } from '@/lib/security/encryption';
 
 type WorkflowPayload = {
   name?: string;

@@ -15,10 +15,13 @@ import {
   filterProvidersToGraphAllowList,
 } from '@/lib/agent/provider-allowlist';
 import { constrainAutomationBrainToGraph } from '@/lib/automation';
+import type { PatternClassification } from '@/lib/automation/types';
 import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import { runtimeQueueConfigured } from '@/lib/runtime/queue';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
 import { decryptJson } from '@/lib/security/encryption';
+import { resolveMissingCredentials } from '@/lib/credentials/intelligence';
+import { verifyAllProvidersForUser } from '@/lib/credentials/storage';
 
 type ConversationRow = {
   id: string;
@@ -186,8 +189,8 @@ export type ConversationTurnPayload = {
   automationBrain: {
     inferredIntent: string;
     capabilities: Array<{ key: string; reason: string; confidence: number }>;
-    activatedSkillPacks: Array<{ name: string; description: string; capabilities: string[]; tools: string[]; matchScore: number }>;
-    matchedPatterns: Array<{ name: string; category: string; score: number; estimatedCost: number; estimatedComplexity: string; risk: string }>;
+    activatedSkillPacks: Array<{ name: string; description: string; capabilities: string[]; tools: string[]; matchScore: number; classification?: PatternClassification }>;
+    matchedPatterns: Array<{ name: string; category: string; score: number; estimatedCost: number; estimatedComplexity: string; risk: string; classification?: PatternClassification }>;
     providerResolutions: Array<{ provider: string; capabilities: string[]; confidence: number }>;
     composition: {
       executionFrequency: string;
@@ -199,6 +202,14 @@ export type ConversationTurnPayload = {
       risks: string[];
       blocks: Array<{ id: string; category: string; name: string; capabilities: string[] }>;
     };
+    credentialIntelligence: Array<{
+      provider: string;
+      displayName: string;
+      missing: Array<{ key: string; label: string; secret: boolean; source: string; description: string; required: boolean }>;
+      optional: Array<{ key: string; label: string; secret: boolean; source: string; description: string; required: boolean }>;
+      ready: boolean;
+      confidence: number;
+    }>;
   } | null;
   state: {
     sessionId: string;
@@ -219,6 +230,10 @@ export type ConversationTurnPayload = {
   planner: {
     readyToBuild: boolean;
     canonicalPrompt: string | null;
+  };
+  deployCredentials: {
+    canDeploy: boolean;
+    missingProviders: string[];
   };
 };
 
@@ -437,6 +452,23 @@ export async function processConversationTurn(params: {
     agentResult.workflow_graph
   );
 
+  const requiredProviders = sanitizedGraphConstrainedBrain?.constraintContext.requiredProviders ?? [];
+
+  // Field-level verification: check which specific credential keys are present for each provider.
+  // Falls back to pure resolveCredentialRequirements when no userId is available.
+  const credentialIntelligence = userId && requiredProviders.length > 0
+    ? await verifyAllProvidersForUser(userId, requiredProviders).catch(() =>
+        resolveMissingCredentials(requiredProviders, [])
+      )
+    : resolveMissingCredentials(requiredProviders, []);
+
+  const deployCredentials = {
+    canDeploy: credentialIntelligence.every((r) => r.ready),
+    missingProviders: credentialIntelligence
+      .filter((r) => !r.ready && r.missing.length > 0)
+      .map((r) => r.provider),
+  };
+
   return {
     success: true,
     sessionId,
@@ -477,6 +509,7 @@ export async function processConversationTurn(params: {
             capabilities: pack.capabilities,
             tools: pack.tools,
             matchScore: pack.matchScore,
+            classification: pack.classification,
           })),
           matchedPatterns: sanitizedGraphConstrainedBrain.matchedPatterns.map((pattern) => ({
             name: pattern.name,
@@ -485,6 +518,7 @@ export async function processConversationTurn(params: {
             estimatedCost: pattern.estimatedCost,
             estimatedComplexity: pattern.estimatedComplexity,
             risk: pattern.risk,
+            classification: pattern.classification,
           })),
           providerResolutions: sanitizedGraphConstrainedBrain.providerResolutions,
           composition: {
@@ -497,8 +531,31 @@ export async function processConversationTurn(params: {
             risks: sanitizedGraphConstrainedBrain.composition.risks,
             blocks: sanitizedGraphConstrainedBrain.composition.blocks,
           },
+          credentialIntelligence: credentialIntelligence.map((r) => ({
+            provider: r.provider,
+            displayName: r.displayName,
+            missing: r.missing.map((f) => ({
+              key: f.key,
+              label: f.label,
+              secret: f.secret,
+              source: f.source,
+              description: f.description,
+              required: f.required,
+            })),
+            optional: r.optional.map((f) => ({
+              key: f.key,
+              label: f.label,
+              secret: f.secret,
+              source: f.source,
+              description: f.description,
+              required: f.required,
+            })),
+            ready: r.ready,
+            confidence: r.confidence,
+          })),
         }
       : null,
+    deployCredentials,
     state: {
       sessionId,
       currentGoal: upsertPayload.current_goal,

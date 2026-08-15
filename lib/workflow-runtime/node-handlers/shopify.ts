@@ -30,7 +30,10 @@ export async function shopifyHandler(
 
   const creds = shopifyIntegration.credentials as Record<string, unknown>;
   const shopDomain = String(creds.shop_domain ?? creds.shopDomain ?? creds.shop ?? '');
-  const accessToken = String(creds.admin_access_token ?? creds.accessToken ?? creds.token ?? '');
+  // access_token is the field name used by lib/credentials/provider-registry.ts;
+  // admin_access_token/accessToken/token are fallbacks for integrations connected
+  // before that field was standardized.
+  const accessToken = String(creds.access_token ?? creds.admin_access_token ?? creds.accessToken ?? creds.token ?? '');
 
   if (!shopDomain || !accessToken) {
     return { status: 'failed', outputData: null, logs, error: 'Shopify credentials incomplete' };

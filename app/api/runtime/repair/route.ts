@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { RuntimeRepairEngine } from '@/recovery/runtime-repair';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
+import { requirePermission } from '@/lib/runtime/rbac';
 
 async function getUserId(req: NextRequest): Promise<string | null> {
   const token = getBearerToken(req);
@@ -14,6 +15,12 @@ export async function POST(req: NextRequest) {
   const userId = await getUserId(req);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    await requirePermission(userId, 'manage_executions');
+  } catch {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null) as {

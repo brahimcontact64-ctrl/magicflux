@@ -1,0 +1,14 @@
+{
+  "name": "Shopify Order to Airtable",
+  "nodes": [
+    { "name": "Shopify Order Trigger", "type": "n8n-nodes-base.shopifytrigger" },
+    {
+      "name": "Record Order in Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "parameters": { "table": "Orders", "baseId": "" }
+    }
+  ],
+  "connections": {
+    "Shopify Order Trigger": { "main": [[{ "node": "Record Order in Airtable" }]] }
+  }
+}

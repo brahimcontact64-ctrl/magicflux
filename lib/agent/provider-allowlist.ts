@@ -48,6 +48,129 @@ export const CANONICAL_PROVIDERS = [
 
 const CANONICAL_PROVIDER_SET = new Set<string>(CANONICAL_PROVIDERS);
 
+/**
+ * Free-text aliases under which each canonical provider can appear in pattern
+ * metadata (names, descriptions, examples, intent keywords).
+ *
+ * Rules for inclusion:
+ *   - Specific enough to avoid false positives in normal English prose.
+ *   - Single-word abbreviations ('wa', 'tg', 'fb') rely on word-boundary
+ *     matching at the call site (\b…\b) — they are NOT matched as substrings.
+ *   - Generic words ('email', 'sheets', 'meta' alone) are excluded; they
+ *     require a qualifying word to disambiguate ('google sheets', 'meta messaging').
+ *
+ * Each entry's first element is the canonical readable form (underscores
+ * replaced by spaces). expandProviderAliases() always returns at least that.
+ */
+const PROVIDER_ALIASES_MAP: Readonly<Partial<Record<string, readonly string[]>>> = {
+  whatsapp:      ['whatsapp', 'wa', 'whatsapp business', 'meta messaging'],
+  telegram:      ['telegram', 'tg'],
+  gmail:         ['gmail'],
+  google_sheets: ['google sheets', 'googlesheets', 'gsheet', 'gsheets'],
+  google_drive:  ['google drive',  'googledrive',  'gdrive'],
+  slack:         ['slack'],
+  openai:        ['openai', 'gpt', 'chatgpt'],
+  claude:        ['claude', 'anthropic'],
+  cloudflare_ai: ['cloudflare ai', 'workers ai'],
+  facebook:      ['facebook', 'fb'],
+  twitter:       ['twitter', 'x.com'],
+  hubspot:       ['hubspot', 'hub spot'],
+  shopify:       ['shopify'],
+  stripe:        ['stripe'],
+  airtable:      ['airtable'],
+  supabase:      ['supabase'],
+  elevenlabs:    ['elevenlabs'],
+  deepgram:      ['deepgram'],
+  canva:         ['canva'],
+};
+
+/**
+ * Returns all text forms (canonical + aliases) under which a provider may
+ * appear in pattern metadata. Callers should match each alias with a
+ * word-boundary regex (\b…\b) rather than a plain substring check.
+ *
+ * For providers absent from the alias map the canonical space-normalised
+ * form is returned so the function is always safe to call for any provider.
+ */
+export function expandProviderAliases(provider: string): readonly string[] {
+  const mapped = PROVIDER_ALIASES_MAP[provider];
+  if (mapped) return mapped;
+  const token = provider.replace(/_/g, ' ');
+  return token !== provider ? [token, provider] : [provider];
+}
+
+/**
+ * Normalizes a metadata text fragment before alias scanning.
+ * Replaces hyphens and underscores with spaces so compound forms like
+ * "telegram_bot", "WA-Business", "GPT-4" are split into word tokens
+ * that word-boundary regexes (\b…\b) can match correctly.
+ *
+ * Examples:
+ *   "WA-Business"   → "wa business"
+ *   "telegram_bot"  → "telegram bot"
+ *   "GPT-4"         → "gpt 4"
+ *   "hub-spot"      → "hub spot"
+ */
+export function normalizeForProviderScan(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ── negation detection ────────────────────────────────────────────────────────
+
+const NEGATION_TOKENS = new Set(['no', 'without', 'never', 'exclude', 'excluding', 'remove', 'disable']);
+const COMPOUND_NEGATIONS = ['absolutely no'] as const;
+
+function windowHasNegation(tokens: string[], windowStr: string): boolean {
+  for (const compound of COMPOUND_NEGATIONS) {
+    if (windowStr.endsWith(compound) || windowStr.includes(compound + ' ')) return true;
+  }
+  for (const token of tokens) {
+    const clean = token.replace(/[''']/g, ''); // normalise don't / don't → dont
+    if (NEGATION_TOKENS.has(clean) || clean === 'dont') return true;
+  }
+  return false;
+}
+
+function isNegatedAt(lower: string, termIndex: number): boolean {
+  const before = lower.slice(0, termIndex);
+  // Use only the current sentence (text after the last sentence-ender).
+  // If the term opens a new sentence the fragment is empty → no negation.
+  const parts = before.split(/[.!?\n]+/);
+  const currentSentenceBefore = (parts[parts.length - 1] ?? '').trim();
+  const tokens = currentSentenceBefore.split(/\s+/).filter(Boolean).slice(-6);
+  const windowStr = tokens.join(' ');
+  return windowHasNegation(tokens, windowStr);
+}
+
+/**
+ * Returns true if every occurrence of `term` in `text` is preceded (within
+ * the same sentence) by a negation word within a 6-token window.
+ * Returns false if any occurrence is non-negated, or if the term is absent.
+ *
+ * Examples:
+ *   isNegated("No Google Sheets", "Google Sheets")            → true
+ *   isNegated("Telegram + Google Sheets integration", "Sheets") → false
+ *   isNegated("No Sheets. Use Sheets for export.", "Sheets")  → false
+ */
+export function isNegated(text: string, term: string): boolean {
+  const lower = text.toLowerCase();
+  const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped, 'g');
+  let found = false;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(lower)) !== null) {
+    found = true;
+    if (!isNegatedAt(lower, m.index)) return false;
+  }
+  return found;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function toProviderToken(value: string): string {
   return value.toLowerCase().trim().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
 }
@@ -65,42 +188,44 @@ export function isStrictProviderMode(): boolean {
   return process.env.STRICT_PROVIDER_MODE === 'true' || process.env.NEXT_PUBLIC_STRICT_PROVIDER_MODE === 'true';
 }
 
+type ProviderAlias = { provider: string; test: (s: string) => boolean };
+
+const PROVIDER_ALIAS_TABLE: ProviderAlias[] = [
+  { provider: 'google_drive',  test: s => s.includes('google drive') || s.includes('googledrive') || s.includes('google-drive') || s.includes('google_drive') || s.includes('drive storage') || s.includes('save to drive') || s.includes('upload to drive') || s === 'gdrive' },
+  { provider: 'google_sheets', test: s => s.includes('google sheets') || s.includes('googlesheets') || s.includes('google-sheet') || s.includes('google_sheet') || s.includes('sheets') },
+  { provider: 'facebook',      test: s => s.includes('facebook') },
+  { provider: 'canva',         test: s => s.includes('canva') },
+  { provider: 'openai',        test: s => s.includes('openai') || s.includes('gpt') || /\b(o1|o3|o4)\b/.test(s) },
+  { provider: 'telegram',      test: s => s.includes('telegram') },
+  { provider: 'reddit',        test: s => s.includes('reddit') },
+  { provider: 'whatsapp',      test: s => s.includes('whatsapp') },
+  { provider: 'gmail',         test: s => s.includes('emailsend') || s.includes('email') || s.includes('smtp') || s.includes('gmail') },
+  { provider: 'claude',        test: s => s.includes('anthropic') || s.includes('claude') },
+  { provider: 'deepgram',      test: s => s.includes('deepgram') },
+  { provider: 'elevenlabs',    test: s => s.includes('elevenlabs') },
+  { provider: 'airtable',      test: s => s.includes('airtable') },
+  { provider: 'slack',         test: s => s.includes('slack') },
+  { provider: 'hubspot',       test: s => s.includes('hubspot') },
+  { provider: 'cloudflare_ai', test: s => s.includes('cloudflare ai') || s.includes('cloudflare_ai') || s.includes('workers ai') || s.includes('workers_ai') },
+  { provider: 'twitter',       test: s => s.includes('xai') || s.includes('grok') || s === 'x' || s.includes('twitter') },
+  { provider: 'coinmarketcap', test: s => s.includes('coinmarketcap') || s === 'cmc' },
+  { provider: 'supabase',      test: s => s.includes('supabase') },
+  { provider: 'postgres',      test: s => s.includes('postgres') },
+  { provider: 'shopify',       test: s => s.includes('shopify') },
+  { provider: 'stripe',        test: s => s.includes('stripe') },
+];
+
 export function normalizeProvider(value: string): string {
   const cleaned = value.toLowerCase().trim();
   if (!cleaned) return '';
 
-  if (cleaned.includes('google drive') || cleaned.includes('googledrive') || cleaned.includes('drive storage') || cleaned.includes('save to drive') || cleaned.includes('upload to drive') || cleaned.includes('drive')) return 'google_drive';
-  if (cleaned.includes('google sheets') || cleaned.includes('googlesheets') || cleaned.includes('sheets')) return 'google_sheets';
-  if (cleaned.includes('facebook')) return 'facebook';
-  if (cleaned.includes('canva')) return 'canva';
-  if (
-    cleaned.includes('openai') ||
-    cleaned.includes('gpt') ||
-    cleaned.includes('gpt-4') ||
-    cleaned.includes('gpt4') ||
-    cleaned.includes('gpt-4o') ||
-    /\b(o1|o3|o4)\b/.test(cleaned)
-  ) return 'openai';
-  if (cleaned.includes('telegram')) return 'telegram';
-  if (cleaned.includes('reddit')) return 'reddit';
-  if (cleaned.includes('whatsapp')) return 'whatsapp';
-  if (cleaned.includes('emailsend') || cleaned.includes('email') || cleaned.includes('smtp') || cleaned.includes('gmail')) return 'gmail';
-  if (cleaned.includes('anthropic') || cleaned.includes('claude')) return 'claude';
-  if (cleaned.includes('deepgram')) return 'deepgram';
-  if (cleaned.includes('elevenlabs')) return 'elevenlabs';
-  if (cleaned.includes('airtable')) return 'airtable';
-  if (cleaned.includes('slack')) return 'slack';
-  if (cleaned.includes('hubspot')) return 'hubspot';
-  if (cleaned.includes('cloudflare ai') || cleaned.includes('cloudflare_ai') || cleaned.includes('workers ai') || cleaned.includes('workers_ai')) return 'cloudflare_ai';
-  if (cleaned.includes('xai') || cleaned.includes('grok') || cleaned.includes('groq') || cleaned === 'x' || cleaned.includes('twitter')) return 'twitter';
-  if (cleaned.includes('coinmarketcap') || cleaned === 'cmc') return 'coinmarketcap';
-  if (cleaned.includes('supabase')) return 'supabase';
-  if (cleaned.includes('postgres')) return 'postgres';
-
+  const matches = PROVIDER_ALIAS_TABLE.filter(({ test }) => test(cleaned));
+  if (matches.length === 1) return matches[0].provider;
+  if (matches.length > 1) return '';  // ambiguous compound input — filtered downstream
   return toProviderToken(cleaned);
 }
 
-const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
+export const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
   { pattern: /\bstripe\b/i, provider: 'stripe' },
   { pattern: /\bairtable\b/i, provider: 'airtable' },
   { pattern: /\bopenai\b|\bgpt[-\s]?4\b|\bgpt\b/i, provider: 'openai' },
@@ -127,10 +252,24 @@ const PROMPT_PROVIDER_PATTERNS: Array<{ pattern: RegExp; provider: string }> = [
 export function parseRequestedProvidersFromPrompt(prompt: string): string[] {
   const text = String(prompt ?? '');
   if (!text.trim()) return [];
+  const lower = text.toLowerCase();
 
   const providers = new Set<string>();
   for (const { pattern, provider } of PROMPT_PROVIDER_PATTERNS) {
-    if (!pattern.test(text)) continue;
+    // Iterate all occurrences; skip this provider only if every occurrence is negated.
+    const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+    const re = new RegExp(pattern.source, flags);
+    let match: RegExpExecArray | null;
+    let hasNonNegatedMatch = false;
+
+    while ((match = re.exec(text)) !== null) {
+      if (!isNegatedAt(lower, match.index)) {
+        hasNonNegatedMatch = true;
+        break;
+      }
+    }
+
+    if (!hasNonNegatedMatch) continue;
     const normalized = normalizeProvider(provider);
     if (!normalized || BLOCKED.has(normalized) || hasForbiddenProviderPattern(normalized) || !isCanonicalProvider(normalized)) continue;
     providers.add(normalized);
@@ -157,7 +296,6 @@ export function extractProvidersFromWorkflowGraph(graph?: WorkflowGraphSummary |
 
   const providers = new Set<string>();
   for (const node of graph.nodes ?? []) {
-    if (!node.requiresCredentials) continue;
     const provider = normalizeProvider(node.provider ?? node.integration ?? '');
     if (!provider || BLOCKED.has(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
     providers.add(provider);

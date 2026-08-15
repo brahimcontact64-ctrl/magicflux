@@ -223,6 +223,7 @@ export async function POST(req: NextRequest) {
       db.from('workflow_executions')
         .update({ orchestration_stage: 'complete', credential_types_provisioned: Object.keys(credentialMap) })
         .eq('n8n_workflow_id', deployResult.workflowId)
+        .eq('user_id', authUser.id)
         .then(() => {}, () => {});
 
       return NextResponse.json({
@@ -249,11 +250,12 @@ export async function POST(req: NextRequest) {
       live_deploy_at: new Date().toISOString(),
       test_status: 'not_tested',
       test_message: result.testMessage,
-    }).eq('n8n_workflow_id', deployResult.workflowId).then(() => {}, () => {});
+    }).eq('n8n_workflow_id', deployResult.workflowId).eq('user_id', authUser.id).then(() => {}, () => {});
 
     db.from('workflow_deployments')
       .update({ status: 'active' })
       .eq('n8n_workflow_id', deployResult.workflowId)
+      .eq('user_id', authUser.id)
       .then(() => {}, () => {});
 
     result.stage = 'complete';

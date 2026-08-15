@@ -1,3 +1,6 @@
+/* React Flow visual workflow editor — must be before @tailwind directives */
+@import '@xyflow/react/dist/style.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

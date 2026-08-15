@@ -1,0 +1,20 @@
+{
+  "name": "Shopify Order — Wait Then Slack",
+  "nodes": [
+    { "name": "Shopify Order Trigger", "type": "n8n-nodes-base.shopifytrigger" },
+    {
+      "name": "Wait 30 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "parameters": { "amount": 1800 }
+    },
+    {
+      "name": "Fulfillment Check Alert",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#fulfillment", "text": "Order placed 30 minutes ago — please check fulfillment status." }
+    }
+  ],
+  "connections": {
+    "Shopify Order Trigger": { "main": [[{ "node": "Wait 30 Minutes" }]] },
+    "Wait 30 Minutes":       { "main": [[{ "node": "Fulfillment Check Alert" }]] }
+  }
+}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createServiceClient } from '@/lib/supabase-server';
+import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
+import { assertExecutionOwnership } from '@/lib/security/ownership';
 
 type Ctx = { params: { id: string } };
 
@@ -28,32 +28,16 @@ function redact(value: unknown): unknown {
  * Returns all steps for a given execution (user must own the execution)
  */
 export async function GET(req: NextRequest, { params }: Ctx) {
-  // Auth via Bearer token
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getUserFromRequest(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  );
-  const { data: userData } = await client.auth.getUser(authHeader.slice(7));
-  if (!userData.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const db = createServiceClient();
-
-  // Validate ownership
-  const { data: exec } = await db
-    .from('workflow_executions_v2')
-    .select('id, user_id')
-    .eq('id', params.id)
-    .maybeSingle();
-
-  if (!exec || exec.user_id !== userData.user.id) {
+  try {
+    await assertExecutionOwnership(user.id, params.id);
+  } catch {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
+
+  const db = createServiceClient();
 
   const { data: steps, error } = await db
     .from('workflow_execution_steps')

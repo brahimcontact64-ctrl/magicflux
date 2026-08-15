@@ -301,13 +301,18 @@ Keep it production-ready and deployable.`;
     const credentialSchema = getProviderCredentialSchema(provider);
     const requiresCredentials = credentialSchema.length > 0;
 
-    return {
+    const normalizedNode: Record<string, unknown> & { parameters?: Record<string, unknown> } = {
       ...node,
+      parameters: typeof node.parameters === 'object' && node.parameters !== null
+        ? (node.parameters as Record<string, unknown>)
+        : undefined,
       displayName: String(node.displayName ?? node.name ?? 'Workflow Node'),
       provider,
       requiresCredentials,
       credentialSchema,
     };
+
+    return normalizedNode;
   });
 
   await emitRuntimeEvent({

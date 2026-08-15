@@ -8,8 +8,10 @@ import {
   markWorkerState,
   registerWorker,
 } from '../lib/runtime/worker-registry';
-import { cleanupExpiredRuntimeLocks, recoverOrphanExecutions } from '../runtime/hardening-layer';
+import { cleanupExpiredRuntimeLocks, markOrphanExecutionsFailed, recoverOrphanExecutions } from '../runtime/hardening-layer';
 import { closeRedisConnection } from '../lib/runtime/redis';
+import { getPendingRestartRequests, performRestart } from '../lib/runtime/worker-lifecycle';
+import { subscribeDrainSignal, markWorkerDraining } from '../lib/runtime/drain-signal';
 
 async function main() {
   console.log('[runtime-worker] booting...');
@@ -29,7 +31,7 @@ async function main() {
     metadata: { service: 'runtime-worker' },
   });
 
-  const workers = await startRuntimeWorkers(workerId, { explicitStart: true });
+  let workers: Array<{ close: () => Promise<void>; pause: () => Promise<void> }> = await startRuntimeWorkers(workerId, { explicitStart: true });
 
   if (workers.length === 0) {
     await markWorkerState(workerId, 'degraded', 'No workers started. Check Redis connection and worker configuration.');
@@ -39,6 +41,16 @@ async function main() {
 
   console.log(`[runtime-worker] started ${workers.length} workers`);
   console.log(`[runtime-worker] queues: ${RUNTIME_QUEUE_NAMES.join(', ')}`);
+
+  let drainUnsubscribe: (() => void) | null = null;
+  subscribeDrainSignal({
+    workerId,
+    onDrain: () => {
+      console.log(`[runtime-worker] drain signal received for ${workerId}, pausing immediately`);
+      markWorkerDraining(workerId);
+      void Promise.allSettled(workers.map(w => w.pause()));
+    },
+  }).then(unsub => { drainUnsubscribe = unsub ?? null; }).catch(() => undefined);
 
   const heartbeatTimer = setInterval(() => {
     void heartbeatWorker(workerId);
@@ -51,12 +63,48 @@ async function main() {
     void cleanupExpiredRuntimeLocks();
     void recoverOrphanExecutions({ staleAfterMinutes: 3, limit: 100 });
     void recoverStuckQueueJobs({ staleMinutes: 10, limit: 100 });
+    void markOrphanExecutionsFailed({ staleAfterMinutes: 10, limit: 100 });
   }, 30_000);
+
+  let isRestarting = false;
+  const restartCheckTimer = setInterval(() => {
+    if (isRestarting) return;
+    void (async () => {
+      const pending = await getPendingRestartRequests().catch(() => []);
+      const request = pending.find(r => r.worker_id === workerId);
+      if (!request) return;
+      isRestarting = true;
+      const previousWorkers = workers;
+      // Pause all workers immediately — stops new job pickup; active jobs continue.
+      await Promise.allSettled(previousWorkers.map(w => w.pause()));
+      try {
+        const newWorkers = await performRestart({
+          workerId,
+          requestId: request.id,
+          workers: previousWorkers,
+          restartFn: () => startRuntimeWorkers(workerId, { explicitStart: true }),
+        });
+        workers = newWorkers as typeof workers;
+        console.log(`[runtime-worker] restarted (${workers.length} workers active)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[runtime-worker] restart failed: ${msg}`);
+        // performRestart closed previousWorkers before failing; restore reference
+        // so shutdown can attempt close() on them (BullMQ close is idempotent).
+        workers = previousWorkers;
+        await markWorkerState(workerId, 'crashed', msg).catch(() => undefined);
+      } finally {
+        isRestarting = false;
+      }
+    })();
+  }, 10_000);
 
   const shutdown = async (signal: string) => {
     console.log(`[runtime-worker] ${signal} received, shutting down...`);
     clearInterval(heartbeatTimer);
     clearInterval(watchdogTimer);
+    clearInterval(restartCheckTimer);
+    if (drainUnsubscribe) drainUnsubscribe();
     await markWorkerState(workerId, 'stopping');
     await Promise.allSettled(workers.map((worker) => worker.close()));
     await closeRedisConnection();

@@ -42,11 +42,42 @@ export async function slackHandler(
     return { status: 'failed', outputData: null, logs, error: 'Slack integration not configured' };
   }
 
-  const webhookUrl = (slackIntegration.credentials as Record<string, unknown>).webhook_url as string | undefined;
+  const creds = slackIntegration.credentials as Record<string, unknown>;
+  const botToken = creds.bot_token as string | undefined;
+  const webhookUrl = creds.webhook_url as string | undefined;
+
+  // Bot token (Slack Web API) is the current credential type — see
+  // lib/credentials/provider-registry.ts. Incoming-webhook URL is kept as a
+  // fallback for integrations connected before the bot-token flow existed.
+  if (botToken) {
+    try {
+      const res = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({ channel, text }),
+      });
+
+      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string; ts?: string } | null;
+
+      if (!res.ok || !body?.ok) {
+        throw new Error(body?.error ? `Slack API error: ${body.error}` : `Slack returned ${res.status}`);
+      }
+
+      logs.push(`Slack message sent to ${channel}.`);
+      return { status: 'success', outputData: { ...data, slack_delivered: true, channel, ts: body.ts }, logs };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logs.push(`Slack delivery failed: ${msg}`);
+      return { status: 'failed', outputData: null, logs, error: msg };
+    }
+  }
 
   if (!webhookUrl) {
-    logs.push('Slack webhook URL missing.');
-    return { status: 'failed', outputData: null, logs, error: 'Slack webhook URL missing' };
+    logs.push('Slack credentials missing (no bot token or webhook URL).');
+    return { status: 'failed', outputData: null, logs, error: 'Slack credentials incomplete' };
   }
 
   try {

@@ -1,0 +1,20 @@
+{
+  "name": "Wait Then Send Slack Reminder",
+  "nodes": [
+    { "name": "Webhook Trigger", "type": "n8n-nodes-base.webhook" },
+    {
+      "name": "Wait 5 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "parameters": { "amount": 300 }
+    },
+    {
+      "name": "Send Slack Reminder",
+      "type": "n8n-nodes-base.slack",
+      "parameters": { "channel": "#reminders", "text": "Reminder: delayed notification from your recent event." }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Wait 5 Minutes" }]] },
+    "Wait 5 Minutes":   { "main": [[{ "node": "Send Slack Reminder" }]] }
+  }
+}

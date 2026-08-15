@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
-import { createSampleDataForWorkflow } from '@/lib/workflow-runtime';
+import { createSampleDataForWorkflow } from '@/lib/workflow-runtime/sample-data';
 import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { canExecuteWorkflow, getPlanLimits } from '@/lib/billing/plan-limits';
 
