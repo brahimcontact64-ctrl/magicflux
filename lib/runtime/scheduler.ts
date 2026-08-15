@@ -3,6 +3,7 @@ import 'server-only';
 import { createServiceClient } from '@/lib/supabase-server';
 import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { assertTrustedUserId } from '@/lib/credentials/storage';
+import * as cronParser from 'cron-parser';
 
 /**
  * Schedule-trigger engine.
@@ -41,8 +42,6 @@ export function validateCronExpression(cronExpression: string, timezone?: string
   if (!trimmed) return { valid: false, error: 'Cron expression is required' };
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const cronParser = require('cron-parser') as typeof import('cron-parser');
     cronParser.parseExpression(trimmed, { tz: timezone || 'UTC' });
     return { valid: true };
   } catch (err) {
@@ -52,8 +51,6 @@ export function validateCronExpression(cronExpression: string, timezone?: string
 
 /** Computes the next fire time strictly after `fromDate`, in the given IANA timezone. */
 export function computeNextRunAt(cronExpression: string, timezone: string, fromDate: Date = new Date()): Date {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const cronParser = require('cron-parser') as typeof import('cron-parser');
   const interval = cronParser.parseExpression(cronExpression, {
     tz: timezone || 'UTC',
     currentDate: fromDate,
