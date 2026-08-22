@@ -42,7 +42,8 @@ export type RuntimeQueueTaskType =
   | 'recovery_action'
   | 'planner_followup'
   | 'ai_reasoning'
-  | 'run_workflow_execution';
+  | 'run_workflow_execution'
+  | 'resume_workflow_execution';
 
 export const RUNTIME_QUEUE_NAMES: RuntimeQueueName[] = [
   'planner_queue',

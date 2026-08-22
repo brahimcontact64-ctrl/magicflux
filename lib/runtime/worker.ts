@@ -29,7 +29,7 @@ import {
 import { canUseRuntimeRedis, getRedisConnection } from './redis';
 import { isWorkerDrainingInMemory, getDrainCache, setDrainCache } from './drain-signal';
 import { logger } from './logger';
-import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
+import { runWorkflowExecution, resumeWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { releaseConcurrencySlot } from './concurrency-guard';
 import { recordUsageEvent } from './usage-metering';
 
@@ -647,6 +647,97 @@ export async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>, ow
         quantity: Date.now() - startedAt,
         metadata: { error: message, duration_ms: Date.now() - startedAt },
         idempotencyKey: `${executionId}:execution_failed`,
+      }).catch(() => undefined);
+      await db
+        .from('workflow_executions_v2')
+        .update({ status: 'failed', error_message: message, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', executionId)
+        .eq('user_id', payload.userId)
+        .in('status', ['queued', 'running']);
+      throw err;
+    } finally {
+      await releaseConcurrencySlot({ executionId });
+    }
+  }
+
+  // Phase 8.8 — resumes an execution that a node-level failure or a Wait
+  // node parked in status='waiting' (see lib/runtime/retry-dispatcher.ts,
+  // the only enqueuer of this task type). Deliberately mirrors
+  // 'run_workflow_execution' above (same deployment-version resolution,
+  // same concurrency release in finally, same fail-safe catch block) but
+  // calls resumeWorkflowExecution() — which fetches the persisted
+  // checkpoint and continues from currentNodeId/pendingQueue — instead of
+  // runWorkflowExecution(), which always restarts from the trigger node(s).
+  // The retry dispatcher reserves this execution's concurrency slot before
+  // enqueueing (mirroring dispatchProductionExecution's pattern); this
+  // branch is the sole place that releases it.
+  if (toolName === 'resume_workflow_execution') {
+    const workflowId = payload.workflowId ?? '';
+    const executionId = payload.executionId;
+    const deploymentVersionId = args.deploymentVersionId ? String(args.deploymentVersionId) : null;
+    const inputData = (args.inputData ?? {}) as Record<string, unknown>;
+    const mode = (args.mode === 'test' ? 'test' : 'live') as 'test' | 'live';
+    const retryCount = Number(args.retryCount ?? 0);
+    const maxRetries = Number(args.maxRetries ?? 3);
+    const startedAt = Date.now();
+
+    const db = createServiceClient();
+    let workflowJsonToRun: unknown = null;
+
+    if (deploymentVersionId) {
+      const { data: version } = await db
+        .from('deployment_versions')
+        .select('workflow_data')
+        .eq('id', deploymentVersionId)
+        .eq('user_id', payload.userId ?? '')
+        .eq('workflow_id', workflowId)
+        .maybeSingle();
+      workflowJsonToRun = version?.workflow_data ?? null;
+    }
+
+    if (!workflowJsonToRun) {
+      const { data: wf } = await db
+        .from('workflows')
+        .select('workflow_json')
+        .eq('id', workflowId)
+        .eq('user_id', payload.userId ?? '')
+        .maybeSingle();
+      workflowJsonToRun = wf?.workflow_json ?? null;
+    }
+
+    if (!workflowJsonToRun || !payload.userId) {
+      await releaseConcurrencySlot({ executionId });
+      throw new Error('EXECUTION_RESOLVE_FAILED: could not resolve a workflow snapshot to resume');
+    }
+
+    try {
+      const result = await resumeWorkflowExecution({
+        executionId,
+        userId: payload.userId,
+        workflowId,
+        workflowJson: workflowJsonToRun,
+        mode,
+        inputData,
+        retryCount,
+        maxRetries,
+      });
+
+      await endSpan({ userId: payload.userId, spanId: workerSpanId, status: result.status === 'failed' ? 'error' : 'success', errorMessage: result.error });
+
+      return {
+        execution_id: result.executionId,
+        status: result.status,
+        error: result.error ?? null,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await recordUsageEvent({
+        userId: payload.userId,
+        workflowId,
+        executionId,
+        eventType: 'execution_failed',
+        metadata: { error: message, duration_ms: Date.now() - startedAt },
+        idempotencyKey: `${executionId}:execution_failed:retry:${retryCount}`,
       }).catch(() => undefined);
       await db
         .from('workflow_executions_v2')
