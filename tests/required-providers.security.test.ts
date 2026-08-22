@@ -153,7 +153,12 @@ describe('B — Crafted fake node types: no provider requirements', () => {
     'my.airtableWriter',
     'evil.emailSender',
     'n8n-nodes-base.shopifySlackGmailAirtable',
-    'n8n-nodes-base.httpRequest',
+    // n8n-nodes-base.httpRequest intentionally NOT listed here: it is now a
+    // genuinely allowlisted type (PROVIDER_NODE_ALLOWLIST['custom']), the
+    // generic HTTP node's optional API-key credential, resolved at runtime
+    // exactly like 'openai' — never legacy-injected via
+    // injectCredentialsIntoWorkflow() (see ACTIVE_PROVIDERS below, which
+    // excludes both 'openai' and 'custom' for the same reason). See group C.
     'n8n-nodes-base.code',
     'n8n-nodes-base.webhook',
     'n8n-nodes-base.set',
@@ -334,7 +339,9 @@ describe('E — Consistency: requiredProviders ↔ injectCredentials (same allow
       'n8n-nodes-base.gmailWebhook',
       'company.shopifyProxy',
       'custom.slackNotifier',
-      'n8n-nodes-base.httpRequest',
+      // n8n-nodes-base.httpRequest excluded — see group B's comment; it now
+      // genuinely requires 'custom' (runtime-resolved, never legacy-injected,
+      // same pattern as 'openai').
       'n8n-nodes-base.code',
       'n8n-nodes-base.webhook',
       'n8n-nodes-base.shopify ',      // trailing space
@@ -350,6 +357,11 @@ describe('E — Consistency: requiredProviders ↔ injectCredentials (same allow
     }
   });
 
+  it('httpRequest requires "custom" but (like openai) is never legacy-injected via injectCredentialsIntoWorkflow', () => {
+    expect(requires('n8n-nodes-base.httpRequest')).toEqual(['custom']);
+    expect(injectsCredentials('n8n-nodes-base.httpRequest')).toBe(false);
+  });
+
   it('No fake node requires a provider it would receive (no phantom requirements)', () => {
     // Fake nodes that report no requirements also inject nothing
     const FAKES = [
@@ -358,7 +370,6 @@ describe('E — Consistency: requiredProviders ↔ injectCredentials (same allow
       'n8n-nodes-base.airtableProxy',
       'n8n-nodes-base.gmailWebhook',
       'company.shopifyProxy',
-      'n8n-nodes-base.httpRequest',
     ];
 
     for (const nodeType of FAKES) {

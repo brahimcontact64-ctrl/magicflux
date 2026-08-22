@@ -71,28 +71,28 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
     expect(HANDLER_NODE_ALLOWLIST.has('')).toBe(false);
   });
 
-  it('V1.5: .size is 13', () => {
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(13);
+  it('V1.5: .size is 14', () => {
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
   });
 
-  it('V1.6: .entries() iterates all 13 pairs', () => {
+  it('V1.6: .entries() iterates all 14 pairs', () => {
     const entries = [...HANDLER_NODE_ALLOWLIST.entries()];
-    expect(entries).toHaveLength(13);
+    expect(entries).toHaveLength(14);
     for (const [key, val] of entries) {
       expect(typeof key).toBe('string');
       expect(typeof val).toBe('function');
     }
   });
 
-  it('V1.7: .keys() iterates all 13 node types', () => {
+  it('V1.7: .keys() iterates all 14 node types', () => {
     const keys = [...HANDLER_NODE_ALLOWLIST.keys()];
-    expect(keys).toHaveLength(13);
+    expect(keys).toHaveLength(14);
     expect(keys.every(k => typeof k === 'string')).toBe(true);
   });
 
-  it('V1.8: .values() iterates all 13 handlers', () => {
+  it('V1.8: .values() iterates all 14 handlers', () => {
     const values = [...HANDLER_NODE_ALLOWLIST.values()];
-    expect(values).toHaveLength(13);
+    expect(values).toHaveLength(14);
     expect(values.every(v => typeof v === 'function')).toBe(true);
   });
 
@@ -103,17 +103,17 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
       expect(typeof val).toBe('function');
       count++;
     }
-    expect(count).toBe(13);
+    expect(count).toBe(14);
   });
 
-  it('V1.10: .forEach() visits all 13 entries', () => {
+  it('V1.10: .forEach() visits all 14 entries', () => {
     let count = 0;
     HANDLER_NODE_ALLOWLIST.forEach((val, key) => {
       expect(typeof key).toBe('string');
       expect(typeof val).toBe('function');
       count++;
     });
-    expect(count).toBe(13);
+    expect(count).toBe(14);
   });
 
   it('V1.11: .set() throws TypeError (mutation blocked)', () => {
@@ -121,7 +121,7 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
       (HANDLER_NODE_ALLOWLIST as Map<string, unknown>).set('evil', () => null);
     }).toThrow(TypeError);
     expect(HANDLER_NODE_ALLOWLIST.has('evil')).toBe(false);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(13);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
   });
 
   it('V1.12: .delete() throws TypeError (mutation blocked)', () => {
@@ -130,14 +130,14 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
     }).toThrow(TypeError);
     // Entry must still be present
     expect(HANDLER_NODE_ALLOWLIST.has('n8n-nodes-base.shopify')).toBe(true);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(13);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
   });
 
-  it('V1.13: .clear() throws TypeError (mutation blocked)', () => {
+  it('V1.14: .clear() throws TypeError (mutation blocked)', () => {
     expect(() => {
       (HANDLER_NODE_ALLOWLIST as Map<string, unknown>).clear();
     }).toThrow(TypeError);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(13);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
   });
 
 });

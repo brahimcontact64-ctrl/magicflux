@@ -58,6 +58,8 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   ['n8n-nodes-base.googledrivetrigger',  googleDriveHandler],
   // OpenAI
   ['n8n-nodes-base.openai',             openaiHandler],
+  // Generic/custom API-key credential (see PROVIDER_NODE_ALLOWLIST['custom'] in lib/integrations.ts)
+  ['n8n-nodes-base.httprequest',        httpHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {

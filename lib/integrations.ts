@@ -67,6 +67,16 @@ export const PROVIDER_NODE_ALLOWLIST: ReadonlyMap<IntegrationProvider, ReadonlyS
   ['openai', new Set([
     'n8n-nodes-base.openai',
   ])],
+  // Generic/custom API-key credential: resolved at runtime from
+  // integration_credentials, injected as a header by httpHandler
+  // (context.integrations, provider 'custom') — never into workflow JSON,
+  // matching the openai entry's pattern. Without this entry,
+  // requiredProvidersFromWorkflow() never flags 'custom' as needed for an
+  // httpRequest node, so resolveWorkflowIntegrations() never resolves it and
+  // httpHandler's own credential-injection code can never fire.
+  ['custom', new Set([
+    'n8n-nodes-base.httprequest',
+  ])],
 ]);
 
 // Returns the set of providers whose credentials this node type is entitled to
@@ -201,12 +211,26 @@ export function injectCredentialsIntoWorkflow(
     google_drive: undefined, gmail: undefined, email: undefined, openai: undefined, custom: undefined,
   };
 
+  // Providers resolved live at execution time (context.integrations inside
+  // the runtime handler) rather than through this legacy placeholder-
+  // injection path — see the 'openai'/'custom' entries in byProvider above,
+  // both permanently undefined here. deepInject()/replaceEnvTokens() only
+  // know the shopify/slack/airtable/gmail placeholder patterns; running a
+  // runtime-only node through it anyway would match and blank out ANY
+  // unrelated {{ $env.* }}/{{ user.* }}-looking text the node happens to
+  // contain (since the credential value for every OTHER provider is
+  // undefined for a node not entitled to it) — corrupting node content that
+  // was never meant to be touched by this function at all.
+  const RUNTIME_ONLY_PROVIDERS: ReadonlySet<IntegrationProvider> = new Set(['openai', 'custom']);
+
   workflow.nodes = (workflow.nodes ?? []).map(node => {
     const type = String(node.type ?? '').toLowerCase();
     const providers = matchedProvidersForNode(type);
 
-    // Unrecognized node type: return as-is — no placeholder substitution, no injection.
+    // Unrecognized node type, or a node whose only matched provider(s) are
+    // resolved live at runtime: return as-is — no placeholder substitution.
     if (providers.size === 0) return node;
+    if ([...providers].every((p) => RUNTIME_ONLY_PROVIDERS.has(p))) return node;
 
     // Scope deepInject to only the credentials this node type is entitled to.
     // A Shopify node gets Shopify credentials; it cannot see Slack or SMTP secrets.

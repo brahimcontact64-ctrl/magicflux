@@ -181,6 +181,21 @@ export async function getWorkflowIntegrationStatus(userId: string, workflowJson:
 
     for (const provider of requiredProviders) {
       const available = byProvider.get(provider) ?? [];
+
+      // 'custom' (the generic HTTP node's optional API-key credential) must
+      // never block execution — httpHandler already treats an absent 'custom'
+      // integration as "no extra header to inject", not an error (many HTTP
+      // nodes call unauthenticated public APIs with no credential at all).
+      // Every other provider node type genuinely cannot function without its
+      // credential, so those still fail closed with SETUP_REQUIRED.
+      if (provider === 'custom') {
+        if (available.length === 0) continue;
+        const selectedId = selectedByProvider.get(provider);
+        const selected = (selectedId && available.find((item) => item.id === selectedId)) || (available.length === 1 ? available[0] : undefined);
+        if (selected) resolved.set(provider, selected);
+        continue;
+      }
+
       if (available.length === 0) {
         throw new Error(`SETUP_REQUIRED:${provider}`);
       }
