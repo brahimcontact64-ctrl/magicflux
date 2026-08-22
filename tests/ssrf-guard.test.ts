@@ -158,3 +158,96 @@ describe('checkUrlSafe', () => {
     expect(result.allowed).toBe(false);
   });
 });
+
+// ─── Redirect-to-private-IP SSRF (Phase 8.4 regression test) ──────────────────
+//
+// Phase 8.3's audit found that lib/workflow-runtime/node-handlers/http.ts's
+// guardedFetch() re-checks checkUrlSafe() on every redirect hop (never trusts
+// fetch's built-in follower) at the CODE level, but no automated test proved
+// it. This drives the real httpHandler (not guardedFetch directly — it isn't
+// exported) with a mocked global fetch that returns a 302 pointing at a
+// private/metadata IP, proving the SSRF-blocked redirect target is never
+// actually connected to.
+
+describe('httpHandler — redirect-to-private-IP SSRF regression', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    lookupMock.mockReset();
+  });
+
+  it('blocks a redirect chain that points from a public URL to the cloud metadata endpoint, and never connects to it', async () => {
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]); // the initial public host resolves fine
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://public-looking-site.example/redirect') {
+        return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' } });
+      }
+      // If the guard failed to block the hop, this branch would be reached —
+      // fail the test loudly rather than silently returning attacker-controlled data.
+      throw new Error(`TEST FAILURE: fetch() was called against the redirect target — SSRF guard did not block the hop (url=${url})`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const result = await httpHandler(
+      { type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://public-looking-site.example/redirect', method: 'GET' } },
+      {},
+      { mode: 'live', integrations: [], sampleData: {} },
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/Blocked by SSRF protection/);
+    // Exactly one fetch call — the initial public hop. The redirect target was never fetched.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks a redirect chain that points from a public URL to an RFC1918 private address', async () => {
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://public-looking-site.example/redirect') {
+        return new Response(null, { status: 302, headers: { location: 'http://10.0.0.5/internal-admin' } });
+      }
+      throw new Error(`TEST FAILURE: fetch() was called against the redirect target — SSRF guard did not block the hop (url=${url})`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const result = await httpHandler(
+      { type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://public-looking-site.example/redirect', method: 'GET' } },
+      {},
+      { mode: 'live', integrations: [], sampleData: {} },
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/Blocked by SSRF protection/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a redirect chain where every hop resolves to a public address', async () => {
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://public-looking-site.example/redirect') {
+        return new Response(null, { status: 302, headers: { location: 'https://public-looking-site.example/final' } });
+      }
+      if (url === 'https://public-looking-site.example/final') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const result = await httpHandler(
+      { type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://public-looking-site.example/redirect', method: 'GET' } },
+      {},
+      { mode: 'live', integrations: [], sampleData: {} },
+    );
+
+    expect(result.status).toBe('success');
+    expect(fetchMock).toHaveBeenCalledTimes(2); // both hops legitimately followed
+  });
+});
