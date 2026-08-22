@@ -1,9 +1,26 @@
 import "server-only";
 
+import { createHash } from 'crypto';
 import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from './events';
 import { canUseRuntimeRedis, getRedisConnection } from './redis';
 import { logger } from './logger';
+
+/**
+ * BullMQ rejects any custom job ID containing ':' unless it has exactly 3
+ * colon-separated segments (reserved for its own repeatable-job bookkeeping
+ * format `repeat:jobId:timestamp`) — see job.js's validateOptions(). Our
+ * dedupe keys (e.g. `webhook:{workflowId}:hash:{bodyHash}`) always have more
+ * segments than that and would make queue.add() throw for every real
+ * webhook-triggered execution. Hash the dedupe key into a colon-free,
+ * deterministic BullMQ job ID instead — same dedupeKey still always maps to
+ * the same jobId, preserving BullMQ's own duplicate-add semantics — while the
+ * original human-readable dedupeKey is still stored verbatim in the
+ * runtime_queue_jobs.dedupe_key column for auditability.
+ */
+function bullmqSafeJobId(dedupeKey: string): string {
+  return createHash('sha256').update(dedupeKey).digest('hex');
+}
 
 export type RuntimeQueueName =
   | 'planner_queue'
@@ -198,7 +215,7 @@ export async function enqueueRuntimeJob(params: {
     removeOnFail: 1000,
     delay: params.delayMs ?? 0,
     priority: params.priority,
-    jobId: params.dedupeKey,
+    jobId: params.dedupeKey ? bullmqSafeJobId(params.dedupeKey) : undefined,
   });
 
   const persistedJobId = String(job.id ?? queueJobId);

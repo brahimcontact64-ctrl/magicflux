@@ -151,7 +151,7 @@ export class RuntimeStateStore {
           workflowId: String(updated.workflow_id),
           executionId: params.executionId,
           eventType: params.state === 'failed' ? 'execution_failed' : 'execution_completed',
-          quantity: durationMs,
+          quantity: 1,
           metadata: { duration_ms: durationMs },
           idempotencyKey: `${params.executionId}:${params.state === 'failed' ? 'execution_failed' : 'execution_completed'}`,
         }).catch(() => undefined);

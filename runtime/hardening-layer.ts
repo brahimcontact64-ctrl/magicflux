@@ -106,7 +106,7 @@ export async function acquireExecutionLock(params: {
     .maybeSingle();
 
   if (!existing) {
-    const { error } = await db.from('runtime_execution_locks').insert({
+    const insertPayload = {
       execution_id: params.executionId,
       user_id: params.userId,
       workflow_id: params.workflowId,
@@ -118,9 +118,33 @@ export async function acquireExecutionLock(params: {
       metadata: {},
       created_at: nowIso(),
       updated_at: nowIso(),
-    });
+    };
+
+    const { error } = await db.from('runtime_execution_locks').insert(insertPayload);
 
     if (error) {
+      // idempotency_key carries a global unique index shared with the
+      // dispatch-level reserveIdempotencyKey() (lib/runtime/idempotency.ts) —
+      // that column exists on this row only as a lookup convenience for
+      // findExecutionByIdempotencyKey(), not as this execution's identity
+      // (execution_id, the primary key, already is). Two DIFFERENT,
+      // legitimately distinct executions of the same workflow can derive the
+      // same content-hash idempotencyKey when neither passes an explicit one
+      // (buildExecutionIdempotencyKey falls back to hash(workflowId:mode:
+      // inputData)) — e.g. two "Live Test" runs in a row with identical
+      // sample data. That must never block a distinct execution_id from
+      // acquiring its own lock, so a collision on this column specifically
+      // (not on execution_id itself, which still fails closed below) retries
+      // once without it.
+      if (error.code === '23505' && insertPayload.idempotency_key && error.message.includes('idempotency')) {
+        const { error: retryError } = await db
+          .from('runtime_execution_locks')
+          .insert({ ...insertPayload, idempotency_key: null });
+        if (retryError) {
+          return { acquired: false, reason: retryError.message };
+        }
+        return { acquired: true, version: 1 };
+      }
       return { acquired: false, reason: error.message };
     }
 
