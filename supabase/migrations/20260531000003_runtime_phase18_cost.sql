@@ -31,5 +31,6 @@ CREATE INDEX IF NOT EXISTS runtime_cost_records_period_idx
 
 ALTER TABLE runtime_cost_records ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_cost_records" ON runtime_cost_records;
 CREATE POLICY "service_role_bypass_cost_records"
   ON runtime_cost_records FOR ALL USING (auth.role() = 'service_role');

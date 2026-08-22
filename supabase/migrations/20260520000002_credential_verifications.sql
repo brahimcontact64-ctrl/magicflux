@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS credential_verifications (
 ALTER TABLE credential_verifications ENABLE ROW LEVEL SECURITY;
 
 -- Users may read their own verification records (e.g. health-check UI).
+DROP POLICY IF EXISTS "credential_verifications: users select own" ON credential_verifications;
 CREATE POLICY "credential_verifications: users select own"
   ON credential_verifications
   FOR SELECT

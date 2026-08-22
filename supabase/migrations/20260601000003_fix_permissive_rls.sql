@@ -27,10 +27,12 @@
 DROP POLICY IF EXISTS "Service can insert execution events" ON runtime_execution_events;
 DROP POLICY IF EXISTS "Service can read execution events"   ON runtime_execution_events;
 
+DROP POLICY IF EXISTS "service_role_only_execution_events_insert" ON runtime_execution_events;
 CREATE POLICY "service_role_only_execution_events_insert"
   ON runtime_execution_events FOR INSERT
   WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_only_execution_events_select" ON runtime_execution_events;
 CREATE POLICY "service_role_only_execution_events_select"
   ON runtime_execution_events FOR SELECT
   USING (auth.role() = 'service_role');
@@ -41,6 +43,7 @@ CREATE POLICY "service_role_only_execution_events_select"
 
 DROP POLICY IF EXISTS "Service can manage idempotency keys" ON runtime_idempotency_keys;
 
+DROP POLICY IF EXISTS "service_role_only_idempotency_keys" ON runtime_idempotency_keys;
 CREATE POLICY "service_role_only_idempotency_keys"
   ON runtime_idempotency_keys FOR ALL
   USING (auth.role() = 'service_role');
@@ -53,14 +56,17 @@ DROP POLICY IF EXISTS "Service can insert execution commands" ON runtime_executi
 DROP POLICY IF EXISTS "Service can read execution commands"   ON runtime_execution_commands;
 DROP POLICY IF EXISTS "Service can update execution commands" ON runtime_execution_commands;
 
+DROP POLICY IF EXISTS "service_role_only_execution_commands_insert" ON runtime_execution_commands;
 CREATE POLICY "service_role_only_execution_commands_insert"
   ON runtime_execution_commands FOR INSERT
   WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_only_execution_commands_select" ON runtime_execution_commands;
 CREATE POLICY "service_role_only_execution_commands_select"
   ON runtime_execution_commands FOR SELECT
   USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_only_execution_commands_update" ON runtime_execution_commands;
 CREATE POLICY "service_role_only_execution_commands_update"
   ON runtime_execution_commands FOR UPDATE
   USING (auth.role() = 'service_role');
@@ -71,6 +77,7 @@ CREATE POLICY "service_role_only_execution_commands_update"
 
 DROP POLICY IF EXISTS "Service can manage command dispatch log" ON runtime_command_dispatch_log;
 
+DROP POLICY IF EXISTS "service_role_only_command_dispatch_log" ON runtime_command_dispatch_log;
 CREATE POLICY "service_role_only_command_dispatch_log"
   ON runtime_command_dispatch_log FOR ALL
   USING (auth.role() = 'service_role');
@@ -81,6 +88,7 @@ CREATE POLICY "service_role_only_command_dispatch_log"
 
 DROP POLICY IF EXISTS "Service can manage workflow versions" ON runtime_workflow_versions;
 
+DROP POLICY IF EXISTS "service_role_only_workflow_versions" ON runtime_workflow_versions;
 CREATE POLICY "service_role_only_workflow_versions"
   ON runtime_workflow_versions FOR ALL
   USING (auth.role() = 'service_role');

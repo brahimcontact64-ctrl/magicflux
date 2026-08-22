@@ -110,7 +110,7 @@ SELECT
   END                                                      AS duration_ms
 FROM workflow_executions_v2  e
 LEFT JOIN workflows  w  ON  w.id = e.workflow_id AND w.user_id = e.user_id
-LEFT JOIN step_agg  sa  ON sa.execution_id = e.id AND sa.user_id = e.user_id;
+LEFT JOIN step_agg  sa  ON sa.execution_id = e.id::text AND sa.user_id = e.user_id;
 
 -- ============================================================================
 -- 3) Indexes

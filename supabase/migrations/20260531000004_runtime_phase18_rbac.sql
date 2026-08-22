@@ -39,15 +39,19 @@ ALTER TABLE runtime_permissions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE runtime_role_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE runtime_role_assignments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_runtime_roles" ON runtime_roles;
 CREATE POLICY "service_role_bypass_runtime_roles"
   ON runtime_roles FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_bypass_runtime_permissions" ON runtime_permissions;
 CREATE POLICY "service_role_bypass_runtime_permissions"
   ON runtime_permissions FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_bypass_runtime_role_permissions" ON runtime_role_permissions;
 CREATE POLICY "service_role_bypass_runtime_role_permissions"
   ON runtime_role_permissions FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_bypass_runtime_role_assignments" ON runtime_role_assignments;
 CREATE POLICY "service_role_bypass_runtime_role_assignments"
   ON runtime_role_assignments FOR ALL USING (auth.role() = 'service_role');
 

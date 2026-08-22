@@ -29,8 +29,15 @@ WHERE id IN (
 DROP INDEX IF EXISTS runtime_sla_targets_type_idx;
 
 -- Add a full unique constraint so PostgREST can use it as a conflict target.
-ALTER TABLE runtime_sla_targets
-  ADD CONSTRAINT runtime_sla_targets_target_type_key UNIQUE (target_type);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'runtime_sla_targets_target_type_key'
+  ) THEN
+    ALTER TABLE runtime_sla_targets
+      ADD CONSTRAINT runtime_sla_targets_target_type_key UNIQUE (target_type);
+  END IF;
+END $$;
 
 -- ============================================================
 -- 2. Fix runtime_alert_rules
@@ -50,8 +57,15 @@ WHERE created_by IS NULL
   );
 
 -- Add unique constraint on name so ON CONFLICT (name) DO NOTHING is idempotent.
-ALTER TABLE runtime_alert_rules
-  ADD CONSTRAINT runtime_alert_rules_name_key UNIQUE (name);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'runtime_alert_rules_name_key'
+  ) THEN
+    ALTER TABLE runtime_alert_rules
+      ADD CONSTRAINT runtime_alert_rules_name_key UNIQUE (name);
+  END IF;
+END $$;
 
 -- Re-seed with explicit conflict target now that the constraint exists.
 -- This is a no-op if the defaults were already inserted by migration 005.

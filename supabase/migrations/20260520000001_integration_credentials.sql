@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS integration_credentials (
 ALTER TABLE integration_credentials ENABLE ROW LEVEL SECURITY;
 
 -- Users can only SELECT their own rows.
+DROP POLICY IF EXISTS "integration_credentials: users select own" ON integration_credentials;
 CREATE POLICY "integration_credentials: users select own"
   ON integration_credentials
   FOR SELECT
@@ -37,6 +38,7 @@ CREATE POLICY "integration_credentials: users select own"
   USING (auth.uid() = user_id);
 
 -- Users can only INSERT rows for themselves.
+DROP POLICY IF EXISTS "integration_credentials: users insert own" ON integration_credentials;
 CREATE POLICY "integration_credentials: users insert own"
   ON integration_credentials
   FOR INSERT
@@ -44,6 +46,7 @@ CREATE POLICY "integration_credentials: users insert own"
   WITH CHECK (auth.uid() = user_id);
 
 -- Users can only UPDATE their own rows.
+DROP POLICY IF EXISTS "integration_credentials: users update own" ON integration_credentials;
 CREATE POLICY "integration_credentials: users update own"
   ON integration_credentials
   FOR UPDATE
@@ -52,6 +55,7 @@ CREATE POLICY "integration_credentials: users update own"
   WITH CHECK (auth.uid() = user_id);
 
 -- Users can only DELETE their own rows.
+DROP POLICY IF EXISTS "integration_credentials: users delete own" ON integration_credentials;
 CREATE POLICY "integration_credentials: users delete own"
   ON integration_credentials
   FOR DELETE

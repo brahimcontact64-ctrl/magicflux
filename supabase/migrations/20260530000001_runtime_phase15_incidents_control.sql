@@ -165,16 +165,19 @@ ALTER TABLE runtime_incident_events    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE runtime_operator_actions   ENABLE ROW LEVEL SECURITY;
 
 -- Service role has full access (used by server-side code via createServiceClient).
+DROP POLICY IF EXISTS "service_role_incidents" ON runtime_incidents;
 CREATE POLICY "service_role_incidents"
   ON runtime_incidents FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_incident_events" ON runtime_incident_events;
 CREATE POLICY "service_role_incident_events"
   ON runtime_incident_events FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_operator_actions" ON runtime_operator_actions;
 CREATE POLICY "service_role_operator_actions"
   ON runtime_operator_actions FOR ALL
   USING (auth.role() = 'service_role')

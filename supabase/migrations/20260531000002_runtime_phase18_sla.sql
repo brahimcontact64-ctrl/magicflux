@@ -41,9 +41,11 @@ CREATE INDEX IF NOT EXISTS runtime_sla_violations_execution_idx
 ALTER TABLE runtime_sla_targets    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE runtime_sla_violations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_sla_targets" ON runtime_sla_targets;
 CREATE POLICY "service_role_bypass_sla_targets"
   ON runtime_sla_targets FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_bypass_sla_violations" ON runtime_sla_violations;
 CREATE POLICY "service_role_bypass_sla_violations"
   ON runtime_sla_violations FOR ALL USING (auth.role() = 'service_role');
 

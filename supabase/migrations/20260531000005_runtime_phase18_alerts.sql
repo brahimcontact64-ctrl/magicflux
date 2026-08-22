@@ -39,9 +39,11 @@ CREATE INDEX IF NOT EXISTS runtime_alert_firings_fired_idx
 ALTER TABLE runtime_alert_rules   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE runtime_alert_firings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_alert_rules" ON runtime_alert_rules;
 CREATE POLICY "service_role_bypass_alert_rules"
   ON runtime_alert_rules FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_bypass_alert_firings" ON runtime_alert_firings;
 CREATE POLICY "service_role_bypass_alert_firings"
   ON runtime_alert_firings FOR ALL USING (auth.role() = 'service_role');
 

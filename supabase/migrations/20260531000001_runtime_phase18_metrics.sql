@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS runtime_metrics (
   metric_name  text             NOT NULL,
   metric_value double precision NOT NULL,
   labels       jsonb            NOT NULL DEFAULT '{}',
-  window       text             NOT NULL DEFAULT '5m',
+  "window"     text             NOT NULL DEFAULT '5m',
   recorded_at  timestamptz      NOT NULL DEFAULT now()
 );
 
@@ -19,10 +19,11 @@ CREATE INDEX IF NOT EXISTS runtime_metrics_recorded_at_idx
   ON runtime_metrics (recorded_at DESC);
 
 CREATE INDEX IF NOT EXISTS runtime_metrics_window_idx
-  ON runtime_metrics (window, recorded_at DESC);
+  ON runtime_metrics ("window", recorded_at DESC);
 
 ALTER TABLE runtime_metrics ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_runtime_metrics" ON runtime_metrics;
 CREATE POLICY "service_role_bypass_runtime_metrics"
   ON runtime_metrics FOR ALL USING (auth.role() = 'service_role');
 

@@ -14,6 +14,7 @@ CREATE INDEX IF NOT EXISTS runtime_health_snapshots_computed_at_idx
 
 ALTER TABLE runtime_health_score_snapshots ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_bypass_health_snapshots" ON runtime_health_score_snapshots;
 CREATE POLICY "service_role_bypass_health_snapshots"
   ON runtime_health_score_snapshots
   FOR ALL

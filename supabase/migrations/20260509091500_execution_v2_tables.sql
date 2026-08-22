@@ -3,8 +3,8 @@
 
   These two tables are the execution-log backbone the rest of the runtime was
   already built against: runtime/runtime-state.ts persists every execution
-  and node-attempt row here, app/api/executions/* and the run viewer
-  (components/runs/*) read from them, and later migrations
+  and node-attempt row here, everything under app/api/executions/ and the
+  run viewer (components/runs/) read from them, and later migrations
   (20260525000001_runtime_self_healing.sql, 20260602000001_command_ownership_guard.sql,
   20260603000001_execution_debugger.sql) already assume they exist — the
   command-ownership trigger queries workflow_executions_v2 directly, and the

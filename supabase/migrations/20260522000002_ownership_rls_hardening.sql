@@ -45,6 +45,7 @@ DROP POLICY IF EXISTS "Service can insert webhook nonces"         ON runtime_web
 -- ── runtime_webhook_request_log: restrict to own rows, drop null leak ──────
 
 DROP POLICY IF EXISTS "Users can access own webhook logs" ON runtime_webhook_request_log;
+DROP POLICY IF EXISTS "Users can read own webhook logs" ON runtime_webhook_request_log;
 
 CREATE POLICY "Users can read own webhook logs"
   ON runtime_webhook_request_log
@@ -55,6 +56,7 @@ CREATE POLICY "Users can read own webhook logs"
 -- ── runtime_security_alerts: restrict to own rows, drop null leak ──────────
 
 DROP POLICY IF EXISTS "Users can access own security alerts" ON runtime_security_alerts;
+DROP POLICY IF EXISTS "Users can read own security alerts" ON runtime_security_alerts;
 
 CREATE POLICY "Users can read own security alerts"
   ON runtime_security_alerts
@@ -65,6 +67,7 @@ CREATE POLICY "Users can read own security alerts"
 -- ── runtime_metrics_minute: restrict to own rows, drop null leak ───────────
 
 DROP POLICY IF EXISTS "Users can access own runtime metrics" ON runtime_metrics_minute;
+DROP POLICY IF EXISTS "Users can read own runtime metrics" ON runtime_metrics_minute;
 
 CREATE POLICY "Users can read own runtime metrics"
   ON runtime_metrics_minute
