@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase-server';
 import { getRedisStatus, RUNTIME_QUEUE_NAMES } from '@/lib/runtime/queue';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const db = createServiceClient();
   const redis = await getRedisStatus();
