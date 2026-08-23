@@ -1,6 +1,20 @@
 import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from '@/lib/runtime/events';
 import { recordUsageEvent } from '@/lib/runtime/usage-metering';
+import { logger } from '@/lib/runtime/logger';
+
+/**
+ * Thrown by persistNodeState() when either the runtime_node_states upsert
+ * or the workflow_execution_steps insert fails. Distinguishes a genuine
+ * node-state persistence failure from other errors a caller might need to
+ * handle differently (e.g. distributed-lock or provider errors).
+ */
+export class RuntimeNodeStatePersistenceError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'RuntimeNodeStatePersistenceError';
+  }
+}
 
 export type RuntimeNodeStatus = 'queued' | 'running' | 'success' | 'failed' | 'retrying' | 'cancelled';
 export type RuntimeExecutionState = 'queued' | 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | 'cancelled';
@@ -176,7 +190,7 @@ export class RuntimeStateStore {
     const startedAt = input.startedAt ?? nowIso();
     const completedAt = input.completedAt ?? (input.status === 'running' || input.status === 'queued' || input.status === 'retrying' ? null : nowIso());
 
-    await this.db.from('runtime_node_states').upsert({
+    const { error: nodeStateError } = await this.db.from('runtime_node_states').upsert({
       execution_id: input.executionId,
       workflow_id: input.workflowId,
       user_id: input.userId,
@@ -194,7 +208,24 @@ export class RuntimeStateStore {
       updated_at: nowIso(),
     }, { onConflict: 'execution_id,node_id,user_id' });
 
-    await this.db.from('workflow_execution_steps').insert({
+    if (nodeStateError) {
+      logger.error('runtime_node_states.persist_failed', {
+        execution_id: input.executionId,
+        workflow_id: input.workflowId,
+        user_id: input.userId,
+        node_id: input.nodeId,
+        status: input.status,
+        attempt: input.attempt,
+        error: nodeStateError.message,
+        code: nodeStateError.code,
+      });
+      throw new RuntimeNodeStatePersistenceError(
+        `Failed to persist runtime_node_states for execution ${input.executionId}, node ${input.nodeId}: ${nodeStateError.message}`,
+        nodeStateError,
+      );
+    }
+
+    const { error: stepError } = await this.db.from('workflow_execution_steps').insert({
       execution_id: input.executionId,
       workflow_id: input.workflowId,
       user_id: input.userId,
@@ -210,6 +241,23 @@ export class RuntimeStateStore {
       started_at: startedAt,
       completed_at: completedAt,
     });
+
+    if (stepError) {
+      logger.error('workflow_execution_steps.persist_failed', {
+        execution_id: input.executionId,
+        workflow_id: input.workflowId,
+        user_id: input.userId,
+        node_id: input.nodeId,
+        status: input.status,
+        attempt: input.attempt,
+        error: stepError.message,
+        code: stepError.code,
+      });
+      throw new RuntimeNodeStatePersistenceError(
+        `Failed to persist workflow_execution_steps for execution ${input.executionId}, node ${input.nodeId}: ${stepError.message}`,
+        stepError,
+      );
+    }
   }
 
   async writeCheckpoint(input: RuntimeCheckpointInput): Promise<void> {
