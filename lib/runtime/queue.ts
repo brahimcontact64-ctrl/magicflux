@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createHash } from 'crypto';
 import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from './events';

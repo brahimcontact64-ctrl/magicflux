@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createHash } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase-server';
 import { logger } from './logger';

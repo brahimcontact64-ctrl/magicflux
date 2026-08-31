@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createHash, randomUUID } from 'crypto';
 
 import { createServiceClient } from '@/lib/supabase-server';

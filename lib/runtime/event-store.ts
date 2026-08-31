@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createServiceClient } from '@/lib/supabase-server';
 
 // Canonical execution event types for the append-only event store.

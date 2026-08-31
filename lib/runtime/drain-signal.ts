@@ -1,5 +1,3 @@
-import "server-only";
-
 export const DRAIN_CHANNEL = 'runtime:worker:drain';
 
 const drainingWorkers = new Set<string>();

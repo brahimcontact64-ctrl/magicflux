@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createServiceClient } from '@/lib/supabase-server';
 import { markWorkerState } from './worker-registry';
 import { publishDrainSignal, markWorkerActive } from './drain-signal';

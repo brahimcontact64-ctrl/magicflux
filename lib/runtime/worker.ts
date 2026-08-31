@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   activateWorkflow as n8nActivate,
   deactivateWorkflow as n8nDeactivate,

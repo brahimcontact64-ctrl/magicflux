@@ -1,5 +1,3 @@
-import "server-only";
-
 import os from 'os';
 
 import { createServiceClient } from '@/lib/supabase-server';
