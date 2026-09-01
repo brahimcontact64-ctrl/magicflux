@@ -60,39 +60,28 @@ function UserMenu() {
   const { user, session, signOut, refreshPlan } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
   const [activatingPro, setActivatingPro] = useState(false);
 
-  // ⚠️ DEV ONLY — remove before production
-  const SHOW_DEV = true; // fallback: set to false to rely solely on env var
-  console.log('DEV BUTTON:', process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON);
-  const devProEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON === 'true' || SHOW_DEV;
+  // Phase 9.3.1: this was previously hardcoded to `true` (SHOW_DEV), which
+  // forced the "DEV: Activate Pro for Testing" button to render for every
+  // production user regardless of the env var it claimed to be gated by —
+  // the request itself was still correctly rejected server-side
+  // (/api/dev/activate-pro checks NODE_ENV independently), but real users
+  // saw a dev-only control that would only ever fail for them. Now
+  // controlled solely by the env var, matching the server-side gate.
+  const devProEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON === 'true';
 
   if (!user) return null;
 
   const isPro = user.plan === 'pro';
 
-  async function handleUpgrade() {
-    if (!session) return;
-    setUpgrading(true);
+  function handleUpgrade() {
+    // Phase 9.3.1 Step F: no self-service checkout exists yet (PayPal is
+    // not the V1 provider and Stripe isn't configured) — say so honestly
+    // instead of firing a network call at a payment flow that can't
+    // complete. Do not wire this to a real checkout until Stripe is live.
     setOpen(false);
-    try {
-      const data = await apiRequest<{ approvalUrl?: string }>(
-        '/api/paypal/create-order',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        },
-        'Could not start checkout'
-      );
-      if (data.approvalUrl && typeof window !== 'undefined') window.location.href = data.approvalUrl;
-      else setUpgrading(false);
-    } catch {
-      setUpgrading(false);
-    }
+    toast.info("Pro upgrades aren't available yet — check back soon.");
   }
 
   async function handleSignOut() {
@@ -154,11 +143,10 @@ function UserMenu() {
             {!isPro && (
               <button
                 onClick={handleUpgrade}
-                disabled={upgrading}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-xs text-amber-400 transition-colors"
               >
-                {upgrading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
-                {upgrading ? 'Redirecting...' : 'Upgrade to Pro — $29'}
+                <Crown className="w-3.5 h-3.5" />
+                Upgrade to Pro — $29
               </button>
             )}
             {devProEnabled && (
@@ -188,7 +176,7 @@ function UserMenu() {
 
 // ── Upgrade banner ────────────────────────────────────────────────────────────
 
-function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrading: boolean }) {
+function UpgradeBanner({ onUpgrade }: { onUpgrade: () => void }) {
   return (
     <div className="flex-shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 flex items-center gap-3">
       <TriangleAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
@@ -197,11 +185,10 @@ function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrad
       </p>
       <button
         onClick={onUpgrade}
-        disabled={upgrading}
         className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex-shrink-0"
       >
-        {upgrading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Crown className="w-3 h-3" />}
-        {upgrading ? 'Redirecting...' : 'Upgrade — $29'}
+        <Crown className="w-3 h-3" />
+        Upgrade — $29
       </button>
     </div>
   );
@@ -241,7 +228,6 @@ export default function BuilderPage() {
   // state below it was removed along with the broken n8n deploy path).
   const [isDeploying, setIsDeploying] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
-  const [upgrading, setUpgrading] = useState(false);
   const [isCreatingManagedRequest, setIsCreatingManagedRequest] = useState(false);
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null);
   const [requiredIntegrations, setRequiredIntegrations] = useState<IntegrationProvider[]>([]);
@@ -351,27 +337,13 @@ export default function BuilderPage() {
     }
   }, [mode, conversationSessionId, modeHydrated]);
 
-  const handleUpgrade = useCallback(async () => {
-    if (!session) return;
-    setUpgrading(true);
-    try {
-      const data = await apiRequest<{ approvalUrl?: string }>(
-        '/api/paypal/create-order',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        },
-        'Could not start checkout'
-      );
-      if (data.approvalUrl && typeof window !== 'undefined') window.location.href = data.approvalUrl;
-      else setUpgrading(false);
-    } catch {
-      setUpgrading(false);
-    }
-  }, [session]);
+  // Phase 9.3.1 Step F: no self-service checkout exists yet — say so
+  // honestly instead of firing a network call at a payment flow (PayPal)
+  // that isn't the V1 provider and can't complete. Do not wire this to a
+  // real checkout until Stripe is live.
+  const handleUpgrade = useCallback(() => {
+    toast.info("Pro upgrades aren't available yet — check back soon.");
+  }, []);
 
   // Canonical save path (Phase 9.1.5): every workflow created from the AI
   // Builder is saved through POST /api/workflows — the same entitlement-
@@ -766,7 +738,7 @@ export default function BuilderPage() {
       </header>
 
       {/* Upgrade banner for free users */}
-      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} />}
+      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} />}
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">

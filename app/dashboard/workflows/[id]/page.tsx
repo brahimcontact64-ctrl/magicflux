@@ -211,9 +211,11 @@ export default function WorkflowDetailsPage() {
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [lifecycleErrors, setLifecycleErrors] = useState<string[]>([]);
 
-  // DEV ONLY - remove before production
-  const SHOW_DEV = true;
-  const devProEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON === 'true' || SHOW_DEV;
+  // Phase 9.3.1: previously hardcoded to `true` (SHOW_DEV), which forced
+  // this dev-only control to render for every production user regardless
+  // of the env var it claimed to be gated by. Now controlled solely by the
+  // env var, matching /api/dev/activate-pro's own server-side gate.
+  const devProEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_PRO_BUTTON === 'true';
 
   const handleDevActivatePro = useCallback(async () => {
     if (!session) return;

@@ -4,9 +4,10 @@ import {
   activateWorkflow, getN8nConfig,
 } from '@/lib/ai-engine/n8n-deployer';
 import {
-  getUserFromRequest, getUserPlan, checkDeployRateLimit,
+  getUserFromRequest, checkDeployRateLimit,
   createServiceClient,
 } from '@/lib/supabase-server';
+import { canDeployWorkflow } from '@/lib/billing/plan-limits';
 
 export type OrchestrationStage =
   | 'creating_workflow'
@@ -73,11 +74,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Authentication required. Please sign in.' }, { status: 401 });
   }
 
-  // 2. Plan gate — Pro only
-  const plan = await getUserPlan(authUser.id);
-  if (plan !== 'pro') {
+  // 2. Plan gate — Pro/Business only. Phase 9.3.1 Step E: uses the same
+  // canonical, FK-joined entitlement resolver as the native activation
+  // gate (lib/billing/plan-limits.ts). Previously called this file's own
+  // getUserPlan() (lib/supabase-server.ts), which trusted the raw,
+  // unverified subscriptions.plan text column — the same loose pattern as
+  // the client-only display badge — and only ever recognized the literal
+  // string 'pro', silently denying a legitimate Business-tier customer.
+  const deployCheck = await canDeployWorkflow(authUser.id);
+  if (!deployCheck.allowed) {
     return NextResponse.json(
-      { error: 'Upgrade required. Deploy to n8n is available on the Pro plan.' },
+      { error: deployCheck.reason ?? 'Upgrade required. Deploy to n8n is available on paid plans.' },
       { status: 403 }
     );
   }

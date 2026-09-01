@@ -97,6 +97,18 @@ export async function isAdminUser(userId: string): Promise<boolean> {
 }
 
 /**
+ * @deprecated Phase 9.3.1: this is a second, independent "get user's plan"
+ * implementation that trusts the raw, unverified `subscriptions.plan` text
+ * column (and falls back to `user_profiles.plan`) rather than the real
+ * FK-joined `plans` row -- the same loose semantics the client-only
+ * display badge (lib/auth-context.tsx's fetchPlan()) uses, which is fine
+ * for a UI badge but not for a security-sensitive entitlement decision.
+ * Its last caller (app/api/n8n/orchestrate/route.ts) has been switched to
+ * the canonical resolver in lib/billing/plan-limits.ts
+ * (getUserPlan()/canDeployWorkflow()). Kept only for compatibility in case
+ * something outside this audit's search still imports it; do not add new
+ * callers -- use lib/billing/plan-limits.ts instead.
+ *
  * Reads the user's plan from subscriptions + plans.
  * Falls back to user_profiles.plan for backward compatibility.
  */

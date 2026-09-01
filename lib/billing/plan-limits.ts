@@ -38,34 +38,119 @@ export interface UsageMetrics {
   executions_this_month: number;
 }
 
+const FREE_DEFAULT_PLAN: Plan = {
+  id: "free-default",
+  slug: "free",
+  name: "Free",
+  price_monthly: 0,
+  integrations_limit: 1,
+  workflows_limit: 3,
+  executions_limit: 20,
+  deploy_enabled: false,
+  created_at: new Date().toISOString(),
+};
+
+export type PlanResolutionSource =
+  | "active_subscription" // real, active, unexpired paid (or free) plan on file
+  | "no_subscription"     // no subscriptions row at all -- legitimately free
+  | "inactive_subscription" // row exists but status/expiration doesn't currently entitle
+  | "resolution_error";   // DB/query failure -- fell back to free, but this is NOT a normal free user
+
+export interface PlanResolution {
+  plan: Plan;
+  source: PlanResolutionSource;
+}
+
 /**
- * Get user's current plan
+ * Resolve a user's real, current plan.
+ *
+ * Phase 9.3.1 fix. The previous query used `plan!inner(...)` -- an alias
+ * ("plan", singular) that matches neither the real FK constraint name
+ * (`subscriptions_plan_id_fkey`) nor PostgREST's auto-detected relationship
+ * name (the referenced table, `plans`, plural). Every call failed with
+ * PGRST200 ("Could not find a relationship"), so `subError` was truthy on
+ * every single invocation and this function silently returned the free
+ * default for every user, always, regardless of real subscription state --
+ * the entitlement gate could never recognize anyone as Pro/Business.
+ *
+ * This does NOT copy the client-side fetchPlan() (lib/auth-context.tsx)
+ * fallback behavior of trusting the raw, unverified `subscriptions.plan`
+ * text column when the relational join comes back empty -- that column can
+ * drift from `plan_id`/`plans` (as the 25 dev/e2e-seeded rows in production
+ * demonstrate: plan:'pro' text with plan_id NULL) and is fine for a
+ * display-only badge but not for a security-sensitive entitlement decision.
+ * A plan is only ever returned here if the real FK-joined `plans` row
+ * resolved AND the subscription is active AND unexpired.
  */
-export async function getUserPlan(userId: string): Promise<Plan | null> {
+export async function resolveUserPlan(userId: string): Promise<PlanResolution> {
   const supabase = createServiceClient();
 
   const { data: sub, error: subError } = await supabase
     .from("subscriptions")
-    .select("plan_id, plan!inner(id, slug, name, price_monthly, integrations_limit, workflows_limit, executions_limit, deploy_enabled, created_at)")
+    .select(
+      "status, current_period_end, plan_id, plan:plans!subscriptions_plan_id_fkey(id, slug, name, price_monthly, integrations_limit, workflows_limit, executions_limit, deploy_enabled, created_at)"
+    )
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
-  if (subError || !sub) {
-    // If no subscription exists, user is on free plan by default
-    return {
-      id: "free-default",
-      slug: "free",
-      name: "Free",
-      price_monthly: 0,
-      integrations_limit: 1,
-      workflows_limit: 3,
-      executions_limit: 20,
-      deploy_enabled: false,
-      created_at: new Date().toISOString(),
-    };
+  if (subError) {
+    // Fail safe (free), but MUST be observable -- a billing resolver
+    // failure must never quietly masquerade as a normal free user forever.
+    // No alerting/metrics pipeline exists yet to page on this (out of
+    // scope for this gate); a structured, greppable log line is the
+    // proportionate signal today, and `source: "resolution_error"` lets
+    // any future/observable caller (e.g. an ops dashboard) distinguish
+    // this from a legitimate free account.
+    console.error("[billing:resolveUserPlan:RESOLVER_FAILURE]", { userId, error: subError });
+    return { plan: FREE_DEFAULT_PLAN, source: "resolution_error" };
   }
 
-  return (sub.plan as unknown as Plan) || null;
+  if (!sub) {
+    // No subscriptions row at all -- legitimately free, not an error.
+    return { plan: FREE_DEFAULT_PLAN, source: "no_subscription" };
+  }
+
+  const planRow = (sub.plan as unknown as Plan | null) ?? null;
+
+  // Malformed/dangling subscription (e.g. plan_id set but the joined plan
+  // row can't be found, or plan_id is NULL as on the legacy dev/e2e rows)
+  // -- fail safe to free rather than trusting anything else on the row.
+  if (!planRow) {
+    return { plan: FREE_DEFAULT_PLAN, source: "inactive_subscription" };
+  }
+
+  // Server-side subscription-status semantics (Phase 9.3.1 Step D).
+  // Only "active" currently entitles. "trialing" is not yet a real product
+  // concept anywhere in the app (no trial-granting code path exists) so it
+  // is deliberately NOT treated as entitling here -- inventing that
+  // behavior ahead of an actual trial feature would be exactly the kind of
+  // premature Stripe-shaped guess this phase says not to make.
+  // "past_due" / "canceled" / "unpaid" all correctly fall through to free.
+  if (sub.status !== "active") {
+    return { plan: FREE_DEFAULT_PLAN, source: "inactive_subscription" };
+  }
+
+  // Expiration: current_period_end in the past means entitlement has
+  // lapsed even if status hasn't been transitioned yet (no webhook exists
+  // yet to do that transition -- see Phase 9.3 audit). A NULL
+  // current_period_end is treated as "no expiration recorded" (true today
+  // for every existing row, since no code path currently sets it on the
+  // canonical upgrade path) rather than auto-expiring everyone.
+  if (sub.current_period_end && new Date(sub.current_period_end).getTime() <= Date.now()) {
+    return { plan: FREE_DEFAULT_PLAN, source: "inactive_subscription" };
+  }
+
+  return { plan: planRow, source: "active_subscription" };
+}
+
+/**
+ * Get user's current plan. Thin wrapper around resolveUserPlan() for the
+ * majority of call sites that only need the plan, not the resolution
+ * source. Never returns null -- always resolves to at least the free
+ * default.
+ */
+export async function getUserPlan(userId: string): Promise<Plan> {
+  return (await resolveUserPlan(userId)).plan;
 }
 
 /**
