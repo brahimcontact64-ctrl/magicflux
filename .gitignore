@@ -52,3 +52,6 @@ next-env.d.ts
 service-account*.json
 credentials.json
 *.env.backup
+
+.vercel
+.env*
