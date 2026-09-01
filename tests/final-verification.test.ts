@@ -71,28 +71,28 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
     expect(HANDLER_NODE_ALLOWLIST.has('')).toBe(false);
   });
 
-  it('V1.5: .size is 14', () => {
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
+  it('V1.5: .size is 15', () => {
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(15);
   });
 
-  it('V1.6: .entries() iterates all 14 pairs', () => {
+  it('V1.6: .entries() iterates all 15 pairs', () => {
     const entries = [...HANDLER_NODE_ALLOWLIST.entries()];
-    expect(entries).toHaveLength(14);
+    expect(entries).toHaveLength(15);
     for (const [key, val] of entries) {
       expect(typeof key).toBe('string');
       expect(typeof val).toBe('function');
     }
   });
 
-  it('V1.7: .keys() iterates all 14 node types', () => {
+  it('V1.7: .keys() iterates all 15 node types', () => {
     const keys = [...HANDLER_NODE_ALLOWLIST.keys()];
-    expect(keys).toHaveLength(14);
+    expect(keys).toHaveLength(15);
     expect(keys.every(k => typeof k === 'string')).toBe(true);
   });
 
-  it('V1.8: .values() iterates all 14 handlers', () => {
+  it('V1.8: .values() iterates all 15 handlers', () => {
     const values = [...HANDLER_NODE_ALLOWLIST.values()];
-    expect(values).toHaveLength(14);
+    expect(values).toHaveLength(15);
     expect(values.every(v => typeof v === 'function')).toBe(true);
   });
 
@@ -103,17 +103,17 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
       expect(typeof val).toBe('function');
       count++;
     }
-    expect(count).toBe(14);
+    expect(count).toBe(15);
   });
 
-  it('V1.10: .forEach() visits all 14 entries', () => {
+  it('V1.10: .forEach() visits all 15 entries', () => {
     let count = 0;
     HANDLER_NODE_ALLOWLIST.forEach((val, key) => {
       expect(typeof key).toBe('string');
       expect(typeof val).toBe('function');
       count++;
     });
-    expect(count).toBe(14);
+    expect(count).toBe(15);
   });
 
   it('V1.11: .set() throws TypeError (mutation blocked)', () => {
@@ -121,7 +121,7 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
       (HANDLER_NODE_ALLOWLIST as Map<string, unknown>).set('evil', () => null);
     }).toThrow(TypeError);
     expect(HANDLER_NODE_ALLOWLIST.has('evil')).toBe(false);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(15);
   });
 
   it('V1.12: .delete() throws TypeError (mutation blocked)', () => {
@@ -130,14 +130,14 @@ describe('V1 — frozenMap: all standard read operations work correctly', () => 
     }).toThrow(TypeError);
     // Entry must still be present
     expect(HANDLER_NODE_ALLOWLIST.has('n8n-nodes-base.shopify')).toBe(true);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(15);
   });
 
   it('V1.14: .clear() throws TypeError (mutation blocked)', () => {
     expect(() => {
       (HANDLER_NODE_ALLOWLIST as Map<string, unknown>).clear();
     }).toThrow(TypeError);
-    expect(HANDLER_NODE_ALLOWLIST.size).toBe(14);
+    expect(HANDLER_NODE_ALLOWLIST.size).toBe(15);
   });
 
 });
@@ -244,10 +244,18 @@ describe('V3 — googleDriveHandler: safe stub behavior', () => {
     expect(JSON.stringify(r)).not.toContain('REAL_GOOGLE_TOKEN_abc123');
   });
 
-  it('V3.4: via dispatchNode — googledrivetrigger also routes to stub', async () => {
+  it('V3.4: via dispatchNode — googledrivetrigger is intercepted by the Phase 9.1.6 capability check before reaching the stub', async () => {
+    // Phase 9.1.6: node-capabilities.ts's blocklist now intercepts
+    // googledrive/googledrivetrigger in pickHandler() before the underlying
+    // (still-correct, still-honest) googleDriveHandler stub would ever run —
+    // one fewer step for the same "not available" outcome, and a
+    // user-safe message instead of an internal error code. The handler
+    // FUNCTION itself is unchanged and still fails honestly when called
+    // directly (see V3.1-V3.3 above).
     const r = await dispatchNode({ type: 'n8n-nodes-base.googledrivetrigger' }, {}, LIVE_CTX);
     expect(r.status).toBe('failed');
-    expect(r.error).toBe('GOOGLE_DRIVE_NOT_IMPLEMENTED');
+    expect(r.error).toContain('UNSUPPORTED_NODE_TYPE');
+    expect(r.error).not.toContain('GOOGLE_DRIVE_NOT_IMPLEMENTED');
   });
 
 });

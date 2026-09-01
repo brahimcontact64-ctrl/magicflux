@@ -70,6 +70,8 @@ export const googleDriveNode: NodeDef = {
   description: 'Upload, download, or manage files in Google Drive.',
   icon: HardDrive,
   iconColor: 'bg-sky-100 text-sky-700',
+  // Phase 9.1.6: credential injection for Google Drive isn't implemented yet.
+  unavailableReason: 'Google Drive isn\'t connected yet.',
   fields: [
     {
       key: 'operation',

@@ -34,6 +34,15 @@ function allHandlerNodeTypes(): Set<string> {
   return new Set(HANDLER_NODE_ALLOWLIST.keys());
 }
 
+// n8n-nodes-base.set (Phase 9.1.6) is a deterministic, credential-free field
+// transformation — it legitimately has no PROVIDER_NODE_ALLOWLIST entry
+// because it never needs or receives integration credentials, unlike every
+// other HANDLER_NODE_ALLOWLIST entry. openai/custom are NOT exceptions —
+// both do have real PROVIDER_NODE_ALLOWLIST entries (see lib/integrations.ts).
+const CREDENTIAL_FREE_HANDLER_EXCEPTIONS: ReadonlySet<string> = new Set([
+  'n8n-nodes-base.set',
+]);
+
 // ─── A: Every provider node type has a handler ────────────────────────────────
 //
 // For every (provider → nodeTypes) entry in PROVIDER_NODE_ALLOWLIST,
@@ -67,6 +76,7 @@ describe('B — Every HANDLER_NODE_ALLOWLIST type has a provider allowlist entry
   const providerNodeTypes = allProviderNodeTypes();
 
   for (const nodeType of HANDLER_NODE_ALLOWLIST.keys()) {
+    if (CREDENTIAL_FREE_HANDLER_EXCEPTIONS.has(nodeType)) continue;
     it(`handler node "${nodeType}" → provider allowlist entry exists`, () => {
       expect(
         providerNodeTypes.has(nodeType),
@@ -74,6 +84,11 @@ describe('B — Every HANDLER_NODE_ALLOWLIST type has a provider allowlist entry
       ).toBe(true);
     });
   }
+
+  it('n8n-nodes-base.set is confirmed credential-free (documented exception, not an oversight)', () => {
+    expect(HANDLER_NODE_ALLOWLIST.has('n8n-nodes-base.set')).toBe(true);
+    expect(providerNodeTypes.has('n8n-nodes-base.set')).toBe(false);
+  });
 
 });
 
@@ -148,9 +163,9 @@ describe('D — Unknown / hypothetical providers are absent from both lists', ()
 
 describe('E — Both lists cover exactly the same set of node types', () => {
 
-  it('unique node-type count is equal in both lists', () => {
+  it('unique node-type count is equal in both lists (excluding the documented credential-free exception)', () => {
     const providerTypes = allProviderNodeTypes();
-    const handlerTypes  = allHandlerNodeTypes();
+    const handlerTypes  = new Set([...allHandlerNodeTypes()].filter(t => !CREDENTIAL_FREE_HANDLER_EXCEPTIONS.has(t)));
 
     const onlyInProvider = [...providerTypes].filter(t => !handlerTypes.has(t));
     const onlyInHandler  = [...handlerTypes].filter(t => !providerTypes.has(t));

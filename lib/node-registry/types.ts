@@ -66,6 +66,16 @@ export interface NodeDef {
    * Maps to keys in lib/credentials/provider-registry.ts.
    */
   credentialProvider?: string;
+  /**
+   * Phase 9.1.6 — set when the certified runtime cannot actually execute
+   * this node yet (see lib/workflow-runtime/node-capabilities.ts, the
+   * single source of truth this mirrors). When present, NodePalette shows
+   * the entry as disabled with this explanation instead of letting it be
+   * added as if it were functional — the underlying block/type stays in
+   * the registry (for future implementation) but is never presented as
+   * working today.
+   */
+  unavailableReason?: string;
 }
 
 // ─── Validation helpers ───────────────────────────────────────────────────────

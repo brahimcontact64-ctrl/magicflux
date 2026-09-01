@@ -112,6 +112,8 @@ export const gmailTriggerNode: NodeDef = {
   icon: Mail,
   iconColor: 'bg-blue-100 text-blue-700',
   isTrigger: true,
+  // Phase 9.1.6: no Gmail-watching mechanism exists in the runtime yet.
+  unavailableReason: 'Watching Gmail for new messages isn\'t available yet.',
   fields: [
     {
       key: 'pollTimes',

@@ -10,6 +10,8 @@ import { shopifyHandler } from './shopify';
 import { googleDriveHandler } from './googledrive';
 import { openaiHandler } from './openai';
 import { httpHandler } from './http';
+import { setHandler } from './set';
+import { checkNodeCapability } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -60,16 +62,50 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   ['n8n-nodes-base.openai',             openaiHandler],
   // Generic/custom API-key credential (see PROVIDER_NODE_ALLOWLIST['custom'] in lib/integrations.ts)
   ['n8n-nodes-base.httprequest',        httpHandler],
+  // Deterministic, credential-free field transformation (Phase 9.1.6).
+  ['n8n-nodes-base.set',                 setHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
   return String(node.type ?? '').toLowerCase();
 }
 
+/** Unknown/blocked node type — simulated in test mode, fails clearly in live mode. Never silently succeeds or misroutes. */
+function unsupportedHandler(userMessage: string): NodeHandler {
+  return async (_node: EngineNode, inputData: unknown, ctx: NodeHandlerContext): Promise<NodeHandlerResult> => {
+    const nodeType = String(_node.type ?? 'unknown');
+    if (ctx.mode === 'live') {
+      return {
+        status: 'failed',
+        outputData: null,
+        logs: [`Unsupported node type '${nodeType}' in live mode.`],
+        error: `UNSUPPORTED_NODE_TYPE:${nodeType}:${userMessage}`,
+      };
+    }
+
+    return {
+      status: 'simulated_success',
+      outputData: inputData,
+      logs: [`SIMULATED — no real API executed (unsupported node '${nodeType}').`],
+    };
+  };
+}
+
 function pickHandler(node: EngineNode): NodeHandler {
   const type = getNodeTypeKey(node);
 
-  // 1. Exact provider match — only allowlisted types reach credential-using handlers.
+  // 0. Capability check FIRST (Phase 9.1.6) — a handful of types (errorTrigger,
+  // gmailTrigger, wait+resume:'webhook') match one of the generic substring
+  // rules below and would otherwise reach a real handler that does the WRONG
+  // thing (silent no-op, live email misfire, or skipping a human approval
+  // gate entirely) rather than failing. This must run before any routing
+  // below, not after, or those cases would never be intercepted.
+  const capability = checkNodeCapability({ type: node.type ?? '', parameters: node.parameters });
+  if (!capability.capable) {
+    return unsupportedHandler(capability.userMessage);
+  }
+
+  // 1. Exact provider/deterministic match — only allowlisted types reach these handlers.
   const providerHandler = HANDLER_NODE_ALLOWLIST.get(type);
   if (providerHandler) return providerHandler;
 
@@ -91,23 +127,7 @@ function pickHandler(node: EngineNode): NodeHandler {
   }
 
   // 3. Unknown node type — simulated in test mode, fails in live mode.
-  return async (_node: EngineNode, inputData: unknown, ctx: NodeHandlerContext): Promise<NodeHandlerResult> => {
-    const nodeType = String(_node.type ?? 'unknown');
-    if (ctx.mode === 'live') {
-      return {
-        status: 'failed',
-        outputData: null,
-        logs: [`Unsupported node type '${nodeType}' in live mode.`],
-        error: `UNSUPPORTED_NODE_TYPE:${nodeType}`,
-      };
-    }
-
-    return {
-      status: 'simulated_success',
-      outputData: inputData,
-      logs: [`SIMULATED — no real API executed (unsupported node '${nodeType}').`],
-    };
-  };
+  return unsupportedHandler('This step type isn\'t available yet.');
 }
 
 export async function dispatchNode(
@@ -131,4 +151,5 @@ export {
   googleDriveHandler,
   openaiHandler,
   httpHandler,
+  setHandler,
 };

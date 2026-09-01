@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { checkNodeCapability } from '@/lib/workflow-runtime/node-capabilities';
 import {
   BLOCKS, PlacedBlock, BlockConnection, ComposedWorkflow,
   getBlocksByTags, collectEnvVars, collectDependencies, EnvVar, N8nNodePayload
@@ -902,6 +903,32 @@ function buildEnvConfig(plan: AutomationPlan, envVars: EnvVar[]): string {
   return lines.join('\n');
 }
 
+// ─── Capability gate (Phase 9.1.6) ───────────────────────────────────────────
+//
+// Invariant: MagicFlux must never generate a workflow containing a node the
+// certified runtime cannot actually execute. Checked here, right after the
+// final n8nJson is assembled, against the SAME single source of truth the
+// validator and runtime dispatch use (lib/workflow-runtime/node-capabilities.ts)
+// — so planner generation can never drift from what activation will later
+// accept. UNSUPPORTED_REQUIREMENTS is the existing error-code convention
+// this file (and /api/planner's error handling) already uses for "this
+// automation cannot be built with current capabilities" — no new error
+// contract needed, and the message is the capability's own user-safe
+// explanation, never a raw node type or internal handler name.
+function assertNodesAreCapable(n8nJson: N8nWorkflow): void {
+  const nodes = n8nJson?.nodes ?? [];
+  const blocked: string[] = [];
+
+  for (const node of nodes) {
+    const capability = checkNodeCapability({ type: node.type, parameters: node.parameters });
+    if (!capability.capable) blocked.push(capability.userMessage);
+  }
+
+  if (blocked.length > 0) {
+    throw new Error(`UNSUPPORTED_REQUIREMENTS: This automation needs a capability that isn't available yet: ${[...new Set(blocked)].join(' ')}`);
+  }
+}
+
 // ─── MAIN PLANNER FUNCTION ───────────────────────────────────────────────────
 
 /**
@@ -985,6 +1012,7 @@ export function createAutomationPlan(
 
   const composition = composeFromPlan(plan);
   const n8nJson = buildN8nWorkflow(plan, composition);
+  assertNodesAreCapable(n8nJson);
   const envVars = collectEnvVars([triggerBlockId, ...steps.map(s => s.blockId)]);
   const dependencies = collectDependencies([triggerBlockId, ...steps.map(s => s.blockId)]);
   const envConfig = buildEnvConfig(plan, envVars);
@@ -1017,6 +1045,7 @@ export function assemblePlannerResult(
 
   const composition = composeFromPlan(plan);
   const n8nJson = buildN8nWorkflow(plan, composition);
+  assertNodesAreCapable(n8nJson);
   const allBlockIds = [plan.trigger.blockId, ...plan.steps.map(s => s.blockId)];
   const envVars = collectEnvVars(allBlockIds);
   const dependencies = collectDependencies(allBlockIds);
@@ -1232,6 +1261,7 @@ export function modifyPlan(
 
   const composition = composeFromPlan(updatedPlan);
   const n8nJson = buildN8nWorkflow(updatedPlan, composition);
+  assertNodesAreCapable(n8nJson);
   const envVars = collectEnvVars([updatedPlan.trigger.blockId, ...updatedPlan.steps.map(s => s.blockId)]);
   const dependencies = collectDependencies([updatedPlan.trigger.blockId, ...updatedPlan.steps.map(s => s.blockId)]);
   const envConfig = buildEnvConfig(updatedPlan, envVars);

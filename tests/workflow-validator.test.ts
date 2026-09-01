@@ -96,7 +96,16 @@ describe('validateWorkflow', () => {
       expect(r.errors).toHaveLength(0);
     });
 
-    it('accepts every provider node type from HANDLER_NODE_ALLOWLIST', () => {
+    it('accepts every provider node type from HANDLER_NODE_ALLOWLIST that is actually production-safe', () => {
+      // gmailtrigger, googledrive, and googledrivetrigger are in
+      // PROVIDER_EXACT_TYPES (they dispatch to a real handler function) but
+      // are explicitly blocked by the Phase 9.1.6 capability blocklist:
+      // gmailtrigger has no watch/poll mechanism and would misfire
+      // emailHandler; the googledrive handler is a known, honest stub with
+      // no working credential path yet. See
+      // tests/workflow-validator.test.ts's UNSUPPORTED_NODE_CAPABILITY
+      // suite and lib/workflow-runtime/node-capabilities.ts for the
+      // corresponding rejection tests/reasoning.
       const providerTypes = [
         'n8n-nodes-base.shopify',
         'n8n-nodes-base.shopifytrigger',
@@ -107,9 +116,6 @@ describe('validateWorkflow', () => {
         'n8n-nodes-base.emailsend',
         'n8n-nodes-base.emailreadimap',
         'n8n-nodes-base.gmail',
-        'n8n-nodes-base.gmailtrigger',
-        'n8n-nodes-base.googledrive',
-        'n8n-nodes-base.googledrivetrigger',
       ];
 
       for (const type of providerTypes) {
@@ -775,11 +781,15 @@ describe('validateWorkflow', () => {
 
   });
 
-  // ── UNKNOWN_NODE_TYPE (warning) ───────────────────────────────────────────
+  // ── UNSUPPORTED_NODE_CAPABILITY (hard error — Phase 9.1.6) ────────────────
+  //
+  // Was a warning-only UNKNOWN_NODE_TYPE before Phase 9.1.6; upgraded to a
+  // hard error so an unsupported/unsafe node can never reach
+  // activateWorkflow(). See lib/workflow-runtime/node-capabilities.ts.
 
-  describe('UNKNOWN_NODE_TYPE', () => {
+  describe('UNSUPPORTED_NODE_CAPABILITY', () => {
 
-    it('warns for a type not in any known registry', () => {
+    it('rejects a type not in any known registry', () => {
       const r = validateWorkflow({
         nodes: [
           { name: 'T',  type: 'n8n-nodes-base.webhook' },
@@ -787,13 +797,16 @@ describe('validateWorkflow', () => {
         ],
         connections: { T: { main: [[{ node: 'X' }]] } },
       });
-      expect(r.valid).toBe(true);
-      expect(hasWarning(r, ValidationCodes.UNKNOWN_NODE_TYPE)).toBe(true);
-      const warn = r.warnings.find(w => w.code === ValidationCodes.UNKNOWN_NODE_TYPE);
-      expect(warn?.message).toContain('company.myCustomNode');
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+      const err = r.errors.find(e => e.code === ValidationCodes.UNSUPPORTED_NODE_CAPABILITY);
+      // User-safe message: the node's own (user-given) name is fine, but the
+      // raw internal type string must never leak (Phase 9.1.6 Step E).
+      expect(err?.message).toContain('X');
+      expect(err?.message).not.toContain('company.myCustomNode');
     });
 
-    it('does not warn for provider types from HANDLER_NODE_ALLOWLIST', () => {
+    it('does not reject provider types from HANDLER_NODE_ALLOWLIST', () => {
       const r = validateWorkflow({
         nodes: [
           { name: 'T',  type: 'n8n-nodes-base.webhook' },
@@ -801,10 +814,10 @@ describe('validateWorkflow', () => {
         ],
         connections: { T: { main: [[{ node: 'SL' }]] } },
       });
-      expect(hasWarning(r, ValidationCodes.UNKNOWN_NODE_TYPE)).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(false);
     });
 
-    it('does not warn for generic types (wait, code, if, etc.)', () => {
+    it('does not reject safe generic types (wait, code, if, etc.)', () => {
       const r = validateWorkflow({
         nodes: [
           { name: 'T', type: 'n8n-nodes-base.webhook' },
@@ -812,10 +825,21 @@ describe('validateWorkflow', () => {
         ],
         connections: { T: { main: [[{ node: 'W' }]] } },
       });
-      expect(hasWarning(r, ValidationCodes.UNKNOWN_NODE_TYPE)).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(false);
     });
 
-    it('includes the node path in the warning', () => {
+    it('does not reject the set node (Phase 9.1.6 implemented handler)', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T', type: 'n8n-nodes-base.webhook' },
+          { name: 'S', type: 'n8n-nodes-base.set' },
+        ],
+        connections: { T: { main: [[{ node: 'S' }]] } },
+      });
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(false);
+    });
+
+    it('includes the node path in the error', () => {
       const r = validateWorkflow({
         nodes: [
           { name: 'T', type: 'n8n-nodes-base.webhook' },
@@ -823,8 +847,67 @@ describe('validateWorkflow', () => {
         ],
         connections: { T: { main: [[{ node: 'U' }]] } },
       });
-      const warn = r.warnings.find(w => w.code === ValidationCodes.UNKNOWN_NODE_TYPE);
-      expect(warn?.path).toContain('nodes[1]');
+      const err = r.errors.find(e => e.code === ValidationCodes.UNSUPPORTED_NODE_CAPABILITY);
+      expect(err?.path).toContain('nodes[1]');
+    });
+
+    it('rejects errorTrigger even though it matches the generic "trigger" substring', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T',  type: 'n8n-nodes-base.webhook' },
+          { name: 'EH', type: 'n8n-nodes-base.errorTrigger' },
+        ],
+        connections: { T: { main: [[{ node: 'EH' }]] } },
+      });
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+    });
+
+    it('rejects gmailTrigger even though it is in PROVIDER_EXACT_TYPES', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T',  type: 'n8n-nodes-base.webhook' },
+          { name: 'GT', type: 'n8n-nodes-base.gmailTrigger' },
+        ],
+        connections: { T: { main: [[{ node: 'GT' }]] } },
+      });
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+    });
+
+    it('rejects googleDrive even though it is in PROVIDER_EXACT_TYPES (known, honest stub — no credential path yet)', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T',  type: 'n8n-nodes-base.webhook' },
+          { name: 'GD', type: 'n8n-nodes-base.googleDrive' },
+        ],
+        connections: { T: { main: [[{ node: 'GD' }]] } },
+      });
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+    });
+
+    it('rejects a wait node configured with resume:"webhook" (the Approval Step block)', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T', type: 'n8n-nodes-base.webhook' },
+          { name: 'A', type: 'n8n-nodes-base.wait', parameters: { resume: 'webhook', options: { webhookSuffix: 'approval' } } },
+        ],
+        connections: { T: { main: [[{ node: 'A' }]] } },
+      });
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+    });
+
+    it('does not reject an ordinary duration-based wait node', () => {
+      const r = validateWorkflow({
+        nodes: [
+          { name: 'T', type: 'n8n-nodes-base.webhook' },
+          { name: 'W', type: 'n8n-nodes-base.wait', parameters: { amount: 30 } },
+        ],
+        connections: { T: { main: [[{ node: 'W' }]] } },
+      });
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(false);
     });
 
   });
@@ -854,7 +937,7 @@ describe('validateWorkflow', () => {
       expect(hasError(r, ValidationCodes.NO_START_NODE)).toBe(true);
     });
 
-    it('can report both UNKNOWN_NODE_TYPE warning and valid structure', () => {
+    it('an otherwise-well-formed workflow with one unsupported node type is invalid (Phase 9.1.6)', () => {
       const r = validateWorkflow({
         nodes: [
           { name: 'T', type: 'n8n-nodes-base.webhook' },
@@ -862,9 +945,9 @@ describe('validateWorkflow', () => {
         ],
         connections: { T: { main: [[{ node: 'X' }]] } },
       });
-      expect(r.valid).toBe(true);
-      expect(hasWarning(r, ValidationCodes.UNKNOWN_NODE_TYPE)).toBe(true);
-      expect(r.errors).toHaveLength(0);
+      expect(r.valid).toBe(false);
+      expect(hasError(r, ValidationCodes.UNSUPPORTED_NODE_CAPABILITY)).toBe(true);
+      expect(r.errors).toHaveLength(1);
     });
 
   });
@@ -1005,7 +1088,7 @@ describe('validateWorkflow', () => {
         'MISSING_NODE_NAME', 'MISSING_NODE_TYPE', 'DUPLICATE_NODE_NAME',
         'UNKNOWN_SOURCE_NODE', 'UNKNOWN_TARGET_NODE',
         'NO_START_NODE', 'INVALID_CONDITION_PORTS', 'GRAPH_CYCLE_DETECTED',
-        'WORKFLOW_TOO_LARGE', 'UNREACHABLE_NODE', 'UNKNOWN_NODE_TYPE',
+        'WORKFLOW_TOO_LARGE', 'UNREACHABLE_NODE', 'UNSUPPORTED_NODE_CAPABILITY',
       ];
       for (const code of expected) {
         expect(ValidationCodes).toHaveProperty(code);

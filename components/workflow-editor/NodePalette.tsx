@@ -88,22 +88,39 @@ export function NodePalette({ onAddNode, disabled }: NodePaletteProps) {
               {/* Node items */}
               {isOpen && (
                 <div className="pb-1">
-                  {nodes.map((def) => (
-                    <button
-                      key={def.type}
-                      onClick={() => !disabled && onAddNode(def.type, def.label)}
-                      disabled={disabled}
-                      className={cn(
-                        'w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs',
-                        'hover:bg-muted/40 transition-colors',
-                        'disabled:opacity-40 disabled:cursor-not-allowed',
-                      )}
-                      title={`Add ${def.label} node — ${def.description}`}
-                    >
-                      <NodeTypeIcon nodeType={def.type} size="sm" className="flex-shrink-0 h-5 w-5" />
-                      <span className="text-foreground truncate">{def.label}</span>
-                    </button>
-                  ))}
+                  {nodes.map((def) => {
+                    // Phase 9.1.6: an unavailableReason means the certified
+                    // runtime cannot execute this node yet — shown as
+                    // disabled with the explanation instead of an
+                    // apparently-functional entry a user could add and
+                    // later have silently fail (or worse, silently no-op)
+                    // at activation. See lib/workflow-runtime/node-capabilities.ts.
+                    const isUnavailable = Boolean(def.unavailableReason);
+                    const isDisabled = disabled || isUnavailable;
+                    return (
+                      <button
+                        key={def.type}
+                        onClick={() => !isDisabled && onAddNode(def.type, def.label)}
+                        disabled={isDisabled}
+                        aria-disabled={isUnavailable}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs',
+                          'hover:bg-muted/40 transition-colors',
+                          'disabled:opacity-40 disabled:cursor-not-allowed',
+                          isUnavailable && 'hover:bg-transparent',
+                        )}
+                        title={isUnavailable ? `${def.label} — ${def.unavailableReason}` : `Add ${def.label} node — ${def.description}`}
+                      >
+                        <NodeTypeIcon nodeType={def.type} size="sm" className="flex-shrink-0 h-5 w-5" />
+                        <span className="text-foreground truncate">{def.label}</span>
+                        {isUnavailable && (
+                          <span className="ml-auto flex-shrink-0 text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+                            Soon
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -14,7 +14,13 @@
  *   - Max executions   : 400 nodes (validator is more conservative: 200)
  *   - Connections key  : source node name → ConnectionEntry[][]
  *   - Connection target: ConnectionEntry.node must equal target node name
+ *   - Node capability  : lib/workflow-runtime/node-capabilities.ts (Phase 9.1.6)
+ *     is the single source of truth for "can the runtime actually execute
+ *     this node" — an unsupported/unsafe node is a hard ERROR here, not a
+ *     warning, so it can never reach activateWorkflow().
  */
+
+import { checkNodeCapability, PROVIDER_EXACT_TYPES } from '@/lib/workflow-runtime/node-capabilities';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -56,9 +62,12 @@ export const ValidationCodes = {
   INVALID_CONDITION_PORTS: 'INVALID_CONDITION_PORTS',
   GRAPH_CYCLE_DETECTED:    'GRAPH_CYCLE_DETECTED',
   WORKFLOW_TOO_LARGE:      'WORKFLOW_TOO_LARGE',
+  // Capability (Phase 9.1.6) — hard errors: a node the runtime cannot
+  // safely execute must never pass validation, so it can never reach
+  // activateWorkflow(). See lib/workflow-runtime/node-capabilities.ts.
+  UNSUPPORTED_NODE_CAPABILITY: 'UNSUPPORTED_NODE_CAPABILITY',
   // Warnings only
   UNREACHABLE_NODE:        'UNREACHABLE_NODE',
-  UNKNOWN_NODE_TYPE:       'UNKNOWN_NODE_TYPE',
 } as const;
 
 // ─── Size limits (validator is intentionally more conservative than engine) ───
@@ -68,33 +77,12 @@ const MAX_EDGES = 1000;
 
 // ─── Node type registry ───────────────────────────────────────────────────────
 //
-// Mirrors HANDLER_NODE_ALLOWLIST in lib/workflow-runtime/node-handlers/index.ts
-// and PROVIDER_NODE_ALLOWLIST in lib/integrations.ts.  Kept in sync manually;
-// the allowlist-consistency.security.test.ts suite enforces agreement at CI time.
-
-/** Exact lowercase type strings that route to credential-using provider handlers. */
-const PROVIDER_EXACT_TYPES: ReadonlySet<string> = new Set([
-  'n8n-nodes-base.shopify',
-  'n8n-nodes-base.shopifytrigger',
-  'n8n-nodes-base.slack',
-  'n8n-nodes-base.slacktrigger',
-  'n8n-nodes-base.airtable',
-  'n8n-nodes-base.airtabletrigger',
-  'n8n-nodes-base.emailsend',
-  'n8n-nodes-base.emailreadimap',
-  'n8n-nodes-base.gmail',
-  'n8n-nodes-base.gmailtrigger',
-  'n8n-nodes-base.googledrive',
-  'n8n-nodes-base.googledrivetrigger',
-]);
-
-/** Lowercase substrings that route a type to a generic (credential-free) handler. */
-const GENERIC_HANDLER_SUBSTRINGS: ReadonlyArray<string> = [
-  'webhook', 'trigger', 'manualtrigger',
-  'code', 'function',
-  'wait', 'pause', 'delay',
-  'if', 'condition', 'switch', 'filter',
-];
+// PROVIDER_EXACT_TYPES (imported above) and checkNodeCapability() now live in
+// lib/workflow-runtime/node-capabilities.ts — the single source of truth this
+// validator, the planner, the editor, and node-handlers/index.ts's own
+// dispatch all read, instead of four independently hand-synced copies
+// (Phase 9.1.6). allowlist-consistency.security.test.ts still enforces
+// agreement with PROVIDER_NODE_ALLOWLIST in lib/integrations.ts.
 
 // ─── Internal representation ──────────────────────────────────────────────────
 
@@ -155,16 +143,6 @@ function isConditionNodeType(type: string): boolean {
     lc.includes('switch')    ||
     lc.includes('filter')
   );
-}
-
-/**
- * Returns true when the runtime will handle this type without producing
- * UNSUPPORTED_NODE_TYPE in live mode.
- */
-function isKnownNodeType(type: string): boolean {
-  const lc = type.toLowerCase();
-  if (PROVIDER_EXACT_TYPES.has(lc)) return true;
-  return GENERIC_HANDLER_SUBSTRINGS.some(s => lc.includes(s));
 }
 
 // ─── Phase helpers ────────────────────────────────────────────────────────────
@@ -582,24 +560,32 @@ function detectUnreachable(
   return warnings;
 }
 
-// Phase warnings ─ unknown node types ─────────────────────────────────────────
+// Phase 4.5 ─ node capability (Phase 9.1.6, hard error) ───────────────────────
+//
+// Checks every node against lib/workflow-runtime/node-capabilities.ts — the
+// same check the runtime's own dispatch (pickHandler()) applies. A node the
+// runtime cannot safely execute is a validation ERROR, not a warning: it
+// must never reach activateWorkflow(). Message is the capability's
+// `userMessage` only — no raw node type strings or internal handler jargon
+// reach the caller (Phase 9.1.6 Step E).
 
-function warnUnknownTypes(nodes: ValidatedNode[]): ValidationWarning[] {
-  const warnings: ValidationWarning[] = [];
+function checkNodeCapabilities(rawNodes: unknown[], validNodes: ValidatedNode[]): ValidationError[] {
+  const errors: ValidationError[] = [];
 
-  for (const node of nodes) {
-    if (!isKnownNodeType(node.type)) {
-      warnings.push({
-        code:    ValidationCodes.UNKNOWN_NODE_TYPE,
-        message:
-          `Node "${node.name}" has unrecognised type "${node.type}". ` +
-          `It will fail with UNSUPPORTED_NODE_TYPE in live mode.`,
-        path: `nodes[${node.index}].type`,
+  for (const node of validNodes) {
+    const raw = rawNodes[node.index];
+    const parameters = isPlainObject(raw) ? (raw as { parameters?: unknown }).parameters : undefined;
+    const capability = checkNodeCapability({ type: node.type, parameters });
+    if (!capability.capable) {
+      errors.push({
+        code:    ValidationCodes.UNSUPPORTED_NODE_CAPABILITY,
+        message: `"${node.name}": ${capability.userMessage}`,
+        path:    `nodes[${node.index}].type`,
       });
     }
   }
 
-  return warnings;
+  return errors;
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -634,8 +620,8 @@ export function validateWorkflow(workflow: unknown): ValidationResult {
   // ── Phase 4: Size ─────────────────────────────────────────────────────────
   errors.push(...checkSize(validNodes, rawConnections));
 
-  // Unknown-type warnings — always emitted for valid nodes
-  warnings.push(...warnUnknownTypes(validNodes));
+  // ── Phase 4.5: Node capability (Phase 9.1.6) — hard error, always checked ──
+  errors.push(...checkNodeCapabilities(rawNodes, validNodes));
 
   // Graph analysis requires a well-formed node set.  If any node has a missing
   // name, an empty name, or a duplicate name, the nodeMap would be ambiguous —
