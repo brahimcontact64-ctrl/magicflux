@@ -255,6 +255,15 @@ export async function pollDueSchedules(now: Date = new Date()): Promise<Schedule
         workflowId: schedule.workflow_id,
         mode: 'live',
         idempotencyKey: `schedule:${schedule.id}:${claimedFiringAt}`,
+        // Bug fix (Phase 8.9 Step 10 scheduler certification): workflowJson
+        // above is already correctly resolved from the frozen active
+        // deployment version, but the version id itself was never threaded
+        // through to initializeExecution() — every scheduled execution's
+        // workflow_executions_v2.deployment_version_id was silently written
+        // NULL, unlike the webhook/retry paths (lib/runtime/execution-dispatch.ts)
+        // which always pass this. Content executed was already correct; this
+        // restores the audit-trail column to match reality.
+        deploymentVersionId: workflow.active_deployment_version_id ?? null,
       });
 
       await db
