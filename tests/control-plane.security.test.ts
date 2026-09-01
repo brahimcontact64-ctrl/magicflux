@@ -400,6 +400,31 @@ describe('POST /api/workflows/[id]/lifecycle — cross-tenant access (IDOR)', ()
     expect(tables.workflows[0].status).toBe('draft'); // never transitioned to validating/active
   });
 
+  // Phase 9.1.5: /api/workflows/[id]/lifecycle became the single canonical
+  // activation path, gated by the account's plan (canDeployWorkflow) — this
+  // proves the gate fires for the *actual owner* on a free-tier account
+  // (no seeded subscription row -> defaults to the free plan, deploy
+  // disabled) with the correct PRO_REQUIRED/403 shape, and — the point of
+  // placing it right after the IDOR test above — that this entitlement
+  // check never fires ahead of (and so never masks) the ownership check.
+  it("returns 403 PRO_REQUIRED — not 404 — when the actual owner activates on a plan without deploy enabled", async () => {
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+
+    tables.workflows[0].status = 'draft';
+    const { POST } = await import('../app/api/workflows/[id]/lifecycle/route');
+    const res = await POST(
+      makeReq(`http://localhost/api/workflows/${WORKFLOW_ID}/lifecycle`, { method: 'POST', body: JSON.stringify({ action: 'activate' }) }),
+      { params: { id: WORKFLOW_ID } },
+    );
+    const payload = await res.json() as { success: boolean; error?: string; redirect?: string };
+
+    expect(res.status).toBe(403);
+    expect(payload.error).toBe('PRO_REQUIRED');
+    expect(payload.redirect).toBe('/pricing');
+    expect(tables.workflows[0].status).toBe('draft'); // never transitioned to validating/active
+  });
+
   it('returns 401 when there is no authenticated user at all', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue(null as never);

@@ -191,7 +191,7 @@ export default function MarketplacePage() {
             <span className="text-gradient"> Templates</span>
           </h1>
           <p className="text-muted-foreground max-w-2xl leading-relaxed">
-            Browse {AUTOMATION_TEMPLATES.length} battle-tested n8n workflow templates across {INDUSTRIES.length} industries. Select any template to instantly generate your complete automation package.
+            Browse {AUTOMATION_TEMPLATES.length} battle-tested automation templates across {INDUSTRIES.length} industries. Select any template to instantly generate your complete automation.
           </p>
         </div>
 
@@ -290,7 +290,7 @@ export default function MarketplacePage() {
         <div className="mt-16 rounded-2xl border border-border bg-gradient-to-br from-primary/5 to-primary/10 p-8 text-center">
           <h3 className="text-xl font-semibold mb-2">Don't see what you need?</h3>
           <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
-            Describe any workflow in plain English and our AI will generate a custom n8n automation package for you.
+            Describe any workflow in plain English and our AI will generate a custom automation for you.
           </p>
           <Link href="/builder">
             <Button className="gap-2 font-medium shadow-lg shadow-primary/20">

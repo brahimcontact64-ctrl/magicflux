@@ -573,7 +573,7 @@ function ValidateTab({
           </span>
           <span className={cn('flex items-center gap-1', validation.importable ? 'text-emerald-400' : 'text-red-400')}>
             <FileJson className="w-3 h-3" />
-            {validation.importable ? 'JSON importable' : 'Import issues'}
+            {validation.importable ? 'Ready to run' : 'Structure issues'}
           </span>
           <span className={cn('flex items-center gap-1', validation.valid ? 'text-emerald-400' : 'text-red-400')}>
             {validation.valid ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
@@ -588,7 +588,7 @@ function ValidateTab({
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-amber-400 flex-shrink-0" />
             <p className="text-xs font-semibold text-amber-400">
-              {validation.credentialsRequired.length} credential{validation.credentialsRequired.length > 1 ? 's' : ''} required — link in n8n after deployment
+              {validation.credentialsRequired.length} credential{validation.credentialsRequired.length > 1 ? 's' : ''} required — connect before activating
             </p>
           </div>
           <div className="space-y-2">
@@ -599,7 +599,7 @@ function ValidateTab({
                   <p className="text-xs font-medium">{cred.service}</p>
                   <p className="text-[11px] text-muted-foreground">{cred.description}</p>
                   <p className="text-[11px] text-muted-foreground/70 font-mono mt-0.5">
-                    n8n type: <span className="text-foreground/60">{cred.n8nCredentialType}</span>
+                    Credential type: <span className="text-foreground/60">{cred.n8nCredentialType}</span>
                   </p>
                   <p className="text-[11px] text-muted-foreground/60">
                     Used by: {cred.nodeNames.join(', ')}
@@ -615,7 +615,7 @@ function ValidateTab({
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground/70">
-            Workflow will be deployed as an inactive draft. No fake credential IDs are embedded in the JSON — link credentials in n8n UI after import, then activate.
+            Connect these in Settings → Integrations before activating — no placeholder credentials are ever embedded in the workflow.
           </p>
         </div>
       )}
@@ -648,7 +648,7 @@ function ValidateTab({
       {structuralIssues.length === 0 && (
         <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-center gap-2.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-          <p className="text-xs text-emerald-400 font-medium">All structural checks passed. Workflow JSON is n8n-importable.</p>
+          <p className="text-xs text-emerald-400 font-medium">All structural checks passed. Workflow is ready to activate.</p>
         </div>
       )}
 
@@ -682,74 +682,23 @@ function ValidateTab({
               </a>
             </div>
           ) : validation.deploymentReady ? (
+            // Phase 9.1.5: the old Pro-gate-card + OneClickDeploy (n8n)
+            // blocks that used to render here are no longer wired up from
+            // the page level (see app/builder/page.tsx) — activation now
+            // happens on the real workflow editor page via the certified
+            // /api/workflows/[id]/lifecycle route, gated there by the same
+            // entitlement check. This panel just confirms readiness and
+            // offers the optional export.
             <div className="space-y-3">
-              {/* Pro gate — shown to free users instead of live deploy */}
-              {!isPro && onUpgrade && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                      <Crown className="w-4 h-4 text-amber-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-amber-400">Pro required to deploy</p>
-                      <p className="text-xs text-muted-foreground">One-click deploy to your n8n instance is a Pro feature.</p>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={onUpgrade}
-                    className="w-full gap-2 bg-amber-500 hover:bg-amber-400 text-black font-semibold"
-                    size="sm"
-                  >
-                    <Crown className="w-3.5 h-3.5" />
-                    Upgrade to Pro — $29
-                  </Button>
-                  <p className="text-[11px] text-muted-foreground text-center">
-                    One-time payment. Download workflow JSON below — free forever.
-                  </p>
-                  {onDownload && (
-                    <Button variant="ghost" onClick={onDownload} className="w-full gap-2 text-xs" size="sm">
-                      <Download className="w-3.5 h-3.5" />
-                      Download Workflow JSON (Free)
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {/* One-click live deploy — primary action (Pro only) */}
-              {onLiveDeploy && isPro && (
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-                  <OneClickDeploy
-                    workflowName={plannerResult.plan.title}
-                    workflowJson={plannerResult.n8nJson}
-                    credentialsRequired={validation.credentialsRequired}
-                    hasApprovalNode={hasApprovalNode}
-                    onDeployComplete={onLiveDeploy}
-                  />
-                </div>
-              )}
-
-              {/* Draft deploy — fallback secondary action */}
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <p className="text-xs text-emerald-400 font-medium">Ready to activate. Continue to Review & Activate above.</p>
+              </div>
               <div className="border-t border-border/50 pt-3 space-y-2">
-                <p className="text-xs text-muted-foreground text-center font-medium">Or deploy as draft (manual setup)</p>
-                {onDeploy && (
-                  <Button
-                    variant="outline"
-                    onClick={onDeploy}
-                    disabled={isDeploying}
-                    className="w-full gap-2 text-xs"
-                    size="sm"
-                  >
-                    {isDeploying ? (
-                      <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Deploying draft...</>
-                    ) : (
-                      <><Rocket className="w-3.5 h-3.5" />Deploy as Draft to n8n</>
-                    )}
-                  </Button>
-                )}
                 {onDownload && (
                   <Button variant="ghost" onClick={onDownload} className="w-full gap-2 text-xs" size="sm">
                     <Download className="w-3.5 h-3.5" />
-                    Download Workflow Package
+                    Export Workflow Package
                   </Button>
                 )}
               </div>

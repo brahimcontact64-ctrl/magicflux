@@ -33,7 +33,13 @@ type WorkflowRow = {
   status: string;
 };
 
-async function loadWorkflow(userId: string, workflowId: string): Promise<WorkflowRow | null> {
+// Exported (Phase 9.1.5) so callers — specifically the lifecycle route's
+// entitlement gate — can check ownership/existence BEFORE running an
+// account-level check like canDeployWorkflow(), which knows nothing about
+// a specific workflow. Checking entitlement first would leak "you'd need
+// Pro for this" (403) for a workflow the caller doesn't even own, instead
+// of the existing IDOR-safe "not found" (404).
+export async function loadWorkflow(userId: string, workflowId: string): Promise<WorkflowRow | null> {
   const db = createServiceClient();
   const { data } = await db
     .from('workflows')

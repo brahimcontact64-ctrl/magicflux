@@ -49,8 +49,8 @@ export default function SignupPage() {
 
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-center">
           <p className="text-xs text-muted-foreground">
-            Free: generate &amp; download workflows.{' '}
-            <span className="text-primary font-medium">Pro ($19) unlocks deploy to n8n.</span>
+            Free: generate and preview automations.{' '}
+            <span className="text-primary font-medium">Pro ($29/mo) unlocks live activation.</span>
           </p>
         </div>
 

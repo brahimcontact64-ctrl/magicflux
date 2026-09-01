@@ -18,8 +18,6 @@ import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { DeploymentLifecycle } from '@/components/builder/setup-wizard';
-import { LiveDeployResult } from '@/components/builder/one-click-deploy';
 import { requiredProvidersFromWorkflow, type IntegrationProvider } from '@/lib/integrations';
 import { apiRequest } from '@/lib/api/client';
 
@@ -195,7 +193,7 @@ function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrad
     <div className="flex-shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 flex items-center gap-3">
       <TriangleAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
       <p className="text-xs text-amber-300 flex-1">
-        <strong>Free plan</strong> — workflow generation is available. Deploy to n8n requires Pro.
+        <strong>Free plan</strong> — workflow generation is available. Activating a live workflow requires Pro.
       </p>
       <button
         onClick={onUpgrade}
@@ -234,12 +232,10 @@ export default function BuilderPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [outputOpen, setOutputOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  // isDeploying doubles as the generic "activating" busy flag for the single
+  // Review & Activate CTA (Phase 9.1.5 — the old separate n8n live-deploy
+  // state below it was removed along with the broken n8n deploy path).
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
-  const [deployedWorkflowId, setDeployedWorkflowId] = useState<string | null>(null);
-  const [deploymentLifecycle, setDeploymentLifecycle] = useState<DeploymentLifecycle>('draft_created');
-  const [isCheckingActivation, setIsCheckingActivation] = useState(false);
-  const [liveDeployResult, setLiveDeployResult] = useState<LiveDeployResult | null>(null);
   const [lastPrompt, setLastPrompt] = useState('');
   const [upgrading, setUpgrading] = useState(false);
   const [isCreatingManagedRequest, setIsCreatingManagedRequest] = useState(false);
@@ -371,6 +367,47 @@ export default function BuilderPage() {
     }
   }, [session]);
 
+  // Canonical save path (Phase 9.1.5): every workflow created from the AI
+  // Builder is saved through POST /api/workflows — the same entitlement-
+  // checked, single-source-of-truth route used by /workflows/new-ai and the
+  // rest of the product — instead of writing to the `workflows` table
+  // directly from the browser client. This is what makes the workflow this
+  // page produces the exact representation the real editor, validator,
+  // activateWorkflow(), and certified runtime already expect.
+  const saveWorkflowDraft = useCallback(async (params: {
+    name: string;
+    description: string;
+    prompt: string;
+    workflowJson: unknown;
+  }): Promise<string | null> => {
+    const headers = getAuthHeaders();
+    if (!headers) return null;
+
+    try {
+      const res = await fetch('/api/workflows', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: params.name,
+          description: params.description,
+          prompt: params.prompt,
+          workflow_json: params.workflowJson,
+        }),
+      });
+      const data = await res.json().catch(() => null) as { workflow?: { id?: string }; error?: string; message?: string } | null;
+
+      if (!res.ok) {
+        toast.error(data?.message ?? data?.error ?? 'Could not save workflow');
+        return null;
+      }
+
+      return data?.workflow?.id ?? null;
+    } catch {
+      toast.error('Network error while saving workflow');
+      return null;
+    }
+  }, [getAuthHeaders]);
+
   const runPlanner = useCallback(async (prompt: string) => {
     try {
       const result = await createAutomationPlanAsync(prompt);
@@ -405,21 +442,13 @@ export default function BuilderPage() {
       }).then(() => {}, () => {});
 
       if (user?.id) {
-        const { data: savedWorkflow } = await supabase
-          .from('workflows')
-          .insert({
-            user_id: user.id,
-            name: result.plan.title,
-            description: result.plan.description,
-            prompt,
-            workflow_json: result.n8nJson as unknown as Record<string, unknown>,
-            integrations: requiredProvidersFromWorkflow(result.n8nJson),
-            status: 'draft',
-          })
-          .select('id')
-          .maybeSingle();
-
-        setSavedWorkflowId(savedWorkflow?.id ?? null);
+        const id = await saveWorkflowDraft({
+          name: result.plan.title,
+          description: result.plan.description,
+          prompt,
+          workflowJson: result.n8nJson,
+        });
+        setSavedWorkflowId(id);
       }
 
       return result;
@@ -451,28 +480,9 @@ export default function BuilderPage() {
       toast.error(error instanceof Error ? error.message : 'Planner failed');
       return null;
     }
-  }, [conversationSessionId, refreshIntegrationStatus, user]);
-
-  const handleLiveDeploy = useCallback((result: LiveDeployResult) => {
-    setLiveDeployResult(result);
-    if (result.workflowId) setDeployedWorkflowId(result.workflowId);
-    if (result.workflowUrl) setDeployedUrl(result.workflowUrl);
-    if (result.activated) {
-      setDeploymentLifecycle('active');
-      if (result.workflowId) {
-        supabase.from('workflow_executions')
-          .update({ status: 'active', activated_at: new Date().toISOString() })
-          .eq('n8n_workflow_id', result.workflowId)
-          .then(() => {}, () => {});
-      }
-    }
-  }, []);
+  }, [conversationSessionId, refreshIntegrationStatus, saveWorkflowDraft, user]);
 
   async function handlePlannerReady(prompt: string) {
-    setDeployedUrl(null);
-    setDeployedWorkflowId(null);
-    setDeploymentLifecycle('draft_created');
-    setLiveDeployResult(null);
     setTestResult(null);
 
     setLastPrompt(prompt);
@@ -503,6 +513,9 @@ export default function BuilderPage() {
     if (isMobile) setSidebarOpen(false);
   }
 
+  // Ensures the currently generated plan has a saved workflows row (idempotent
+  // — reuses savedWorkflowId if runPlanner's own save already succeeded),
+  // via the same canonical POST /api/workflows path.
   const ensureWorkflowSaved = useCallback(async (): Promise<string | null> => {
     if (savedWorkflowId) return savedWorkflowId;
     if (!user?.id || !plannerResult) {
@@ -510,86 +523,15 @@ export default function BuilderPage() {
       return null;
     }
 
-    const { data: savedWorkflow, error } = await supabase
-      .from('workflows')
-      .insert({
-        user_id: user.id,
-        name: plannerResult.plan.title,
-        description: plannerResult.plan.description,
-        prompt: lastPrompt,
-        workflow_json: plannerResult.n8nJson as unknown as Record<string, unknown>,
-        integrations: requiredProvidersFromWorkflow(plannerResult.n8nJson),
-        status: 'draft',
-      })
-      .select('id')
-      .maybeSingle();
-
-    if (error) {
-      toast.error('Could not save workflow');
-      return null;
-    }
-
-    const id = savedWorkflow?.id ?? null;
+    const id = await saveWorkflowDraft({
+      name: plannerResult.plan.title,
+      description: plannerResult.plan.description,
+      prompt: lastPrompt,
+      workflowJson: plannerResult.n8nJson,
+    });
     setSavedWorkflowId(id);
     return id;
-  }, [lastPrompt, plannerResult, savedWorkflowId, user?.id]);
-
-  async function handleDeploy() {
-    const workflowId = await ensureWorkflowSaved();
-    if (!workflowId) return;
-    if (!session) return;
-    if (missingIntegrations.length > 0) {
-      window.alert(`You must connect: ${missingIntegrations.join(', ')}`);
-      router.push('/settings/integrations');
-      return;
-    }
-    if (!isPro) {
-      toast.error('Deploy requires Pro');
-      router.push('/pricing');
-      return;
-    }
-
-    setIsDeploying(true);
-    try {
-      const headers = getAuthHeaders();
-      if (!headers) return;
-
-      const res = await fetch('/api/workflows/deploy', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ workflowId }),
-      });
-      const data = await res.json().catch(() => null) as {
-        error?: string;
-        redirect?: string;
-        workflowUrl?: string;
-        workflow?: { n8n_workflow_id?: string | null };
-        blockingMessage?: string;
-      } | null;
-
-      if (!res.ok) {
-        if (data?.error === 'PRO_REQUIRED') {
-          router.push(data.redirect ?? '/pricing');
-          return;
-        }
-        if (data?.error === 'SETUP_REQUIRED') {
-          if (data.blockingMessage) window.alert(data.blockingMessage);
-          router.push(data.redirect ?? '/settings/integrations');
-          return;
-        }
-        throw new Error(data?.error ?? 'Deployment failed');
-      }
-
-      setDeployedUrl(data?.workflowUrl ?? null);
-      setDeployedWorkflowId(data?.workflow?.n8n_workflow_id ?? null);
-      setDeploymentLifecycle('active');
-      toast.success('Deployment successful');
-    } catch {
-      toast.error('Deployment failed');
-    } finally {
-      setIsDeploying(false);
-    }
-  }
+  }, [lastPrompt, plannerResult, saveWorkflowDraft, savedWorkflowId, user?.id]);
 
   const handleTestWorkflow = useCallback(async () => {
     const workflowId = await ensureWorkflowSaved();
@@ -671,10 +613,21 @@ export default function BuilderPage() {
     }
   }, [ensureWorkflowSaved, getAuthHeaders, router]);
 
-  const handleSetupAndTest = useCallback(async () => {
-    const workflowId = await ensureWorkflowSaved();
-    if (!workflowId) return;
-    router.push(`/dashboard/workflows/${workflowId}`);
+  // The single "make it real" action for this page (Phase 9.1.5): saves the
+  // generated plan through the canonical workflow API, then hands off to the
+  // real editor page, where Test/Validate/Activate all use the certified
+  // native runtime (activateWorkflow() -> deployment version -> scheduler
+  // sync -> webhook/retry/scheduler/self-heal). There is deliberately no
+  // second "Deploy" action on this page anymore.
+  const handleReviewAndActivate = useCallback(async () => {
+    setIsDeploying(true);
+    try {
+      const workflowId = await ensureWorkflowSaved();
+      if (!workflowId) return;
+      router.push(`/dashboard/workflows/${workflowId}`);
+    } finally {
+      setIsDeploying(false);
+    }
   }, [ensureWorkflowSaved, router]);
 
   const handleManagedUpgrade = useCallback(async () => {
@@ -712,30 +665,6 @@ export default function BuilderPage() {
     }
   }, [isCreatingManagedRequest, lastPrompt, plannerResult, router, selectedTemplate, session, user]);
 
-  const handleLifecycleChange = useCallback((next: DeploymentLifecycle) => {
-    setDeploymentLifecycle(next);
-    if (next === 'active' && deployedWorkflowId) {
-      supabase.from('workflow_executions')
-        .update({ status: 'active', activated_at: new Date().toISOString() })
-        .eq('n8n_workflow_id', deployedWorkflowId)
-        .then(() => {}, () => {});
-    }
-  }, [deployedWorkflowId]);
-
-  const handleCheckActivation = useCallback(async (): Promise<boolean> => {
-    if (!deployedWorkflowId) return false;
-    setIsCheckingActivation(true);
-    try {
-      const res = await fetch(`/api/n8n?action=status&workflowId=${deployedWorkflowId}`);
-      const data = await res.json();
-      return data.status?.active === true;
-    } catch {
-      return false;
-    } finally {
-      setIsCheckingActivation(false);
-    }
-  }, [deployedWorkflowId]);
-
   function handleDownload() {
     if (!plannerResult || typeof window === 'undefined' || typeof document === 'undefined') return;
     const { plan, n8nJson, envConfig } = plannerResult;
@@ -757,7 +686,10 @@ export default function BuilderPage() {
   const isPro = user?.plan === 'pro';
   const hasMissingIntegrations = missingIntegrations.length > 0;
   const testDisabled = hasMissingIntegrations || isTestingWorkflow;
-  const deployDisabled = !savedWorkflowId || hasMissingIntegrations || !isPro || isDeploying;
+  // Entitlement (Pro vs Free) is checked server-side when the user clicks
+  // Activate on the editor page, not here — this page only needs to know
+  // whether it's safe to hand off to the editor at all.
+  const reviewDisabled = isTestingWorkflow || isDeploying;
 
   if (authLoading) {
     return (
@@ -944,22 +876,18 @@ export default function BuilderPage() {
           {plannerResult && !plannerRejection && (
             <div className="mt-3 rounded-xl border border-border bg-card p-4 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" className="gap-2" onClick={handleSetupAndTest} disabled={isTestingWorkflow || isDeploying}>
+                <Button variant="outline" className="gap-2" onClick={handleTestWorkflow} disabled={testDisabled}>
                   {isTestingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Setup & Test Workflow ⚙️
+                  Run Simulated Test ▶️
                 </Button>
                 {hasMissingIntegrations && (
                   <Button variant="outline" className="gap-2" onClick={() => router.push('/settings/integrations')}>
                     Open Integrations Settings
                   </Button>
                 )}
-                <Button variant="outline" className="gap-2" onClick={handleTestWorkflow} disabled={testDisabled}>
-                  {isTestingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Run Simulated Test ▶️
-                </Button>
-                <Button className="gap-2" onClick={handleDeploy} disabled={deployDisabled}>
+                <Button className="gap-2" onClick={handleReviewAndActivate} disabled={reviewDisabled}>
                   {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Deploy 🚀
+                  Review & Activate →
                 </Button>
               </div>
 
@@ -970,7 +898,7 @@ export default function BuilderPage() {
                 ) : (
                   <p className="text-emerald-400">All required integrations connected.</p>
                 )}
-                {!isPro && <p className="text-amber-400">Deploy is Pro only. Testing and download remain free.</p>}
+                {!isPro && <p className="text-amber-400">Activating a live workflow is Pro only. Testing and export remain free.</p>}
               </div>
 
               {testResult && (
@@ -1018,23 +946,18 @@ export default function BuilderPage() {
           showOutput ? 'w-full sm:w-[440px] lg:w-[520px]' : 'w-0'
         )}>
           <div className="w-full sm:w-[440px] lg:w-[520px] h-full p-3 lg:p-4">
+            {/* Phase 9.1.5: the n8n one-click-deploy / Pro-upgrade-card paths
+                inside ArchitectPanel are intentionally not wired up here
+                anymore — omitting onLiveDeploy/onDeploy/isPro/onUpgrade
+                disables those blocks without touching that component's code
+                (kept isolated as an optional adapter, not deleted). Review &
+                Activate above is the one path forward. */}
             {plannerResult && validation && !plannerRejection ? (
               <ArchitectPanel
                 plannerResult={plannerResult}
                 validation={validation}
                 onDownload={handleDownload}
-                isDeploying={isDeploying}
-                deployedUrl={deployedUrl}
-                deployedWorkflowId={deployedWorkflowId}
-                deploymentLifecycle={deployedUrl ? deploymentLifecycle : undefined}
-                onLifecycleChange={handleLifecycleChange}
-                onCheckActivation={handleCheckActivation}
-                isCheckingActivation={isCheckingActivation}
-                onLiveDeploy={isPro ? handleLiveDeploy : undefined}
-                liveDeployResult={liveDeployResult}
                 className="h-full"
-                isPro={isPro}
-                onUpgrade={handleUpgrade}
               />
             ) : null}
           </div>

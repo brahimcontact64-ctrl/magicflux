@@ -91,7 +91,7 @@ export default function PaymentSuccessPage() {
             <div className="space-y-2">
               <h1 className="text-2xl font-bold">You are now Pro</h1>
               <p className="text-muted-foreground text-sm">
-                Payment confirmed. Your account has been upgraded — you can now deploy workflows directly to n8n.
+                Payment confirmed. Your account has been upgraded — you can now activate live workflows.
               </p>
             </div>
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-left space-y-2">
@@ -100,8 +100,8 @@ export default function PaymentSuccessPage() {
               </p>
               <ul className="space-y-1.5 text-xs text-muted-foreground">
                 {[
-                  'Deploy workflows directly to n8n',
-                  'Automatic credential provisioning',
+                  'Live workflow activation',
+                  'Automatic credential setup',
                   'One-click workflow activation',
                   'Unlimited workflow generation',
                 ].map(item => (

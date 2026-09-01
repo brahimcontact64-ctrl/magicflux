@@ -192,7 +192,6 @@ export default function WorkflowDetailsPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  const [deploying, setDeploying] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [runningTest, setRunningTest] = useState(false);
@@ -205,7 +204,6 @@ export default function WorkflowDetailsPage() {
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [executionSteps, setExecutionSteps] = useState<ExecutionStepV2[]>([]);
   const [loadingSteps, setLoadingSteps] = useState(false);
-  const [deployedWorkflowUrl, setDeployedWorkflowUrl] = useState<string | null>(null);
   const [workflowIntegrations, setWorkflowIntegrations] = useState<WorkflowIntegrationsPayload | null>(null);
   const [selectedIntegrationByProvider, setSelectedIntegrationByProvider] = useState<Record<string, string>>({});
   const [attachingProvider, setAttachingProvider] = useState<string | null>(null);
@@ -588,55 +586,6 @@ export default function WorkflowDetailsPage() {
     }
   }, [workflow, withAuthHeaders, router]);
 
-  const handleDeploy = useCallback(async () => {
-    if (!workflow) return;
-
-    setDeploying(true);
-    try {
-      const headers = await withAuthHeaders();
-      if (!headers) return;
-
-      const res = await fetch(`/api/workflows/${workflow.id}/deploy`, {
-        method: 'POST',
-        headers,
-      });
-      const payload = await res.json().catch(() => null) as {
-        workflow?: Workflow;
-        error?: string;
-        redirect?: string;
-        workflowUrl?: string;
-        blockingMessage?: string;
-        missingIntegrations?: string[];
-      } | null;
-
-      if (!res.ok) {
-        if (payload?.error === 'PRO_REQUIRED') {
-          router.push(payload.redirect ?? '/pricing');
-          return;
-        }
-
-        if (payload?.error === 'SETUP_REQUIRED') {
-          if (payload?.blockingMessage) {
-            window.alert(payload.blockingMessage);
-          }
-          setMissingIntegrations(payload?.missingIntegrations ?? []);
-          router.push(payload.redirect ?? '/settings/integrations');
-          return;
-        }
-
-        throw new Error(payload?.error ?? 'Deploy failed');
-      }
-
-      if (payload?.workflow) setWorkflow(payload.workflow);
-      if (payload?.workflowUrl) setDeployedWorkflowUrl(payload.workflowUrl);
-      toast.success('Workflow deployed successfully');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Deploy failed');
-    } finally {
-      setDeploying(false);
-    }
-  }, [workflow, withAuthHeaders, router]);
-
   const handleLifecycleAction = useCallback(async (action: 'activate' | 'pause' | 'resume' | 'deactivate' | 'archive') => {
     if (!workflow) return;
 
@@ -651,10 +600,21 @@ export default function WorkflowDetailsPage() {
         headers,
         body: JSON.stringify({ action }),
       });
-      const payload = await res.json().catch(() => null) as { success?: boolean; errors?: string[]; error?: string } | null;
+      const payload = await res.json().catch(() => null) as { success?: boolean; errors?: string[]; error?: string; message?: string; redirect?: string } | null;
 
       if (!res.ok || !payload?.success) {
-        const errors = payload?.errors ?? (payload?.error ? [payload.error] : ['Action failed']);
+        // PRO_REQUIRED carries a human-readable `message` (the entitlement
+        // reason) separately from `error` (the machine code) — show the
+        // message, and send the user straight to the place that resolves it.
+        if (payload?.error === 'PRO_REQUIRED') {
+          const reason = payload.message ?? 'This plan does not support live activation.';
+          setLifecycleErrors([reason]);
+          toast.error(reason);
+          router.push(payload.redirect ?? '/pricing');
+          return;
+        }
+
+        const errors = payload?.errors ?? (payload?.message ? [payload.message] : payload?.error ? [payload.error] : ['Action failed']);
         setLifecycleErrors(errors);
         toast.error(errors[0] ?? 'Action failed');
         await loadWorkflow();
@@ -675,7 +635,7 @@ export default function WorkflowDetailsPage() {
     } finally {
       setLifecycleBusy(null);
     }
-  }, [workflow, withAuthHeaders, loadWorkflow]);
+  }, [workflow, withAuthHeaders, loadWorkflow, router]);
 
   const handleDelete = useCallback(async () => {
     if (!workflow) return;
@@ -943,10 +903,6 @@ export default function WorkflowDetailsPage() {
                 Activate Pro
               </Button>
             )}
-            <Button size="sm" className="gap-1.5" onClick={handleDeploy} disabled={deploying}>
-              {deploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
-              Deploy
-            </Button>
             <Button size="sm" variant="secondary" className="gap-1.5" onClick={handleDuplicate} disabled={duplicating}>
               {duplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
               Duplicate
@@ -1008,17 +964,11 @@ export default function WorkflowDetailsPage() {
             <p className="mt-0.5">{workflow.description || 'No description'}</p>
           </div>
 
-          {deployedWorkflowUrl && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs flex items-center justify-between gap-2">
-              <p className="text-emerald-300">Workflow deployed successfully.</p>
-              <a href={deployedWorkflowUrl} target="_blank" rel="noreferrer">
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  Open in n8n
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </Button>
-              </a>
-            </div>
-          )}
+          {/* Phase 9.1.5: the "Open in n8n" post-deploy banner was removed
+              along with the /api/workflows/[id]/deploy button above — that
+              route is the legacy external-n8n path, no longer wired into
+              this page. Production Control below (Activate/Pause/Resume)
+              is the single, certified activation path now. */}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">
