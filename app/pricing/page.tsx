@@ -2,11 +2,14 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Check, Crown, Rocket, Building2, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Navbar } from '@/components/landing/navbar';
 import { Footer } from '@/components/landing/footer';
 import { Button } from '@/components/ui/button';
 import { PlanBadge } from '@/components/app/plan-badge';
+import { useAuth } from '@/lib/auth-context';
 
 type Plan = {
   slug: 'free' | 'pro' | 'business';
@@ -32,9 +35,44 @@ function priceLabel(cents: number) {
 }
 
 export default function PricingPage() {
+  const { session } = useAuth();
+  const searchParams = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'business' | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkingOut, setCheckingOut] = useState<'pro' | 'business' | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get('checkout') === 'cancelled') {
+      toast.info('Checkout cancelled — no charge was made.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleCheckout(plan: 'pro' | 'business') {
+    if (!session) {
+      window.location.href = `/login?next=/pricing`;
+      return;
+    }
+    setCheckingOut(plan);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ plan }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        toast.error(data.error ?? 'Could not start checkout');
+        setCheckingOut(null);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      toast.error('Could not start checkout');
+      setCheckingOut(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -143,11 +181,15 @@ export default function PricingPage() {
                         <Button className='w-full' variant='outline'>Start Free</Button>
                       </Link>
                     ) : (
-                      <Link href='/builder' className='block'>
-                        <Button className='w-full' variant={highlighted ? 'default' : 'outline'}>
-                          {plan.slug === 'pro' ? 'Upgrade to Pro' : 'Contact for Business'}
-                        </Button>
-                      </Link>
+                      <Button
+                        className='w-full gap-2'
+                        variant={highlighted ? 'default' : 'outline'}
+                        disabled={checkingOut !== null}
+                        onClick={() => handleCheckout(plan.slug as 'pro' | 'business')}
+                      >
+                        {checkingOut === plan.slug && <Loader2 className='h-4 w-4 animate-spin' />}
+                        {checkingOut === plan.slug ? 'Redirecting to checkout…' : `Upgrade to ${plan.name}`}
+                      </Button>
                     )}
                   </div>
                 </div>

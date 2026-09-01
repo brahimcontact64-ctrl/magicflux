@@ -61,6 +61,7 @@ function UserMenu() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [activatingPro, setActivatingPro] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   // Phase 9.3.1: this was previously hardcoded to `true` (SHOW_DEV), which
   // forced the "DEV: Activate Pro for Testing" button to render for every
@@ -73,15 +74,33 @@ function UserMenu() {
 
   if (!user) return null;
 
-  const isPro = user.plan === 'pro';
+  // Phase 9.3.2: Business is now a real, purchasable tier (not just Pro) —
+  // "has paid access" means anything above Free, not literally 'pro'.
+  const isPro = user.plan === 'pro' || user.plan === 'business';
 
-  function handleUpgrade() {
-    // Phase 9.3.1 Step F: no self-service checkout exists yet (PayPal is
-    // not the V1 provider and Stripe isn't configured) — say so honestly
-    // instead of firing a network call at a payment flow that can't
-    // complete. Do not wire this to a real checkout until Stripe is live.
+  // Phase 9.3.2 Step I: real Stripe subscription checkout, replacing the
+  // Phase 9.3.1 "not available yet" placeholder now that it exists.
+  async function handleUpgrade() {
+    if (!session) return;
     setOpen(false);
-    toast.info("Pro upgrades aren't available yet — check back soon.");
+    setUpgrading(true);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ plan: 'pro' }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        toast.error(data.error ?? 'Could not start checkout');
+        setUpgrading(false);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      toast.error('Could not start checkout');
+      setUpgrading(false);
+    }
   }
 
   async function handleSignOut() {
@@ -136,17 +155,18 @@ function UserMenu() {
                   ? 'bg-amber-500/15 text-amber-400 border-amber-500/20'
                   : 'bg-muted text-muted-foreground border-border'
               )}>
-                {isPro ? 'Pro' : 'Free'}
+                {user.plan === 'business' ? 'Business' : isPro ? 'Pro' : 'Free'}
               </span>
             </div>
             <div className="h-px bg-border" />
             {!isPro && (
               <button
                 onClick={handleUpgrade}
+                disabled={upgrading}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-xs text-amber-400 transition-colors"
               >
-                <Crown className="w-3.5 h-3.5" />
-                Upgrade to Pro — $29
+                {upgrading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
+                {upgrading ? 'Redirecting…' : 'Upgrade to Pro — $29'}
               </button>
             )}
             {devProEnabled && (
@@ -176,7 +196,7 @@ function UserMenu() {
 
 // ── Upgrade banner ────────────────────────────────────────────────────────────
 
-function UpgradeBanner({ onUpgrade }: { onUpgrade: () => void }) {
+function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrading: boolean }) {
   return (
     <div className="flex-shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 flex items-center gap-3">
       <TriangleAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
@@ -185,10 +205,11 @@ function UpgradeBanner({ onUpgrade }: { onUpgrade: () => void }) {
       </p>
       <button
         onClick={onUpgrade}
+        disabled={upgrading}
         className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex-shrink-0"
       >
-        <Crown className="w-3 h-3" />
-        Upgrade — $29
+        {upgrading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Crown className="w-3 h-3" />}
+        {upgrading ? 'Redirecting…' : 'Upgrade — $29'}
       </button>
     </div>
   );
@@ -229,6 +250,7 @@ export default function BuilderPage() {
   const [isDeploying, setIsDeploying] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   const [isCreatingManagedRequest, setIsCreatingManagedRequest] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null);
   const [requiredIntegrations, setRequiredIntegrations] = useState<IntegrationProvider[]>([]);
   const [missingIntegrations, setMissingIntegrations] = useState<IntegrationProvider[]>([]);
@@ -337,13 +359,29 @@ export default function BuilderPage() {
     }
   }, [mode, conversationSessionId, modeHydrated]);
 
-  // Phase 9.3.1 Step F: no self-service checkout exists yet — say so
-  // honestly instead of firing a network call at a payment flow (PayPal)
-  // that isn't the V1 provider and can't complete. Do not wire this to a
-  // real checkout until Stripe is live.
-  const handleUpgrade = useCallback(() => {
-    toast.info("Pro upgrades aren't available yet — check back soon.");
-  }, []);
+  // Phase 9.3.2 Step I: real Stripe subscription checkout, replacing the
+  // Phase 9.3.1 "not available yet" placeholder now that it exists.
+  const handleUpgrade = useCallback(async () => {
+    if (!session) return;
+    setUpgrading(true);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ plan: 'pro' }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        toast.error(data.error ?? 'Could not start checkout');
+        setUpgrading(false);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      toast.error('Could not start checkout');
+      setUpgrading(false);
+    }
+  }, [session]);
 
   // Canonical save path (Phase 9.1.5): every workflow created from the AI
   // Builder is saved through POST /api/workflows — the same entitlement-
@@ -661,7 +699,7 @@ export default function BuilderPage() {
   }
 
   const showOutput = outputOpen && !plannerRejection && !!plannerResult;
-  const isPro = user?.plan === 'pro';
+  const isPro = user?.plan === 'pro' || user?.plan === 'business';
   const hasMissingIntegrations = missingIntegrations.length > 0;
   const testDisabled = hasMissingIntegrations || isTestingWorkflow;
   // Entitlement (Pro vs Free) is checked server-side when the user clicks
@@ -738,7 +776,7 @@ export default function BuilderPage() {
       </header>
 
       {/* Upgrade banner for free users */}
-      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} />}
+      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} />}
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">

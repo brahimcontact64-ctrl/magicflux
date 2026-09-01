@@ -28,8 +28,12 @@ function UserDropdown() {
 
   if (!user) return null;
 
-  const isPro = user.plan === 'pro';
+  // Business is also a real, purchasable paid tier -- "has paid access"
+  // means anything above Free, not literally 'pro'.
+  const isPro = user.plan === 'pro' || user.plan === 'business';
 
+  // Phase 9.3.2 Step I: real Stripe subscription checkout. Previously
+  // called /api/paypal/create-order -- PayPal is not the V1 provider.
   async function handleUpgrade() {
     if (ISOLATE_A) return;
 
@@ -37,15 +41,16 @@ function UserDropdown() {
     setOpen(false);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/paypal/create-order', {
+      const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session?.access_token}`,
         },
+        body: JSON.stringify({ plan: 'pro' }),
       });
-      const data = await res.json() as { approvalUrl?: string };
-      if (data.approvalUrl && typeof window !== 'undefined') window.location.href = data.approvalUrl;
+      const data = await res.json() as { url?: string };
+      if (data.url && typeof window !== 'undefined') window.location.href = data.url;
       else setUpgrading(false);
     } catch {
       setUpgrading(false);
@@ -77,7 +82,7 @@ function UserDropdown() {
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                   : 'bg-muted text-muted-foreground border-border'
               )}>
-                {isPro ? 'Pro' : 'Free plan'}
+                {user.plan === 'business' ? 'Business' : isPro ? 'Pro' : 'Free plan'}
               </span>
             </div>
             <div className="h-px bg-border" />
@@ -88,7 +93,7 @@ function UserDropdown() {
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-sm text-amber-400 transition-colors"
               >
                 <Crown className="w-4 h-4" />
-                {upgrading ? 'Redirecting to PayPal...' : 'Upgrade to Pro — $29'}
+                {upgrading ? 'Redirecting…' : 'Upgrade to Pro — $29'}
               </button>
             )}
             <Link href="/builder" onClick={() => setOpen(false)}
