@@ -26,7 +26,7 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-    router.push('/builder');
+    router.push('/onboarding');
   }
 
   return (

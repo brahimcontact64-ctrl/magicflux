@@ -653,6 +653,11 @@ function WorkflowSuccessCard({ url }: { url: string }) {
 
 type ChatInterfaceProps = {
   initialTemplate?: AutomationTemplate | null;
+  /** Phase 9.2 — free-text automation intent carried over from onboarding.
+   * Prefills the input only; never auto-submits (the user still reviews and
+   * clicks send themselves). Takes priority over initialTemplate if both are
+   * somehow present. */
+  initialPrompt?: string | null;
   accessToken: string | null;
   mode?: 'safe_preview' | 'staging_deploy' | 'production_deploy';
   onPlannerReadyAction: (prompt: string) => void | Promise<void>;
@@ -662,6 +667,7 @@ type ChatInterfaceProps = {
 
 export function ChatInterface({
   initialTemplate,
+  initialPrompt,
   accessToken,
   mode = 'production_deploy',
   onPlannerReadyAction,
@@ -721,10 +727,13 @@ export function ChatInterface({
   }
 
   useEffect(() => {
-    if (initialTemplate && messages.length === 1) {
+    if (messages.length !== 1) return;
+    if (initialPrompt) {
+      setInput(initialPrompt);
+    } else if (initialTemplate) {
       setInput(`I want to build ${initialTemplate.name}`);
     }
-  }, [initialTemplate, messages.length]);
+  }, [initialTemplate, initialPrompt, messages.length]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

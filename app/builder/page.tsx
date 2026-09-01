@@ -232,6 +232,10 @@ export default function BuilderPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [outputOpen, setOutputOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  // Phase 9.2 — free-text automation intent carried over from onboarding
+  // via ?intent=. Prefill only; the user still generates/reviews/activates
+  // through the normal flow.
+  const [initialIntent, setInitialIntent] = useState<string | null>(null);
   // isDeploying doubles as the generic "activating" busy flag for the single
   // Review & Activate CTA (Phase 9.1.5 — the old separate n8n live-deploy
   // state below it was removed along with the broken n8n deploy path).
@@ -308,12 +312,14 @@ export default function BuilderPage() {
   useEffect(() => {
     const templateId = searchParams.get('template');
     const industryId = searchParams.get('industry') as Industry | null;
+    const intent = searchParams.get('intent');
     if (templateId) {
       const template = AUTOMATION_TEMPLATES.find(t => t.id === templateId);
       if (template) { setSelectedTemplate(template); setSelectedIndustry(template.industry); }
     } else if (industryId) {
       setSelectedIndustry(industryId);
     }
+    if (intent) setInitialIntent(intent);
   }, [searchParams]);
 
   useEffect(() => {
@@ -807,6 +813,7 @@ export default function BuilderPage() {
 
           <ChatInterface
             initialTemplate={selectedTemplate}
+            initialPrompt={initialIntent}
             accessToken={session?.access_token ?? null}
             mode={mode}
             onPlannerReadyAction={handlePlannerReady}

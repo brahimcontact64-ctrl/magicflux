@@ -31,7 +31,7 @@ export default function SignupPage() {
         { onConflict: 'id' }
       );
     }
-    router.push('/builder');
+    router.push('/onboarding');
   }
 
   return (
