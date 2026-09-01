@@ -124,6 +124,15 @@ class FakeDb {
 
 const fakeDb = new FakeDb();
 const runWorkflowExecutionMock = vi.fn();
+// reserveConcurrencySlot() goes through db.rpc(), which this fake Supabase
+// client (built for simple table select/insert/update/delete) does not
+// implement — mocked at the concurrency-guard module boundary instead,
+// matching the pattern already used in
+// tests/security-worker-tamper-resistance.test.ts. Defaults to "always
+// reserved"; the dedicated concurrency test below overrides it to prove the
+// denied-reservation skip path.
+const reserveConcurrencySlotMock = vi.fn();
+const releaseConcurrencySlotMock = vi.fn();
 
 vi.mock('@/lib/supabase-server', () => ({
   createServiceClient: vi.fn(() => fakeDb),
@@ -133,10 +142,19 @@ vi.mock('@/lib/workflow-runtime/engine', () => ({
   runWorkflowExecution: (...args: unknown[]) => runWorkflowExecutionMock(...args),
 }));
 
+vi.mock('@/lib/runtime/concurrency-guard', () => ({
+  reserveConcurrencySlot: (...args: unknown[]) => reserveConcurrencySlotMock(...args),
+  releaseConcurrencySlot: (...args: unknown[]) => releaseConcurrencySlotMock(...args),
+}));
+
 beforeEach(() => {
   fakeDb.tables.clear();
   runWorkflowExecutionMock.mockReset();
   runWorkflowExecutionMock.mockResolvedValue({ executionId: 'exec-1', status: 'success' });
+  reserveConcurrencySlotMock.mockReset();
+  reserveConcurrencySlotMock.mockResolvedValue({ reserved: true });
+  releaseConcurrencySlotMock.mockReset();
+  releaseConcurrencySlotMock.mockResolvedValue(undefined);
 });
 
 // ─── Cron validation ────────────────────────────────────────────────────────────
@@ -371,6 +389,48 @@ describe('pollDueSchedules', () => {
     const row = (fakeDb.tables.get('workflow_schedules') ?? [])[0] as Row;
     expect(row.last_execution_id).toBe('exec-42');
     expect(row.last_error).toBe('boom');
+  });
+
+  it('reserves a concurrency slot before firing and releases it once the run settles', async () => {
+    seedSchedule();
+    const { pollDueSchedules } = await import('../lib/runtime/scheduler');
+    await pollDueSchedules(new Date('2026-08-15T09:00:30.000Z'));
+
+    expect(reserveConcurrencySlotMock).toHaveBeenCalledTimes(1);
+    expect(reserveConcurrencySlotMock.mock.calls[0][0]).toMatchObject({ userId: USER_A });
+    expect(releaseConcurrencySlotMock).toHaveBeenCalledTimes(1);
+    // Reserve and release must key the same reservation ticket.
+    const reserveKey = reserveConcurrencySlotMock.mock.calls[0][0].executionId;
+    const releaseKey = releaseConcurrencySlotMock.mock.calls[0][0].executionId;
+    expect(releaseKey).toBe(reserveKey);
+  });
+
+  it('does not fire, and still advances next_run_at, when concurrency is denied', async () => {
+    seedSchedule();
+    reserveConcurrencySlotMock.mockResolvedValue({
+      reserved: false,
+      code: 'USER_CONCURRENCY_LIMIT',
+      reason: 'limit reached',
+      limit: 10,
+      current: 10,
+    });
+    const { pollDueSchedules } = await import('../lib/runtime/scheduler');
+    // Fake table rows are mutated in place, so snapshot the pre-fire value
+    // (not a live reference) before calling pollDueSchedules().
+    const beforeNextRunAt = ((fakeDb.tables.get('workflow_schedules') ?? [])[0] as Row).next_run_at;
+
+    const result = await pollDueSchedules(new Date('2026-08-15T09:00:30.000Z'));
+
+    expect(runWorkflowExecutionMock).not.toHaveBeenCalled();
+    expect(releaseConcurrencySlotMock).not.toHaveBeenCalled();
+    expect(result.skipped).toBe(1);
+    expect(result.fired).toBe(0);
+
+    const after = (fakeDb.tables.get('workflow_schedules') ?? [])[0] as Row;
+    // The occurrence is still consumed (skip-to-latest, not retried) even
+    // though it was denied a slot -- matches every other skip path here.
+    expect(after.next_run_at).not.toBe(beforeNextRunAt);
+    expect(String(after.last_error)).toContain('Skipped');
   });
 });
 

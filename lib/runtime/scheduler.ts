@@ -3,6 +3,7 @@ import 'server-only';
 import { createServiceClient } from '@/lib/supabase-server';
 import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { assertTrustedUserId } from '@/lib/credentials/storage';
+import { reserveConcurrencySlot, releaseConcurrencySlot } from './concurrency-guard';
 import * as cronParser from 'cron-parser';
 
 /**
@@ -248,30 +249,67 @@ export async function pollDueSchedules(now: Date = new Date()): Promise<Schedule
         if (version?.workflow_data) workflowJson = version.workflow_data;
       }
 
-      const execResult = await runWorkflowExecution({
-        workflowJson,
-        inputData: { triggeredBy: 'schedule', nodeId: schedule.node_id, firedAt: claimedFiringAt },
+      // Concurrency reservation (Phase 8.9 Step 10 scheduler certification
+      // fix): this path previously never reserved a slot at all, unlike the
+      // webhook (execution-dispatch.ts) and retry (retry-dispatcher.ts)
+      // paths — scheduled executions were completely unbounded by
+      // RUNTIME_MAX_CONCURRENT_PER_USER/PER_WORKFLOW. runWorkflowExecution()
+      // always creates a brand-new execution row with an engine-generated
+      // id (initializeExecution() UPDATEs rather than INSERTs when an
+      // executionId is pre-supplied, so we cannot pre-generate one here
+      // without changing that shared contract used by resume/pause/cancel).
+      // runtime_concurrency_reservations.execution_id has no FK to
+      // workflow_executions_v2 — it is purely a reservation ticket — so the
+      // same per-occurrence-unique idempotency key doubles as the
+      // reservation key, reserved here and released once the run settles.
+      const reservationKey = `schedule:${schedule.id}:${claimedFiringAt}`;
+      const reservation = await reserveConcurrencySlot({
+        executionId: reservationKey,
         userId: schedule.user_id,
         workflowId: schedule.workflow_id,
-        mode: 'live',
-        idempotencyKey: `schedule:${schedule.id}:${claimedFiringAt}`,
-        // Bug fix (Phase 8.9 Step 10 scheduler certification): workflowJson
-        // above is already correctly resolved from the frozen active
-        // deployment version, but the version id itself was never threaded
-        // through to initializeExecution() — every scheduled execution's
-        // workflow_executions_v2.deployment_version_id was silently written
-        // NULL, unlike the webhook/retry paths (lib/runtime/execution-dispatch.ts)
-        // which always pass this. Content executed was already correct; this
-        // restores the audit-trail column to match reality.
-        deploymentVersionId: workflow.active_deployment_version_id ?? null,
       });
 
-      await db
-        .from('workflow_schedules')
-        .update({ last_execution_id: execResult.executionId, last_error: execResult.error ?? null })
-        .eq('id', schedule.id);
+      if (!reservation.reserved) {
+        // Consistent with this module's existing skip-to-latest catch-up
+        // semantics (see module doc): the claim already advanced
+        // next_run_at, so a denied occurrence is not retried — it is
+        // recorded and dropped, exactly like every other skip path here.
+        result.skipped += 1;
+        await db
+          .from('workflow_schedules')
+          .update({ last_error: `Skipped: ${reservation.reason}` })
+          .eq('id', schedule.id);
+        continue;
+      }
 
-      result.fired += 1;
+      try {
+        const execResult = await runWorkflowExecution({
+          workflowJson,
+          inputData: { triggeredBy: 'schedule', nodeId: schedule.node_id, firedAt: claimedFiringAt },
+          userId: schedule.user_id,
+          workflowId: schedule.workflow_id,
+          mode: 'live',
+          idempotencyKey: reservationKey,
+          // Bug fix (Phase 8.9 Step 10 scheduler certification): workflowJson
+          // above is already correctly resolved from the frozen active
+          // deployment version, but the version id itself was never threaded
+          // through to initializeExecution() — every scheduled execution's
+          // workflow_executions_v2.deployment_version_id was silently written
+          // NULL, unlike the webhook/retry paths (lib/runtime/execution-dispatch.ts)
+          // which always pass this. Content executed was already correct; this
+          // restores the audit-trail column to match reality.
+          deploymentVersionId: workflow.active_deployment_version_id ?? null,
+        });
+
+        await db
+          .from('workflow_schedules')
+          .update({ last_execution_id: execResult.executionId, last_error: execResult.error ?? null })
+          .eq('id', schedule.id);
+
+        result.fired += 1;
+      } finally {
+        await releaseConcurrencySlot({ executionId: reservationKey });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await db.from('workflow_schedules').update({ last_error: message }).eq('id', schedule.id);
