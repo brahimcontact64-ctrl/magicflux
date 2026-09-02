@@ -1270,16 +1270,23 @@ export default function WorkflowDetailsPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          {/* Phase 9.4.2: was a non-wrapping `justify-between` row -- the
+              title + two buttons together routinely exceeded a 375px
+              viewport with nowhere to wrap to, forcing page-wide horizontal
+              overflow. flex-wrap lets the buttons drop to their own row
+              under the title on narrow screens instead. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">Test Runtime</p>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunTest} disabled={runningTest}>
-              {runningTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              Run Simulated Test
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunLiveTest} disabled={runningLiveTest}>
-              {runningLiveTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
-              Run Live Test
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunTest} disabled={runningTest}>
+                {runningTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                Run Simulated Test
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunLiveTest} disabled={runningLiveTest}>
+                {runningLiveTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                Run Live Test
+              </Button>
+            </div>
           </div>
 
           <SetupRequiredAlert missingIntegrations={missingIntegrations} />
@@ -1309,13 +1316,13 @@ export default function WorkflowDetailsPage() {
                   {testResult.steps.map((step, idx) => (
                     <div key={`${step.nodeName}-${idx}`} className="rounded-md border border-border bg-muted/20 p-2 text-xs space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium truncate">{step.nodeName} ({step.nodeType})</p>
+                        <p className="font-medium truncate min-w-0 flex-1">{step.nodeName} ({step.nodeType})</p>
                         <span className={
-                          step.status === 'failed'
+                          (step.status === 'failed'
                             ? 'text-red-400'
                             : step.status === 'skipped' || step.status === 'simulated_success'
                               ? 'text-amber-400'
-                              : 'text-emerald-400'
+                              : 'text-emerald-400') + ' flex-shrink-0'
                         }>
                           {step.status}
                         </span>
