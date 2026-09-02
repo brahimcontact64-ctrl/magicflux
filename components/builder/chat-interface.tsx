@@ -545,7 +545,7 @@ function CredentialIntelligenceCard({
                     onChange={(e) =>
                       setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
                     }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
                     autoComplete="off"
                     data-1p-ignore
                   />
@@ -1262,7 +1262,7 @@ export function ChatInterface({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="What do you want to automate today?"
-            className="resize-none text-sm min-h-[42px] max-h-[120px] bg-background border-border focus:border-primary scrollbar-thin"
+            className="resize-none text-base md:text-sm min-h-[42px] max-h-[120px] bg-background border-border focus:border-primary scrollbar-thin"
             rows={1}
             disabled={isThinking}
           />

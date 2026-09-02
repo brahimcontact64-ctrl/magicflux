@@ -9,22 +9,16 @@ import {
   useRef,
   useState,
 } from 'react';
+import dynamic from 'next/dynamic';
 import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  Panel,
   ReactFlowProvider,
   addEdge,
   useNodesState,
   useEdgesState,
   useReactFlow,
-  BackgroundVariant,
   type Connection,
   type Edge,
   type Node,
-  type NodeTypes,
 } from '@xyflow/react';
 import {
   AlertCircle,
@@ -52,16 +46,28 @@ import {
 import { autoLayout } from '@/lib/workflow-editor/layout';
 import { validateWorkflow, type ValidationResult } from '@/lib/workflow-validator';
 import type { WorkflowJson, WorkflowNodeData, HistorySnapshot } from '@/lib/workflow-editor/types';
+import { useIsMobileEditor } from '@/hooks/use-viewport';
 
-import { WorkflowNodeCard } from './WorkflowNodeCard';
-import { NodePalette } from './NodePalette';
-import { NodeSettingsPanel } from './NodeSettingsPanel';
+import { MobileStepEditor } from './MobileStepEditor';
 import { ExecutionPreview } from './ExecutionPreview';
 import { WorkflowEditorContext } from './context';
+import type { DesktopCanvasProps } from './DesktopCanvas';
+
+// Phase 9.4.2: the desktop React Flow canvas (and its React Flow subtree —
+// Background/Controls/MiniMap/NodePalette/NodeSettingsPanel) is loaded only
+// when actually needed, so a mobile visitor's bundle never pays for it.
+// ssr:false because React Flow measures the DOM on mount.
+const DesktopCanvas = dynamic<DesktopCanvasProps>(() => import('./DesktopCanvas'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading editor…
+    </div>
+  ),
+});
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const NODE_TYPES: NodeTypes = { workflowNode: WorkflowNodeCard };
 const MAX_HISTORY = 50;
 const INIT_NODES: Node<WorkflowNodeData>[] = [];
 const INIT_EDGES: Edge[] = [];
@@ -90,6 +96,7 @@ function WorkflowEditorInner({
   className,
 }: WorkflowEditorProps) {
   const { fitView, getViewport } = useReactFlow();
+  const isMobile = useIsMobileEditor();
 
   // RF state
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowNodeData>>(INIT_NODES);
@@ -398,31 +405,45 @@ function WorkflowEditorInner({
           'relative flex flex-col rounded-xl border border-border overflow-hidden',
           className,
         )}
-        style={{ height }}
+        // Phase 9.4.2: callers tune `height` for the desktop canvas (e.g.
+        // 580px). On mobile that fixed desktop value routinely pushes
+        // Test/Activate off-screen below a tall step list -- capped to a
+        // viewport-relative value instead so the editor never claims more
+        // than a sensible share of a short phone screen. dvh (not vh)
+        // accounts for the mobile browser chrome/address bar.
+        style={{ height: isMobile ? 'min(70dvh, 640px)' : height }}
       >
-        {/* Toolbar */}
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border bg-card/80 backdrop-blur flex-shrink-0">
-          <Button variant="ghost" size="sm" onClick={doUndo} disabled={!canUndo || readOnly} className="h-7 w-7 p-0" title="Undo (Ctrl+Z)">
-            <Undo2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={doRedo} disabled={!canRedo || readOnly} className="h-7 w-7 p-0" title="Redo (Ctrl+Y)">
-            <Redo2 className="h-3.5 w-3.5" />
-          </Button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <Button variant="ghost" size="sm" onClick={handleAutoLayout} disabled={readOnly} className="h-7 gap-1.5 px-2 text-xs">
-            <LayoutGrid className="h-3.5 w-3.5" />
-            Auto Layout
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleOpenPreview} className="h-7 gap-1.5 px-2 text-xs" title="Preview execution order">
+        {/* Toolbar. Undo/redo/auto-layout are canvas-position concepts with
+            no mobile equivalent (order in the mobile list is graph-derived,
+            not position-derived) — hidden rather than squeezed in; the
+            mobile step editor's explicit delete-confirmation dialog covers
+            the highest-risk accidental action undo would otherwise guard. */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border bg-card/80 backdrop-blur flex-shrink-0 overflow-x-auto">
+          {!isMobile && (
+            <>
+              <Button variant="ghost" size="sm" onClick={doUndo} disabled={!canUndo || readOnly} className="h-7 w-7 p-0" title="Undo (Ctrl+Z)">
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={doRedo} disabled={!canRedo || readOnly} className="h-7 w-7 p-0" title="Redo (Ctrl+Y)">
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <Button variant="ghost" size="sm" onClick={handleAutoLayout} disabled={readOnly} className="h-7 gap-1.5 px-2 text-xs">
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Auto Layout
+              </Button>
+            </>
+          )}
+          <Button variant="ghost" size="sm" onClick={handleOpenPreview} className="h-7 gap-1.5 px-2 text-xs flex-shrink-0" title="Preview execution order">
             <Play className="h-3.5 w-3.5" />
-            Preview Execution
+            {isMobile ? 'Preview' : 'Preview Execution'}
           </Button>
           <div className="flex-1" />
-          {validationBadge}
+          <span className="flex-shrink-0">{validationBadge}</span>
           {showSaveButton && onSave && (
             <>
               <div className="w-px h-4 bg-border mx-0.5" />
-              <Button size="sm" onClick={handleSave} disabled={saving || !valResult.valid} className="h-7 gap-1.5 px-3 text-xs">
+              <Button size="sm" onClick={handleSave} disabled={saving || !valResult.valid} className="h-7 gap-1.5 px-3 text-xs flex-shrink-0">
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Save
               </Button>
@@ -430,64 +451,47 @@ function WorkflowEditorInner({
           )}
         </div>
 
-        {/* Canvas row — canvas + optional settings panel */}
-        <div className="flex flex-1 min-h-0">
-          <div className="flex-1 min-w-0 relative">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              onNodeDragStop={onNodeDragStop}
-              onEdgesDelete={onEdgesDelete}
-              nodeTypes={NODE_TYPES}
-              deleteKeyCode={readOnly ? null : 'Delete'}
-              multiSelectionKeyCode="Shift"
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
-              snapToGrid
-              snapGrid={[16, 16]}
-              minZoom={0.2}
-              maxZoom={2}
-              nodesDraggable={!readOnly}
-              nodesConnectable={!readOnly}
-              elementsSelectable={!readOnly}
-              panOnDrag
-              zoomOnScroll
-              zoomOnPinch
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="hsl(var(--border))" />
-              <Controls showInteractive={false} />
-              <MiniMap nodeColor="hsl(var(--muted))" maskColor="hsl(var(--background) / 0.7)" className="!border !border-border !rounded-lg" />
-              {!readOnly && (
-                <Panel position="top-left">
-                  <NodePalette onAddNode={handleAddNode} />
-                </Panel>
-              )}
-            </ReactFlow>
+        {/* Editing surface — mobile step list vs. desktop React Flow canvas,
+            same underlying nodes/edges state and callbacks either way. */}
+        {isMobile ? (
+          <MobileStepEditor
+            nodes={nodes}
+            edges={edges}
+            onAddNode={handleAddNode}
+            onDeleteNode={onDeleteNode}
+            onUpdateNodeParameters={onUpdateNodeParameters}
+            readOnly={readOnly}
+          />
+        ) : (
+          <DesktopCanvas
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            onNodeDragStop={onNodeDragStop}
+            onEdgesDelete={onEdgesDelete}
+            onAddNode={handleAddNode}
+            selectedNode={selectedNode}
+            onUpdateNodeParameters={onUpdateNodeParameters}
+            onCloseSettings={() => setSelectedNodeId(null)}
+            readOnly={readOnly}
+            showExecutionPreview={showExecutionPreview}
+            previewWorkflow={previewWorkflow}
+            onClosePreview={() => setShowExecutionPreview(false)}
+          />
+        )}
 
-            {/* Execution preview overlay */}
-            {showExecutionPreview && previewWorkflow && (
-              <ExecutionPreview
-                workflow={previewWorkflow}
-                onClose={() => setShowExecutionPreview(false)}
-              />
-            )}
-          </div>
-
-          {/* Settings panel */}
-          {selectedNode && !readOnly && (
-            <NodeSettingsPanel
-              node={selectedNode}
-              onUpdate={onUpdateNodeParameters}
-              onClose={() => setSelectedNodeId(null)}
-            />
-          )}
-        </div>
+        {/* Execution preview overlay (mobile: rendered at this level since
+            there is no per-canvas relative container to anchor it to) */}
+        {isMobile && showExecutionPreview && previewWorkflow && (
+          <ExecutionPreview
+            workflow={previewWorkflow}
+            onClose={() => setShowExecutionPreview(false)}
+          />
+        )}
 
         {/* Validation panel */}
         {(valResult.errors.length > 0 || valResult.warnings.length > 0) && (

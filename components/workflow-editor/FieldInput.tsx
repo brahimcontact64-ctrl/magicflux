@@ -11,8 +11,13 @@ interface FieldInputProps {
   readOnly?: boolean;
 }
 
+// Phase 9.4.2: text-base (16px) below `md`, text-xs (12px) at/above it.
+// iOS Safari auto-zooms the whole page when a focused input's computed
+// font-size is under 16px -- a well-known, genuinely disruptive mobile bug
+// (not merely cosmetic: it visually breaks the sheet/page layout on focus
+// and again on blur). Desktop keeps the original compact size.
 const INPUT_BASE =
-  'w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs ' +
+  'w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-base md:text-xs ' +
   'text-foreground placeholder:text-muted-foreground ' +
   'focus:outline-none focus:ring-1 focus:ring-ring ' +
   'disabled:cursor-not-allowed disabled:opacity-50 ' +
@@ -33,7 +38,7 @@ export function FieldInput({ field, value, onChange, error, readOnly }: FieldInp
         disabled={readOnly}
         className={cn(
           INPUT_BASE,
-          'h-8',
+          'h-11 md:h-8',
           hasError && ERROR_INPUT,
         )}
       >
@@ -77,7 +82,7 @@ export function FieldInput({ field, value, onChange, error, readOnly }: FieldInp
         placeholder={field.placeholder}
         onChange={(e) => onChange(field.key, e.target.valueAsNumber)}
         disabled={readOnly}
-        className={cn(INPUT_BASE, 'h-8', hasError && ERROR_INPUT)}
+        className={cn(INPUT_BASE, 'h-11 md:h-8', hasError && ERROR_INPUT)}
       />
     );
   }
@@ -91,7 +96,7 @@ export function FieldInput({ field, value, onChange, error, readOnly }: FieldInp
       placeholder={field.placeholder}
       onChange={(e) => onChange(field.key, e.target.value)}
       disabled={readOnly}
-      className={cn(INPUT_BASE, 'h-8', hasError && ERROR_INPUT)}
+      className={cn(INPUT_BASE, 'h-11 md:h-8', hasError && ERROR_INPUT)}
     />
   );
 }

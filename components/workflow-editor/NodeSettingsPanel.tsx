@@ -21,6 +21,15 @@ interface NodeSettingsPanelProps {
   onUpdate: (nodeId: string, parameters: Record<string, unknown>) => void;
   onClose: () => void;
   readOnly?: boolean;
+  /**
+   * Phase 9.4.2: the desktop canvas renders this as a fixed-width (18rem)
+   * side panel next to the graph. The mobile step editor reuses this same
+   * component unmodified inside a full-height sheet instead of forking a
+   * second settings UI -- passing `fullWidth` drops the fixed width/border
+   * so it fills its container there. Desktop behavior is unchanged
+   * (fullWidth defaults to false).
+   */
+  fullWidth?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -30,6 +39,7 @@ export function NodeSettingsPanel({
   onUpdate,
   onClose,
   readOnly,
+  fullWidth,
 }: NodeSettingsPanelProps) {
   const def = getNodeDef(node.data.nodeType);
 
@@ -76,13 +86,18 @@ export function NodeSettingsPanel({
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col w-72 border-l border-border bg-card overflow-hidden flex-shrink-0">
+    <div
+      className={cn(
+        'flex flex-col bg-card overflow-hidden',
+        fullWidth ? 'w-full h-full' : 'w-72 border-l border-border flex-shrink-0',
+      )}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-muted/20 flex-shrink-0">
         <NodeTypeIcon nodeType={node.data.nodeType} size="sm" />
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-foreground truncate">{node.data.name}</p>
-          <p className="text-[10px] text-muted-foreground truncate">
+          <p className={cn('font-semibold text-foreground truncate', fullWidth ? 'text-sm' : 'text-xs')}>{node.data.name}</p>
+          <p className={cn('text-muted-foreground truncate', fullWidth ? 'text-xs' : 'text-[10px]')}>
             {def?.label ?? node.data.nodeType}
           </p>
         </div>
@@ -90,10 +105,10 @@ export function NodeSettingsPanel({
           variant="ghost"
           size="sm"
           onClick={onClose}
-          className="h-6 w-6 p-0 flex-shrink-0"
+          className={cn('p-0 flex-shrink-0', fullWidth ? 'h-11 w-11' : 'h-6 w-6')}
           aria-label="Close settings"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className={fullWidth ? 'h-5 w-5' : 'h-3.5 w-3.5'} />
         </Button>
       </div>
 
