@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Zap, Menu, X, Crown, LogOut, ChevronDown, User } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import { cn } from '@/lib/utils';
+import { useCheckoutAvailable } from '@/hooks/use-checkout-available';
 
 const ISOLATE_A = process.env.NEXT_PUBLIC_MF_BUILD_ISOLATE_A === '1';
 
@@ -25,6 +27,9 @@ function UserDropdown() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
+  // Phase 9.5 Step C/D — shared with UserMenu/pricing; see
+  // hooks/use-checkout-available.ts.
+  const checkoutAvailable = useCheckoutAvailable();
 
   if (!user) return null;
 
@@ -36,6 +41,11 @@ function UserDropdown() {
   // called /api/paypal/create-order -- PayPal is not the V1 provider.
   async function handleUpgrade() {
     if (ISOLATE_A) return;
+    if (!checkoutAvailable) {
+      setOpen(false);
+      toast.info("Pro upgrades aren't available yet — check back soon.");
+      return;
+    }
 
     setUpgrading(true);
     setOpen(false);
@@ -90,10 +100,13 @@ function UserDropdown() {
               <button
                 onClick={handleUpgrade}
                 disabled={upgrading}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-sm text-amber-400 transition-colors"
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                  checkoutAvailable ? 'hover:bg-amber-500/10 text-amber-400' : 'text-muted-foreground hover:bg-muted/40',
+                )}
               >
                 <Crown className="w-4 h-4" />
-                {upgrading ? 'Redirecting…' : 'Upgrade to Pro — $29'}
+                {upgrading ? 'Redirecting…' : checkoutAvailable ? 'Upgrade to Pro — $29' : 'Pro — Coming soon'}
               </button>
             )}
             <Link href="/builder" onClick={() => setOpen(false)}

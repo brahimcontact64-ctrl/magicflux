@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { requiredProvidersFromWorkflow, type IntegrationProvider } from '@/lib/integrations';
 import { apiRequest } from '@/lib/api/client';
+import { useCheckoutAvailable } from '@/hooks/use-checkout-available';
 
 const ISOLATE_C = process.env.NEXT_PUBLIC_MF_BUILD_ISOLATE_C === '1';
 
@@ -62,6 +63,7 @@ function UserMenu() {
   const [open, setOpen] = useState(false);
   const [activatingPro, setActivatingPro] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
+  const checkoutAvailable = useCheckoutAvailable();
 
   // Phase 9.3.1: this was previously hardcoded to `true` (SHOW_DEV), which
   // forced the "DEV: Activate Pro for Testing" button to render for every
@@ -81,6 +83,11 @@ function UserMenu() {
   // Phase 9.3.2 Step I: real Stripe subscription checkout, replacing the
   // Phase 9.3.1 "not available yet" placeholder now that it exists.
   async function handleUpgrade() {
+    if (!checkoutAvailable) {
+      setOpen(false);
+      toast.info("Pro upgrades aren't available yet — check back soon.");
+      return;
+    }
     if (!session) return;
     setOpen(false);
     setUpgrading(true);
@@ -163,10 +170,13 @@ function UserMenu() {
               <button
                 onClick={handleUpgrade}
                 disabled={upgrading}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-amber-500/10 text-xs text-amber-400 transition-colors"
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-xs',
+                  checkoutAvailable ? 'hover:bg-amber-500/10 text-amber-400' : 'text-muted-foreground hover:bg-muted/40',
+                )}
               >
                 {upgrading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
-                {upgrading ? 'Redirecting…' : 'Upgrade to Pro — $29'}
+                {upgrading ? 'Redirecting…' : checkoutAvailable ? 'Upgrade to Pro — $29' : 'Pro — Coming soon'}
               </button>
             )}
             {devProEnabled && (
@@ -196,7 +206,15 @@ function UserMenu() {
 
 // ── Upgrade banner ────────────────────────────────────────────────────────────
 
-function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrading: boolean }) {
+function UpgradeBanner({
+  onUpgrade,
+  upgrading,
+  checkoutAvailable,
+}: {
+  onUpgrade: () => void;
+  upgrading: boolean;
+  checkoutAvailable: boolean;
+}) {
   return (
     <div className="flex-shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 flex items-center gap-3">
       <TriangleAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
@@ -206,10 +224,13 @@ function UpgradeBanner({ onUpgrade, upgrading }: { onUpgrade: () => void; upgrad
       <button
         onClick={onUpgrade}
         disabled={upgrading}
-        className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors flex-shrink-0"
+        className={cn(
+          'flex items-center gap-1.5 text-xs font-semibold transition-colors flex-shrink-0',
+          checkoutAvailable ? 'text-amber-400 hover:text-amber-300' : 'text-amber-300/60 hover:text-amber-300/80',
+        )}
       >
         {upgrading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Crown className="w-3 h-3" />}
-        {upgrading ? 'Redirecting…' : 'Upgrade — $29'}
+        {upgrading ? 'Redirecting…' : checkoutAvailable ? 'Upgrade — $29' : 'Pro — Coming soon'}
       </button>
     </div>
   );
@@ -229,6 +250,9 @@ export default function BuilderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading } = useAuth();
+  // Phase 9.5 Step C/D — shared with UserMenu/pricing/navbar; see
+  // hooks/use-checkout-available.ts.
+  const checkoutAvailable = useCheckoutAvailable();
 
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<AutomationTemplate | null>(null);
@@ -362,6 +386,10 @@ export default function BuilderPage() {
   // Phase 9.3.2 Step I: real Stripe subscription checkout, replacing the
   // Phase 9.3.1 "not available yet" placeholder now that it exists.
   const handleUpgrade = useCallback(async () => {
+    if (!checkoutAvailable) {
+      toast.info("Pro upgrades aren't available yet — check back soon.");
+      return;
+    }
     if (!session) return;
     setUpgrading(true);
     try {
@@ -381,7 +409,7 @@ export default function BuilderPage() {
       toast.error('Could not start checkout');
       setUpgrading(false);
     }
-  }, [session]);
+  }, [session, checkoutAvailable]);
 
   // Canonical save path (Phase 9.1.5): every workflow created from the AI
   // Builder is saved through POST /api/workflows — the same entitlement-
@@ -776,7 +804,7 @@ export default function BuilderPage() {
       </header>
 
       {/* Upgrade banner for free users */}
-      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} />}
+      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} checkoutAvailable={checkoutAvailable} />}
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">

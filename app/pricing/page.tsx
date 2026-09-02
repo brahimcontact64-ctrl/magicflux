@@ -41,6 +41,11 @@ export default function PricingPage() {
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'business' | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState<'pro' | 'business' | null>(null);
+  // Phase 9.5: known upfront from the same /api/billing/plans call this
+  // page already makes -- defaults to unavailable until proven otherwise,
+  // never the other way around, so a slow/failed fetch can't render a CTA
+  // that then 503s.
+  const [checkoutAvailable, setCheckoutAvailable] = useState(false);
 
   useEffect(() => {
     if (searchParams.get('checkout') === 'cancelled') {
@@ -50,6 +55,10 @@ export default function PricingPage() {
   }, []);
 
   async function handleCheckout(plan: 'pro' | 'business') {
+    if (!checkoutAvailable) {
+      toast.info("Upgrades aren't available yet — check back soon.");
+      return;
+    }
     if (!session) {
       window.location.href = `/login?next=/pricing`;
       return;
@@ -85,9 +94,10 @@ export default function PricingPage() {
           fetch('/api/billing/usage', { cache: 'no-store' }),
         ]);
 
-        const plansPayload = (await plansRes.json().catch(() => ({}))) as { plans?: Plan[] };
+        const plansPayload = (await plansRes.json().catch(() => ({}))) as { plans?: Plan[]; checkoutAvailable?: boolean };
         if (!cancelled) {
           setPlans((plansPayload.plans ?? []) as Plan[]);
+          setCheckoutAvailable(Boolean(plansPayload.checkoutAvailable));
         }
 
         if (usageRes.ok) {
@@ -180,7 +190,7 @@ export default function PricingPage() {
                       <Link href='/signup' className='block'>
                         <Button className='w-full' variant='outline'>Start Free</Button>
                       </Link>
-                    ) : (
+                    ) : checkoutAvailable ? (
                       <Button
                         className='w-full gap-2'
                         variant={highlighted ? 'default' : 'outline'}
@@ -190,6 +200,19 @@ export default function PricingPage() {
                         {checkingOut === plan.slug && <Loader2 className='h-4 w-4 animate-spin' />}
                         {checkingOut === plan.slug ? 'Redirecting to checkout…' : `Upgrade to ${plan.name}`}
                       </Button>
+                    ) : (
+                      // Phase 9.5: honest, known-upfront state instead of a
+                      // button that looks live and then 503s -- Stripe is
+                      // not a transient outage today, it's simply not
+                      // configured yet.
+                      <div className='space-y-1.5'>
+                        <Button className='w-full' variant='outline' disabled>
+                          {plan.name} — Coming soon
+                        </Button>
+                        <a href='mailto:hello@magicflux.ai?subject=MagicFlux%20Pro%20access' className='block text-center text-xs text-primary hover:underline'>
+                          Contact us to be notified
+                        </a>
+                      </div>
                     )}
                   </div>
                 </div>
