@@ -1,17 +1,13 @@
 import type { IntegrationProvider } from '@/lib/integrations';
 import nodemailer from 'nodemailer';
+// Phase 9.4.1: consolidated into the one shared text-sanitization utility
+// (was previously a private local copy of the same logic).
+import { redactText as safeError } from '@/lib/security/redact';
 
 type VerifyResult = {
   ok: boolean;
   error?: string;
 };
-
-function safeError(message: string): string {
-  return message
-    .replace(/https?:\/\/[^\s]+/gi, '[redacted-url]')
-    .replace(/(token|password|pass|key)=([^\s&]+)/gi, '$1=[redacted]')
-    .slice(0, 180);
-}
 
 function normalizeShopDomain(storeUrl: string): string {
   const trimmed = storeUrl.trim();

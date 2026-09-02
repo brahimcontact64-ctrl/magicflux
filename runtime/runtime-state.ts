@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase-server';
 import { emitRuntimeEvent } from '@/lib/runtime/events';
 import { recordUsageEvent } from '@/lib/runtime/usage-metering';
 import { logger } from '@/lib/runtime/logger';
+import { redact, redactText } from '@/lib/security/redact';
 
 /**
  * Thrown by persistNodeState() when either the runtime_node_states upsert
@@ -190,6 +191,27 @@ export class RuntimeStateStore {
     const startedAt = input.startedAt ?? nowIso();
     const completedAt = input.completedAt ?? (input.status === 'running' || input.status === 'queued' || input.status === 'retrying' ? null : nowIso());
 
+    // Phase 9.4.1 persistence boundary: runtime_node_states and
+    // workflow_execution_steps are both observability/UI representations
+    // ONLY -- neither is ever read back to drive execution (resume/retry
+    // reads exclusively from runtime_execution_checkpoints/
+    // runtime_execution_snapshots via getLatestCheckpoint()/
+    // getLatestSnapshot(), a completely separate pair of tables/methods
+    // below, written from the engine's own in-memory state, untouched
+    // here). Redacting what gets stored here therefore cannot break
+    // resume/retry -- input.inputData/outputData themselves are never
+    // mutated (redact() always returns a copy), so the caller's continued
+    // in-memory use of the original values for chaining to the next node
+    // is unaffected.
+    const sanitizedInputData = redact(input.inputData ?? null);
+    const sanitizedOutputData = redact(input.outputData ?? null);
+    // logs/errorMessage are free text, not keyed objects -- redact()'s
+    // key-based matching cannot help here (there is no key to match
+    // against a string's own content), so each line goes through
+    // redactText() instead.
+    const sanitizedLogs = (input.logs ?? []).map((line) => redactText(line, 500));
+    const sanitizedErrorMessage = input.errorMessage != null ? redactText(input.errorMessage, 500) : null;
+
     const { error: nodeStateError } = await this.db.from('runtime_node_states').upsert({
       execution_id: input.executionId,
       workflow_id: input.workflowId,
@@ -199,10 +221,10 @@ export class RuntimeStateStore {
       node_type: input.nodeType,
       status: input.status,
       attempt: input.attempt,
-      input_data: input.inputData ?? null,
-      output_data: input.outputData ?? null,
-      logs: input.logs ?? [],
-      error_message: input.errorMessage ?? null,
+      input_data: sanitizedInputData,
+      output_data: sanitizedOutputData,
+      logs: sanitizedLogs,
+      error_message: sanitizedErrorMessage,
       started_at: startedAt,
       completed_at: completedAt,
       updated_at: nowIso(),
@@ -233,10 +255,10 @@ export class RuntimeStateStore {
       node_name: input.nodeName,
       node_type: input.nodeType,
       status: input.status,
-      input_data: input.inputData ?? null,
-      output_data: input.outputData ?? null,
-      logs: input.logs ?? [],
-      error_message: input.errorMessage ?? null,
+      input_data: sanitizedInputData,
+      output_data: sanitizedOutputData,
+      logs: sanitizedLogs,
+      error_message: sanitizedErrorMessage,
       attempt: input.attempt,
       started_at: startedAt,
       completed_at: completedAt,

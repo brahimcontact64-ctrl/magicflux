@@ -6,6 +6,7 @@ import {
   getUserFromAccessToken,
 } from '@/lib/supabase-server';
 import { decryptJson, encryptJson } from '@/lib/security/encryption';
+import { classifyError } from '@/lib/security/safe-error';
 import { verifyIntegrationCredentials, runIntegrationTestAction } from '@/lib/integration-verifier';
 import { normalizeCredentials, validateRequiredCredentials, maskIntegrationInfo } from '@/lib/integration-credentials';
 import { getIntegrationUsage, getPlanLimits } from '@/lib/billing/plan-limits';
@@ -184,7 +185,10 @@ export async function listIntegrations(req: NextRequest) {
     .eq('user_id', auth.id)
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   const byProvider = new Map<string, {
     provider: string;
@@ -302,7 +306,10 @@ export async function saveIntegration(req: NextRequest) {
       { onConflict: 'user_id,provider' }
     );
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({
     success: verification.ok,
@@ -374,7 +381,10 @@ export async function runIntegrationAction(req: NextRequest) {
     .eq('provider', provider)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!row || row.status !== 'connected') {
     return NextResponse.json({ error: 'Integration must be connected first' }, { status: 422 });
   }
@@ -407,7 +417,12 @@ export async function runIntegrationAction(req: NextRequest) {
           });
           return { ok: true, details: { status: runtimeResult.status, latencyMs: runtimeResult.latencyMs } };
         } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : 'Action failed' };
+          // Phase 9.4.1 Step H: this calls a real, dynamically-generated
+          // provider adapter with the user's real credentials -- a raw
+          // provider error could echo back headers/tokens/request
+          // details. Never forward it as-is.
+          const safe = classifyError(error);
+          return { ok: false, error: safe.message };
         }
       })();
 
@@ -444,7 +459,10 @@ export async function disconnectIntegration(req: NextRequest) {
       { onConflict: 'user_id,provider' }
     );
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   return NextResponse.json({ success: true, provider });
 }
 

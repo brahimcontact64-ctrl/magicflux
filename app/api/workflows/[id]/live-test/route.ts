@@ -5,6 +5,8 @@ import { createSampleDataForWorkflow } from '@/lib/workflow-runtime/sample-data'
 import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { canExecuteWorkflow, getPlanLimits } from '@/lib/billing/plan-limits';
 import { getWorkflowIntegrationStatus } from '@/lib/user-integrations';
+import { redact, redactText } from '@/lib/security/redact';
+import { classifyError } from '@/lib/security/safe-error';
 
 type Ctx = { params: { id: string } };
 
@@ -44,7 +46,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   const raw = (workflow.workflow_json ?? {}) as WorkflowShape;
@@ -92,6 +97,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
+  // Phase 9.4.1: live mode makes real calls with real injected
+  // credentials -- steps/finalOutput can contain genuinely live secret
+  // values (a provider's actual response headers/body, an injected
+  // Authorization header echoed back in a request preview, etc.), not
+  // just user-typed placeholders as in test mode. Redacted before ever
+  // leaving this route.
+  const safeSteps = redact(result.steps.map((s) => ({
+    ...s,
+    // error/logs are free text -- redact()'s key-based matching can't
+    // scrub embedded secrets in string content.
+    logs: Array.isArray(s.logs) ? s.logs.map((line) => redactText(line, 500)) : s.logs,
+    error: s.error ? redactText(s.error, 500) : s.error,
+  })));
+  const safeTopLevelError = result.error ? redactText(result.error, 500) : result.error;
+
   return NextResponse.json({
     success: result.status === 'success',
     executionId: result.executionId,
@@ -99,10 +119,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     message: result.message ?? 'Live execution completed.',
     currentNodeId: result.currentNodeId,
     nextRunAt: result.nextRunAt ?? null,
-    error: result.error ?? null,
+    error: safeTopLevelError ?? null,
     simulated: false,
     live: true,
-    steps: result.steps,
-    finalOutput: result.finalOutput,
+    steps: safeSteps,
+    finalOutput: redact(result.finalOutput),
   });
 }

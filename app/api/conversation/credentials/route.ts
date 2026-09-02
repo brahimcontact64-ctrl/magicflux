@@ -5,6 +5,7 @@ import {
   providerCredentialIsValid,
 } from '@/lib/conversation-agent';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
+import { classifyError } from '@/lib/security/safe-error';
 
 async function getUserId(req: NextRequest): Promise<string | null> {
   const token = getBearerToken(req);
@@ -43,7 +44,10 @@ export async function POST(req: NextRequest) {
   if (userId) query = query.eq('user_id', userId);
 
   const { data: session, error: findError } = await query.maybeSingle();
-  if (findError) return NextResponse.json({ error: findError.message }, { status: 500 });
+  if (findError) {
+    const safe = classifyError(findError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!session) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
 
   const encrypted = markCredential(
@@ -61,7 +65,8 @@ export async function POST(req: NextRequest) {
     .eq('id', session.id);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    const safe = classifyError(updateError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   return NextResponse.json({ success: true, provider, status: 'connected' });

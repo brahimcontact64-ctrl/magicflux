@@ -1,5 +1,6 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { checkUrlSafe } from './ssrf-guard';
+import { redact } from '@/lib/security/redact';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -140,7 +141,12 @@ export async function httpHandler(
     return { status: 'failed', outputData: null, logs: ['HTTP: url is required'], error: 'url is required' };
   }
 
-  const preview = { nodeName: node.name ?? node.id, method, url, headers, body };
+  // Test-mode preview: purely a "what would be sent" display artifact --
+  // no real request is made, so nothing downstream legitimately depends
+  // on these exact header/body values for chaining. Redacted at
+  // construction (not just at the persistence boundary) since this is
+  // the only representation of it that will ever exist.
+  const preview = { nodeName: node.name ?? node.id, method, url, headers: redact(headers), body: redact(body) };
 
   if (context.mode === 'test') {
     logs.push(`HTTP ${method} ${url} simulated in test mode.`);
@@ -214,7 +220,20 @@ export async function httpHandler(
           await sleep(RETRY_DELAY_MS[attempt - 1] ?? RETRY_DELAY_MS[RETRY_DELAY_MS.length - 1]);
           continue;
         }
-        lastError = `HTTP ${res.status}: ${typeof responseBody === 'string' ? responseBody.slice(0, 200) : JSON.stringify(responseBody).slice(0, 200)}`;
+        // Phase 9.4.1 Step H: never forward a provider's raw response body
+        // into a human-readable error string -- an API that echoes back
+        // an Authorization header, request token, or other secret in its
+        // error body would otherwise leak it straight into `error`/`logs`
+        // (both of which are diagnostic/display strings, not something a
+        // downstream node's real functionality depends on, unlike
+        // outputData below). A structured (JSON) body is redacted then
+        // truncated; a plain-text body -- which redact() cannot safely
+        // parse for embedded secrets -- gets a generic placeholder instead
+        // of raw text.
+        const safeBodyPreview = typeof responseBody === 'string'
+          ? '(non-JSON response body omitted)'
+          : JSON.stringify(redact(responseBody)).slice(0, 200);
+        lastError = `HTTP ${res.status}: ${safeBodyPreview}`;
         logs.push(`HTTP ${method} ${finalUrl} failed: ${lastError}`);
         return { status: 'failed', outputData: { status: res.status, body: responseBody }, logs, error: lastError };
       }

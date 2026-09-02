@@ -6,6 +6,7 @@ import {
   type PlannerStatus,
 } from '@/lib/conversation-agent';
 import { processConversationTurn } from '@/lib/conversation/service';
+import { classifyError } from '@/lib/security/safe-error';
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
 import { decryptJson } from '@/lib/security/encryption';
 
@@ -93,7 +94,10 @@ export async function GET(req: NextRequest) {
   if (userId) query = query.eq('user_id', userId);
 
   const { data, error } = await query.maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!data) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
 
   const row = data as ConversationRow;

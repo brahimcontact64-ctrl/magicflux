@@ -118,6 +118,24 @@ export function providerHasCredentials(provider: string): boolean {
   return getProviderCredentials(provider).length > 0;
 }
 
+/**
+ * Phase 9.4.1 — every credential field key (across every provider) marked
+ * `secret: true` in this registry, deduplicated. This is the single
+ * source of truth lib/security/redact.ts extends its generic sensitive-key
+ * set with, so a new provider's secret field (e.g. a future integration's
+ * `signing_key`) is automatically protected everywhere the redaction
+ * utility is used, without a second list to remember to update.
+ */
+export function getRegisteredSecretFieldKeys(): string[] {
+  const keys = new Set<string>();
+  for (const requirements of Object.values(PROVIDER_CREDENTIAL_MAP)) {
+    for (const req of requirements) {
+      if (req.secret) keys.add(req.key);
+    }
+  }
+  return Array.from(keys);
+}
+
 export function getRequiredCredentials(provider: string): CredentialRequirement[] {
   return getProviderCredentials(provider).filter((f) => f.required);
 }

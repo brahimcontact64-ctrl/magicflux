@@ -4,6 +4,8 @@ import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { createSampleDataForWorkflow } from '@/lib/workflow-runtime/sample-data';
 import { runWorkflowExecution } from '@/lib/workflow-runtime/engine';
 import { canExecuteWorkflow, getPlanLimits } from '@/lib/billing/plan-limits';
+import { redact, redactText } from '@/lib/security/redact';
+import { classifyError } from '@/lib/security/safe-error';
 
 type WorkflowShape = {
   name?: string;
@@ -49,7 +51,10 @@ export async function POST(req: NextRequest) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   const raw = (workflow.workflow_json ?? {}) as WorkflowShape;
@@ -69,15 +74,18 @@ export async function POST(req: NextRequest) {
     mode: 'test',
   });
 
-  const legacySteps = result.steps.map((s) => ({
+  const legacySteps = redact(result.steps.map((s) => ({
     nodeName: s.nodeName,
     nodeType: s.nodeType,
     status: s.status,
     input: s.inputData,
     output: s.outputData,
-    logs: s.logs,
-    error: s.error,
-  }));
+    logs: (s.logs ?? []).map((line) => redactText(line, 500)),
+    error: s.error ? redactText(s.error, 500) : s.error,
+  })));
+  const safePreviews = redact(result.previews);
+  const safeFinalOutput = redact(result.finalOutput);
+  const safeTopLevelError = result.error ? redactText(result.error, 500) : result.error;
 
   const { data: savedRun } = await db
     .from('workflow_runs')
@@ -86,9 +94,9 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       status: result.status === 'success' || result.status === 'simulated_success' ? 'success' : 'failed',
       logs: legacySteps,
-      previews: result.previews,
-      final_output: result.finalOutput,
-      error_message: result.error ?? null,
+      previews: safePreviews,
+      final_output: safeFinalOutput,
+      error_message: safeTopLevelError ?? null,
     })
     .select('id')
     .maybeSingle();
@@ -100,9 +108,9 @@ export async function POST(req: NextRequest) {
     simulationMessage: result.simulated ? 'SIMULATED — no real API executed' : null,
     executionId: result.executionId,
     steps: legacySteps,
-    finalOutput: result.finalOutput,
-    previews: result.previews,
-    error: result.error ?? null,
+    finalOutput: safeFinalOutput,
+    previews: safePreviews,
+    error: safeTopLevelError ?? null,
     nextRunAt: result.nextRunAt ?? null,
     simulated: result.simulated,
     warnings: result.warnings ?? [],

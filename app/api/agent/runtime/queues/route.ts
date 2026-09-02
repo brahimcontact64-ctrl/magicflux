@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createServiceClient, getBearerToken, getUserFromAccessToken } from '@/lib/supabase-server';
+import { classifyError } from '@/lib/security/safe-error';
 
 async function getUserId(req: NextRequest): Promise<string | null> {
   const token = getBearerToken(req);
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   const rows = data ?? [];

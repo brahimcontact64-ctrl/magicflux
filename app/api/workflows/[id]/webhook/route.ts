@@ -5,6 +5,7 @@ import { guardWebhookRequest, suspiciousExecutionScore } from '@/lib/runtime/web
 import { isExecutableStatus } from '@/lib/workflow/lifecycle';
 import { deriveWebhookIdempotencyKey } from '@/lib/runtime/idempotency';
 import { dispatchProductionExecution } from '@/lib/runtime/execution-dispatch';
+import { classifyError } from '@/lib/security/safe-error';
 
 type Ctx = { params: { id: string } };
 
@@ -50,7 +51,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .maybeSingle();
 
   if (workflowError) {
-    return NextResponse.json({ error: workflowError.message }, { status: 500 });
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   if (!workflow) {

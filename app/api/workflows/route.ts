@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { requiredProvidersFromWorkflow } from '@/lib/integrations';
 import { canCreateWorkflow, getPlanLimits } from '@/lib/billing/plan-limits';
+import { classifyError } from '@/lib/security/safe-error';
 
 export async function GET(req: NextRequest) {
   const user = await getUserFromRequest(req);
@@ -15,7 +16,10 @@ export async function GET(req: NextRequest) {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({ success: true, workflows: data ?? [] });
 }
@@ -59,7 +63,10 @@ export async function POST(req: NextRequest) {
     .select('id, name, description, workflow_json, integrations, status, n8n_workflow_id, created_at, updated_at')
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({ success: true, workflow: data }, { status: 201 });
 }

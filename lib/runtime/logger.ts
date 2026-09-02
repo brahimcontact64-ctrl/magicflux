@@ -1,3 +1,5 @@
+import { redact } from '@/lib/security/redact';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type LogContext = {
@@ -18,11 +20,17 @@ type LogEntry = {
 } & LogContext;
 
 function emit(level: LogLevel, event: string, ctx?: LogContext): void {
+  // Phase 9.4.1: ctx is free-form and callers throughout the runtime pass
+  // whatever context is convenient (raw errors, headers, credential
+  // objects) -- redact() here is the one chokepoint that keeps every
+  // logger.* call site safe by default, without requiring each of them to
+  // remember to sanitize first.
+  const safeCtx = ctx ? (redact(ctx) as LogContext) : ctx;
   const entry: LogEntry = {
     level,
     event,
     ts: new Date().toISOString(),
-    ...ctx,
+    ...safeCtx,
   };
   const line = JSON.stringify(entry);
   if (level === 'error') {

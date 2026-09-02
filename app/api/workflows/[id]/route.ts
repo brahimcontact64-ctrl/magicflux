@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { requiredProvidersFromWorkflow } from '@/lib/integrations';
+import { classifyError } from '@/lib/security/safe-error';
 
 type Ctx = { params: { id: string } };
 
@@ -17,7 +18,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!data) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   let deployedVersion: number | null = null;
@@ -70,7 +74,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     .select('id, user_id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, deployed_at, created_at, updated_at')
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!data) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   return NextResponse.json({ success: true, workflow: data });
@@ -87,7 +94,10 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
     .eq('id', params.id)
     .eq('user_id', user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({ success: true });
 }

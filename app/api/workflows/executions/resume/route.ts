@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { ExecutionManager } from '@/runtime/execution-manager';
+import { classifyError } from '@/lib/security/safe-error';
 
 /**
  * POST /api/workflows/executions/resume
@@ -32,7 +33,10 @@ export async function POST(req: NextRequest) {
 
   const { data: executions, error } = await query.limit(20);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!executions || executions.length === 0) {
     return NextResponse.json({ resumed: 0, message: 'No waiting executions ready to resume' });
   }

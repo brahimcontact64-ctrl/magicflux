@@ -6,6 +6,7 @@ import {
   getUserFromAccessToken,
   isAdminUser,
 } from '@/lib/supabase-server';
+import { classifyError } from '@/lib/security/safe-error';
 import { requiredProvidersFromWorkflow, type IntegrationProvider } from '@/lib/integrations';
 
 async function assertAdmin(req: NextRequest): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   const userIds = Array.from(new Set((data ?? []).map(row => row.user_id).filter(Boolean))) as string[];

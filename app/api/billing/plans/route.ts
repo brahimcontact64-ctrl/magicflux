@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase-server';
+import { classifyError } from '@/lib/security/safe-error';
 
 export async function GET() {
   const db = createServiceClient();
@@ -10,7 +11,8 @@ export async function GET() {
     .order('price_monthly', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const safe = classifyError(error);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   return NextResponse.json({ plans: data ?? [] });
