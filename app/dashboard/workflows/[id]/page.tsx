@@ -871,18 +871,24 @@ export default function WorkflowDetailsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="h-14 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-10 flex items-center px-6 gap-4">
-        <Link href="/dashboard" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+      <header className="h-14 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-10 flex items-center px-4 sm:px-6 gap-3 sm:gap-4">
+        <Link href="/dashboard" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
           <ArrowLeft className="w-3.5 h-3.5" />
-          Dashboard
+          <span className="hidden sm:inline">Dashboard</span>
         </Link>
-        <div className="w-px h-4 bg-border" />
-        <span className="text-xs font-medium truncate">{workflow.name}</span>
-        <div className="flex-1" />
+        <div className="w-px h-4 bg-border flex-shrink-0" />
+        {/* Phase 9.4.2: `truncate` alone does nothing on a flex item without
+            min-w-0 -- a flex child's min-width defaults to its content's
+            natural width, so a long workflow name was silently forcing the
+            entire header (and page) wider than the viewport instead of
+            actually truncating. flex-1 min-w-0 lets it correctly shrink and
+            ellipsize, which also makes the separate flex-1 spacer div
+            unnecessary. */}
+        <span className="flex-1 min-w-0 text-xs font-medium truncate">{workflow.name}</span>
         <ThemeToggle />
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-5">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5">
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing((v) => !v)}>
