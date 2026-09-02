@@ -4,6 +4,7 @@ import {
   deactivateWorkflow, getWorkflowStatus,
   listExecutions, getN8nConfig
 } from '@/lib/ai-engine/n8n-deployer';
+import { classifyError } from '@/lib/security/safe-error';
 import {
   createServiceClient,
   getUserFromRequest,
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
         .eq('status', 'connected');
 
       if (integrationsError) {
-        return NextResponse.json({ error: integrationsError.message }, { status: 500 });
+        const safe = classifyError(integrationsError); return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
       }
 
       const requiredProviders = requiredProvidersFromWorkflow(wf);

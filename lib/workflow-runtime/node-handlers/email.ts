@@ -1,5 +1,6 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import nodemailer from 'nodemailer';
+import { redactText } from '@/lib/security/redact';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -53,7 +54,7 @@ async function sendViaGmailApi(
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
-    throw new Error(`Gmail API returned ${res.status}: ${errBody.slice(0, 200)}`);
+    throw new Error(`Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}`);
   }
 
   const result = (await res.json()) as { id?: string };

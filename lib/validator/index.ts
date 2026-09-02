@@ -9,6 +9,7 @@
 
 import { BLOCKS, ComposedWorkflow, CREDENTIAL_TYPE_MAP } from '../blocks';
 import { AutomationPlan, N8nWorkflow } from '../planner';
+import { checkNodeCapability } from '@/lib/workflow-runtime/node-capabilities';
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
@@ -322,6 +323,29 @@ function checkRuntimeCompatibility(n8nJson: N8nWorkflow): {
       });
     }
     nodeNames.add(node.name);
+
+    // Phase 9.4.3 Step E: this validator's own capability truth previously
+    // came only from checkUnsupportedBlocks() -- "is this blockId
+    // registered in lib/blocks" -- a structural check that says nothing
+    // about whether the certified runtime can actually execute it. lib/blocks
+    // legitimately still defines blocks (approval_node -> wait+resume:
+    // 'webhook', google_sheets_append, hubspot_create_contact, twilio_sms)
+    // that lib/workflow-runtime/node-capabilities.ts explicitly blocks --
+    // upstream, lib/planner's assertNodesAreCapable() already prevents fresh
+    // generation from ever emitting one, but this scorer must not
+    // independently disagree and call a blocked node "deployment ready" if
+    // it's ever reached some other way (a saved/edited plan re-validated,
+    // a future call site). Same authoritative source, checked directly.
+    const capability = checkNodeCapability({ type: node.type, parameters: node.parameters });
+    if (!capability.capable) {
+      issues.push({
+        code: 'CAPABILITY_UNAVAILABLE',
+        severity: 'error',
+        message: capability.userMessage,
+        nodeName: node.name,
+        autoFixable: false,
+      });
+    }
   }
 
   // Verify connections reference existing node names
@@ -387,7 +411,7 @@ function computeSetupTime(plan: AutomationPlan, credCount: number): string {
 
 function generateSummary(score: number, errors: number, warnings: number, credCount: number): string {
   if (errors > 0) return `${errors} error${errors > 1 ? 's' : ''} must be fixed before deployment.`;
-  if (credCount > 0 && score >= 80) return `Ready to deploy as draft. ${credCount} credential${credCount > 1 ? 's' : ''} must be linked in n8n before activation.`;
+  if (credCount > 0 && score >= 80) return `Ready to deploy as draft. ${credCount} credential${credCount > 1 ? 's' : ''} must be connected before activation.`;
   if (score >= 90) return 'Workflow is ready to deploy. All checks passed.';
   if (score >= 80) return `Workflow is deployable with ${warnings} warning${warnings > 1 ? 's' : ''}. Configure credentials before activating.`;
   return `Workflow needs attention — score ${score}/100. Resolve issues before deploying.`;
@@ -424,10 +448,13 @@ export function validateWorkflow(
   const valid = errors.length === 0;
   const deploymentReady = valid && score >= 80;
 
-  // Activation requires all credentials to be linked — always blocked until manual step
+  // Activation requires all credentials to be connected — always blocked
+  // until that manual step. Phase 9.4.3: corrected from "linked in n8n" --
+  // activation is the certified native runtime
+  // (/api/workflows/[id]/lifecycle), not n8n.
   const activationBlocked = credentialsRequired.length > 0;
   const activationBlockReason = activationBlocked
-    ? `${credentialsRequired.length} credential${credentialsRequired.length > 1 ? 's' : ''} must be created and linked in n8n before this workflow can be activated: ${credentialsRequired.map(c => c.service).join(', ')}`
+    ? `${credentialsRequired.length} credential${credentialsRequired.length > 1 ? 's' : ''} must be connected before this workflow can be activated: ${credentialsRequired.map(c => c.service).join(', ')}`
     : '';
 
   const estimatedSetupTime = computeSetupTime(plan, credentialsRequired.length);

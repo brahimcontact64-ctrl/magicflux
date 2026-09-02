@@ -666,10 +666,18 @@ function ValidateTab({
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <p className="text-sm font-medium text-emerald-400">Deployed as inactive draft</p>
               </div>
+              {/* Phase 9.4.3: this whole deployedUrl branch is currently
+                  unreachable dead code (app/builder/page.tsx never passes
+                  the deployedUrl prop) left over from the pre-9.1.5 n8n
+                  deploy path -- corrected in place rather than removed,
+                  since a stale "activate in n8n" claim must never exist
+                  regardless of reachability, and reviving the branch is
+                  out of scope for this phase. Activation is the certified
+                  native runtime's /api/workflows/[id]/lifecycle, never n8n. */}
               <p className="text-xs text-muted-foreground">
                 {validation.activationBlocked
-                  ? 'Link credentials in n8n, then manually activate the workflow.'
-                  : 'Workflow is ready to activate in n8n.'}
+                  ? 'Connect the required integrations, then activate the workflow from its workflow page.'
+                  : 'Workflow is ready to activate from its workflow page.'}
               </p>
               <a
                 href={deployedUrl}

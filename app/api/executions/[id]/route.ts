@@ -1,30 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { assertExecutionOwnership } from '@/lib/security/ownership';
+import { redact } from '@/lib/security/redact';
 import type { ExecutionDetail, ExecutionStep } from '@/lib/execution/types';
 
 type Ctx = { params: { id: string } };
 
-// Keys whose values are redacted in input/output data
-const REDACT_KEYS = ['password', 'pass', 'token', 'secret', 'api_key', 'apikey',
-                     'webhook_url', 'authorization', 'access_token', 'refresh_token'];
-
-function redact(value: unknown, depth = 0): unknown {
-  if (depth > 20) return value; // depth-guard
-  if (Array.isArray(value)) return value.map(v => redact(v, depth + 1));
-  if (value === null || value === undefined) return value;
-  if (typeof value !== 'object') return value;
-  const obj = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (REDACT_KEYS.some(k => key.toLowerCase().includes(k))) {
-      out[key] = '[REDACTED]';
-    } else {
-      out[key] = redact(val, depth + 1);
-    }
-  }
-  return out;
-}
+// Phase 9.4.3: this route had its own private redact()/REDACT_KEYS,
+// substring-matched (`key.toLowerCase().includes(k)` -- exactly the
+// over-redaction risk Phase 9.4.1 consolidated away elsewhere, e.g. a
+// harmless field like "passenger_count" would have matched "pass") and
+// with only a depth cap instead of real circular-reference detection.
+// Replaced with the one shared, exact-match utility.
 
 /**
  * GET /api/executions/[id]

@@ -1,4 +1,5 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
+import { redactText } from '@/lib/security/redact';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -86,7 +87,7 @@ export async function airtableHandler(
         }
 
         const res = await fetch(url, { headers: authHeaders });
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const body = await res.json() as { records?: unknown[] };
         logs.push(`Airtable listed ${body.records?.length ?? 0} record(s).`);
         return { status: 'success', outputData: { ...data, airtable_records: body.records ?? [] }, logs };
@@ -94,7 +95,7 @@ export async function airtableHandler(
 
       case 'get': {
         const res = await fetch(`${baseUrl}/${encodeURIComponent(recordId)}`, { headers: authHeaders });
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const record = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record fetched: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_record: record }, logs };
@@ -106,7 +107,7 @@ export async function airtableHandler(
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: record }),
         });
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const updated = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record updated: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_id: updated.id }, logs };
@@ -117,7 +118,7 @@ export async function airtableHandler(
           method: 'DELETE',
           headers: authHeaders,
         });
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         logs.push(`Airtable record deleted: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_deleted_id: recordId }, logs };
       }
@@ -129,7 +130,7 @@ export async function airtableHandler(
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: record }),
         });
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const created = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record created: ${String(created.id ?? 'unknown')}.`);
         return { status: 'success', outputData: { ...data, airtable_id: created.id }, logs };

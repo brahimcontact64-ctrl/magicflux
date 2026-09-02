@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/security/safe-error';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { requiredProvidersFromWorkflow } from '@/lib/integrations';
@@ -18,7 +19,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
@@ -56,7 +60,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .select('id, user_id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, created_at, updated_at')
     .maybeSingle();
 
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (updateError) {
+    const safe = classifyError(updateError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({
     success: true,

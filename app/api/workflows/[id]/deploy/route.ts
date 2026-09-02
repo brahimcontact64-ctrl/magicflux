@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/security/safe-error';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { getN8nConfig, createWorkflow, activateWorkflow, deactivateWorkflow } from '@/lib/ai-engine/n8n-deployer';
@@ -27,7 +28,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (subscriptionError) return NextResponse.json({ error: subscriptionError.message }, { status: 500 });
+  if (subscriptionError) {
+    const safe = classifyError(subscriptionError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (subscription?.status !== 'active') {
     return NextResponse.json(
       { error: 'PRO_REQUIRED', redirect: '/pricing' },
@@ -55,7 +59,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   const raw = (workflow.workflow_json ?? {}) as WorkflowShape;
@@ -131,7 +138,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .select('id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, deployed_at, created_at, updated_at')
     .maybeSingle();
 
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (updateError) {
+    const safe = classifyError(updateError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
     ?? process.env.NEXT_PUBLIC_APP_URL

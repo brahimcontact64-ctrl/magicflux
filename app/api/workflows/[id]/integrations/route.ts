@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
+import { classifyError } from '@/lib/security/safe-error';
 
 type Ctx = { params: { id: string } };
 
@@ -37,7 +38,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   // Get all user' integrations
@@ -48,7 +52,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .eq('status', 'connected')
     .order('created_at', { ascending: false });
 
-  if (integrationsError) return NextResponse.json({ error: integrationsError.message }, { status: 500 });
+  if (integrationsError) {
+    const safe = classifyError(integrationsError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   // Get workflow_integrations (currently attached)
   const { data: attached, error: attachedError } = await db
@@ -56,7 +63,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .select('id, provider, integration_id')
     .eq('workflow_id', workflowId);
 
-  if (attachedError) return NextResponse.json({ error: attachedError.message }, { status: 500 });
+  if (attachedError) {
+    const safe = classifyError(attachedError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   // Build response: group integrations by provider
   const groupedByProvider = new Map<string, {
@@ -120,7 +130,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   // Verify integration exists, belongs to user, and is connected
@@ -131,7 +144,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (integrationError) return NextResponse.json({ error: integrationError.message }, { status: 500 });
+  if (integrationError) {
+    const safe = classifyError(integrationError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 });
   }
@@ -156,7 +172,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .select('id, provider, integration_id')
     .maybeSingle();
 
-  if (upsertError) return NextResponse.json({ error: upsertError.message }, { status: 500 });
+  if (upsertError) {
+    const safe = classifyError(upsertError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({
     success: true,
@@ -194,7 +213,10 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (workflowError) return NextResponse.json({ error: workflowError.message }, { status: 500 });
+  if (workflowError) {
+    const safe = classifyError(workflowError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   // Delete workflow_integration for this provider
@@ -205,7 +227,10 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
     .eq('provider', provider)
     .eq('user_id', user.id);
 
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+  if (deleteError) {
+    const safe = classifyError(deleteError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   return NextResponse.json({ success: true, provider });
 }

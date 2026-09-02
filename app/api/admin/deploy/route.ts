@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/security/safe-error';
 
 import {
   createServiceClient,
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (requestError) {
-    return NextResponse.json({ error: requestError.message }, { status: 500 });
+    const safe = classifyError(requestError); return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   if (!request) {
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
     .eq('status', 'connected');
 
   if (integrationsError) {
-    return NextResponse.json({ error: integrationsError.message }, { status: 500 });
+    const safe = classifyError(integrationsError); return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   const connectedProviders = new Set(
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
     .eq('id', requestId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    const safe = classifyError(updateError); return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
   return NextResponse.json({ success: true, requestId, workflow_id: workflowId, status: 'deployed' });

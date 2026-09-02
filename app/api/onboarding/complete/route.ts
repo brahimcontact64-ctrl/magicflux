@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/security/safe-error';
 
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 
@@ -32,7 +33,10 @@ export async function POST(req: NextRequest) {
     .select('id')
     .maybeSingle();
 
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (updateError) {
+    const safe = classifyError(updateError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
 
   if (!updated) {
     const { error: insertError } = await db
@@ -41,7 +45,10 @@ export async function POST(req: NextRequest) {
         { id: user.id, plan: 'free', onboarding_complete: true, updated_at: new Date().toISOString() },
         { onConflict: 'id' }
       );
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+    if (insertError) {
+    const safe = classifyError(insertError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
   }
 
   return NextResponse.json({ success: true });
