@@ -111,6 +111,27 @@ describe('redact() — deep object redaction', () => {
     expect(out.self).toBe('[CIRCULAR]');
   });
 
+  it('does not flag a non-circular shared reference (same object via two sibling branches) as circular', () => {
+    // Regression: an earlier version of the circular-reference tracker
+    // never removed a visited object from `seen` after finishing its
+    // subtree, so the SAME object appearing twice via two different
+    // sibling paths (not an actual cycle -- e.g. a node handler
+    // returning { outputData: inputData }, the identical reference) was
+    // incorrectly flagged '[CIRCULAR]' on its second occurrence, wiping
+    // out real, non-secret execution data. Caught via live synthetic
+    // verification against a real trigger-node handler before being
+    // fixed here.
+    const shared = { name: 'Test User', token: SYNTHETIC_SECRET };
+    const input = { input: shared, output: shared };
+    const out = redact(input) as any;
+    expect(out.input.name).toBe('Test User');
+    expect(out.output.name).toBe('Test User');
+    expect(out.input.token).toBe(REDACTED);
+    expect(out.output.token).toBe(REDACTED);
+    expect(out.input).not.toBe('[CIRCULAR]');
+    expect(out.output).not.toBe('[CIRCULAR]');
+  });
+
   it('preserves null/undefined on a sensitive key rather than implying a secret exists', () => {
     const out = redact({ password: null, token: undefined }) as any;
     expect(out.password).toBeNull();

@@ -119,21 +119,34 @@ export function redact<T>(value: T, options?: { maxDepth?: number }): T {
     if (seen.has(input as object)) return '[CIRCULAR]';
     if (depth > maxDepth) return '[MAX_DEPTH]';
 
-    if (Array.isArray(input)) {
-      seen.add(input);
-      return input.map((item) => walk(item, depth + 1));
-    }
-
+    // `seen` tracks the current ancestor path (root -> ... -> here), not
+    // "every object visited anywhere in the whole tree" -- the same
+    // object commonly appears twice via two different sibling branches
+    // without being circular at all (e.g. a node handler returning
+    // `{ outputData: inputData }`, the exact same reference, once under
+    // an `input` key and once under `output`). Only an object that
+    // re-appears among its OWN ancestors is a true cycle, so it is added
+    // before recursing into children and removed again once this
+    // object's whole subtree has been walked (backtracking), rather than
+    // left in the set permanently.
     seen.add(input as object);
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(input as Record<string, unknown>)) {
-      if (isSensitiveKey(key)) {
-        out[key] = val === null || val === undefined ? val : REDACTED;
-      } else {
-        out[key] = walk(val, depth + 1);
+    try {
+      if (Array.isArray(input)) {
+        return input.map((item) => walk(item, depth + 1));
       }
+
+      const out: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(input as Record<string, unknown>)) {
+        if (isSensitiveKey(key)) {
+          out[key] = val === null || val === undefined ? val : REDACTED;
+        } else {
+          out[key] = walk(val, depth + 1);
+        }
+      }
+      return out;
+    } finally {
+      seen.delete(input as object);
     }
-    return out;
   }
 
   try {
