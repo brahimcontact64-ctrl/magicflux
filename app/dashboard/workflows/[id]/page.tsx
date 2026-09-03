@@ -184,8 +184,16 @@ export default function WorkflowDetailsPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
 
-  const { session, refreshPlan } = useAuth();
+  const { user, session, loading: authLoading, refreshPlan } = useAuth();
   const [activatingPro, setActivatingPro] = useState(false);
+
+  // Phase 9.5 Step E — this page had no auth guard: an anonymous/expired-
+  // session visitor saw a broken/empty editor shell (every authed fetch
+  // below 401s) instead of being sent to log in. Matches the established
+  // /builder and /onboarding redirect pattern.
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/login');
+  }, [authLoading, user, router]);
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -374,11 +382,12 @@ export default function WorkflowDetailsPage() {
   }, [params.id, withAuthHeaders]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     loadWorkflow();
     loadRuns();
     loadExecutions();
     loadWorkflowIntegrations();
-  }, [loadWorkflow, loadRuns, loadExecutions, loadWorkflowIntegrations]);
+  }, [authLoading, user, loadWorkflow, loadRuns, loadExecutions, loadWorkflowIntegrations]);
 
   // Called by the visual editor's Save button.
   const handleSaveFromEditor = useCallback(async (wf: WorkflowJson) => {

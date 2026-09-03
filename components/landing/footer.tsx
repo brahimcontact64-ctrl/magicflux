@@ -38,7 +38,11 @@ export function Footer() {
               </span>
             </Link>
             <p className="text-xs text-muted-foreground leading-relaxed max-w-[200px]">
-              MagicFlux converts plain English into fully deployed workflows powered by n8n.
+              {/* Phase 9.5 Step L: n8n was replaced by MagicFlux's own
+                  certified native runtime back in Phase 9.1.5 -- this was
+                  the last surviving "powered by n8n" claim, on the one
+                  component that renders on nearly every page. */}
+              MagicFlux converts plain English into fully deployed, live-running workflows.
             </p>
             <div className="flex items-center gap-3 mt-4">
               <a href="#" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors">

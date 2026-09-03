@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
+import { redactText } from '@/lib/security/redact';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -112,7 +113,13 @@ export async function openaiHandler(
       logs,
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Phase 9.5 Step I: the OpenAI SDK constructs its own error messages
+    // (usually already key-masked by OpenAI's API), but nothing guarantees
+    // that for every error shape it can throw -- redactText() here matches
+    // the same defensive precedent already applied to every other provider
+    // handler's raw error text (airtable.ts, email.ts, http.ts).
+    const raw = err instanceof Error ? err.message : String(err);
+    const msg = redactText(raw);
     logs.push(`OpenAI API error: ${msg}`);
     return { status: 'failed', outputData: null, logs, error: msg };
   }

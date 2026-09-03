@@ -35,7 +35,7 @@ function priceLabel(cents: number) {
 }
 
 export default function PricingPage() {
-  const { session } = useAuth();
+  const { session, loading: authLoading } = useAuth();
   const searchParams = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'business' | null>(null);
@@ -84,6 +84,14 @@ export default function PricingPage() {
   }
 
   useEffect(() => {
+    // Step N: /api/billing/usage requires auth. Previously fetched
+    // unconditionally on every visit -- an anonymous visitor (the common
+    // case for a public pricing page) got a 401 logged to the console on
+    // every load for a value the page was going to ignore anyway (isCurrent
+    // just never matches). Wait for auth to resolve and skip the call
+    // entirely when there's no session, instead of firing and discarding it.
+    if (authLoading) return;
+
     let cancelled = false;
 
     async function load() {
@@ -91,7 +99,7 @@ export default function PricingPage() {
       try {
         const [plansRes, usageRes] = await Promise.all([
           fetch('/api/billing/plans', { cache: 'no-store' }),
-          fetch('/api/billing/usage', { cache: 'no-store' }),
+          session ? fetch('/api/billing/usage', { cache: 'no-store' }) : Promise.resolve(null),
         ]);
 
         const plansPayload = (await plansRes.json().catch(() => ({}))) as { plans?: Plan[]; checkoutAvailable?: boolean };
@@ -100,7 +108,7 @@ export default function PricingPage() {
           setCheckoutAvailable(Boolean(plansPayload.checkoutAvailable));
         }
 
-        if (usageRes.ok) {
+        if (usageRes?.ok) {
           const usagePayload = (await usageRes.json().catch(() => ({}))) as Usage;
           const normalized = String(usagePayload.plan_name ?? '').toLowerCase();
           if (normalized === 'free' || normalized === 'pro' || normalized === 'business') {
@@ -116,7 +124,7 @@ export default function PricingPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authLoading, session]);
 
   const sortedPlans = useMemo(() => {
     return [...plans].sort((a, b) => a.price_monthly - b.price_monthly);

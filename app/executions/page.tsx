@@ -12,7 +12,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 async function MetricsPanel() {
   try {
-    const { metrics, window_days } = await fetchExecutionMetrics(undefined, 30);
+    // Phase 9.5 Step H: forward the cookie explicitly -- this fetch() runs
+    // server-side with no browser cookie jar to inherit one from
+    // automatically, so without this it silently fetched unauthenticated
+    // and always fell into the catch below, permanently showing "Metrics
+    // unavailable" regardless of the visitor's real session.
+    const cookie = (await headers()).get('cookie') ?? '';
+    const { metrics, window_days } = await fetchExecutionMetrics(undefined, 30, { cookie });
     return <ExecutionMetricsBar metrics={metrics} windowDays={window_days} />;
   } catch {
     return (
@@ -37,7 +43,14 @@ function MetricsSkeleton() {
 
 export default async function ExecutionsPage() {
   // Server-side auth guard
-  const req = { headers: Object.fromEntries((await headers()).entries()) };
+  //
+  // Phase 9.5 Step H: same bug as app/executions/[id]/page.tsx -- wrapping
+  // the header list in Object.fromEntries(...) produced a plain object,
+  // but getUserFromRequest() calls req.headers.get(...), which a plain
+  // object doesn't have. Confirmed live (server log): "TypeError:
+  // e.headers.get is not a function" on every authenticated visit to this
+  // page -- the entire executions list crashed for any logged-in user.
+  const req = { headers: await headers() };
   const user = await getUserFromRequest(req as never);
   if (!user) redirect('/login');
 

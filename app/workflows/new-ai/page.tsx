@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button }   from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AiWorkflowGeneratorPanel } from '@/components/ai-workflows/AiWorkflowGeneratorPanel';
+import { useAuth } from '@/lib/auth-context';
 
 interface GeneratedWorkflow {
   name:        string;
@@ -17,8 +18,16 @@ interface GeneratedWorkflow {
 
 export default function NewAiWorkflowPage() {
   const router  = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [saving,    setSaving   ] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Phase 9.5 Step E — no auth guard previously: an anonymous visitor could
+  // fill out the whole generator form before hitting a 401 deep in the save
+  // flow. Matches the established /builder and /onboarding redirect pattern.
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/login');
+  }, [authLoading, user, router]);
 
   /**
    * Called by AiWorkflowGeneratorPanel when the user clicks "Use this workflow".

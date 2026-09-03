@@ -88,15 +88,26 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = createServiceClient();
-  const { error } = await db
+  // Phase 9.5 Step F: .select('id') after .delete() so we can tell a real
+  // deletion apart from a no-op. Without it, a cross-tenant delete attempt
+  // (someone else's workflow ID, or one that never existed) matched zero
+  // rows -- not a DB error -- and this unconditionally reported
+  // {success:true} anyway, unlike every sibling route on this resource
+  // (GET/PATCH/integrations/test/lifecycle/... all correctly 404).
+  const { data: deleted, error } = await db
     .from('workflows')
     .delete()
     .eq('id', params.id)
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .select('id');
 
   if (error) {
     const safe = classifyError(error);
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
+
+  if (!deleted || deleted.length === 0) {
+    return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
   }
 
   return NextResponse.json({ success: true });

@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Activity, ArrowLeft, Loader2, Plus, RefreshCw, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
+import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { ExecutionStatusBadge } from '@/components/app/execution-status-badge';
@@ -41,10 +43,22 @@ function formatDate(iso: string | null | undefined) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
+
+  // Phase 9.5 Step E — this page previously had no auth guard at all: an
+  // anonymous visitor (expired session, shared/bookmarked link) saw a
+  // silently empty dashboard (RLS blocks the actual reads, so no data
+  // leaked) instead of being sent to log in, unlike /builder and
+  // /onboarding which already redirect. Matches that same established
+  // pattern.
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/login');
+  }, [authLoading, user, router]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -77,8 +91,9 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     loadData();
-  }, [loadData]);
+  }, [authLoading, user, loadData]);
 
   const connectedProviders = useMemo(
     () => new Set(integrations.filter((i) => i.status === 'connected').map((i) => i.provider)),

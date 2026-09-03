@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, PlugZap, Store, MessageSquare, Database, Trash2, Pencil, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase-client';
+import { useAuth } from '@/lib/auth-context';
 import { UsageSummaryWidget } from '@/components/billing/usage-summary';
 import { IntegrationStatusBadge } from '@/components/app/integration-status-badge';
 import { apiRequest } from '@/lib/api/client';
@@ -94,6 +96,17 @@ const PROVIDERS: ProviderConfig[] = [
 ];
 
 export default function IntegrationsSettingsPage() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  // Phase 9.5 Step E — no auth guard previously: an anonymous/expired-
+  // session visitor saw a broken empty settings shell (every authed fetch
+  // below fails with "Session expired") instead of being sent to log in.
+  // Matches the established /builder and /onboarding redirect pattern.
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/login');
+  }, [authLoading, user, router]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
@@ -168,8 +181,9 @@ export default function IntegrationsSettingsPage() {
   }, [getAuthHeaders]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     fetchRows();
-  }, [fetchRows]);
+  }, [authLoading, user, fetchRows]);
 
   const providerConfigs = useMemo<ProviderConfig[]>(() => {
     if (catalogProviders.length === 0) return PROVIDERS;

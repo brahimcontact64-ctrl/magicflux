@@ -69,7 +69,10 @@ export function Hero() {
 
         {/* Subheading */}
         <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-4 leading-relaxed">
-          MagicFlux converts plain English into fully deployed workflows powered by n8n.
+          {/* Phase 9.5 Step L: n8n was replaced by MagicFlux's own certified
+              native runtime in Phase 9.1.5 -- this page was still telling
+              every visitor the opposite. */}
+          MagicFlux converts plain English into fully deployed, live-running workflows.
         </p>
 
         {/* Rotating target audience */}
@@ -131,7 +134,11 @@ export function Hero() {
 
         {/* Social proof */}
         <p className="mt-8 text-xs text-muted-foreground">
-          Free to generate &middot; No account required &middot; n8n-compatible JSON
+          {/* Phase 9.5 Step L: "No account required" and "n8n-compatible
+              JSON" are both false today -- /builder requires sign-in
+              (Step E's auth guard), and generated workflows run on
+              MagicFlux's own native runtime, not an n8n export. */}
+          Free to generate &middot; Live in minutes
         </p>
 
         {/* Stats */}

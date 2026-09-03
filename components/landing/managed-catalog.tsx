@@ -213,8 +213,13 @@ export function ManagedCatalog() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const activeAutomation = MANAGED_AUTOMATIONS.find(a => a.id === activeModal);
 
+  // Phase 9.5 Step N: overflow-hidden below -- missing here (unlike the
+  // identical decorative-circle pattern in demo-preview.tsx/hero.tsx/
+  // waitlist.tsx) let the 700px blurred circle push the whole page's
+  // scrollWidth past the viewport on every mobile breakpoint and on desktop
+  // Safari, forcing horizontal scroll on the homepage.
   return (
-    <section id="managed" className="py-24 relative">
+    <section id="managed" className="py-24 relative overflow-hidden">
       <div className="absolute inset-0 dot-pattern opacity-30" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] rounded-full bg-primary/4 blur-[150px] pointer-events-none" />
 
@@ -230,7 +235,7 @@ export function ManagedCatalog() {
             <span className="text-gradient">your automations</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Don't want to touch n8n yourself? Our team configures, tests, and deploys your workflow for you — usually within 48 hours. You just describe what you need.
+            Don't want to build it yourself? Our team configures, tests, and deploys your workflow for you — usually within 48 hours. You just describe what you need.
           </p>
         </div>
 

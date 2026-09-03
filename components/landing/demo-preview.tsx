@@ -66,7 +66,13 @@ export function DemoPreview() {
         {/* Demo UI */}
         <div className="grid lg:grid-cols-5 gap-0 rounded-2xl border border-border overflow-hidden shadow-2xl shadow-black/30 bg-card max-w-5xl mx-auto">
           {/* Chat Panel */}
-          <div className="lg:col-span-2 border-r border-border flex flex-col">
+          {/* Phase 9.5 Step N: min-w-0 -- grid items default to min-width:auto,
+              so without it this column refused to shrink below its message
+              bubbles' natural content width, pushing the whole page wider
+              than the viewport on every mobile/tablet breakpoint (and on
+              desktop Safari). Purely a shrink-floor fix; no effect on the
+              lg: column width itself. */}
+          <div className="lg:col-span-2 border-r border-border flex flex-col min-w-0">
             {/* Header */}
             <div className="px-4 py-3 border-b border-border flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500" />
@@ -115,7 +121,7 @@ export function DemoPreview() {
           </div>
 
           {/* Output Panel */}
-          <div className="lg:col-span-3 flex flex-col">
+          <div className="lg:col-span-3 flex flex-col min-w-0">
             {/* Tabs */}
             <div className="flex border-b border-border overflow-x-auto">
               {OUTPUT_TABS.map((tab, i) => (

@@ -18,17 +18,17 @@ const DIY_STEPS = [
     step: '02',
     icon: Cpu,
     title: 'AI Generates & Visualizes',
-    description: 'The AI engine matches your intent, generates a complete n8n workflow, and renders a live visual canvas showing every node and connection.',
-    example: 'Workflow JSON + .env config + credentials checklist + package score',
+    description: 'The AI engine matches your intent, generates a complete workflow, and renders a live visual canvas showing every node and connection.',
+    example: 'Live visual canvas + required integrations + package score',
     color: 'from-cyan-500/20 to-cyan-500/5',
     iconColor: 'text-cyan-400'
   },
   {
     step: '03',
     icon: Download,
-    title: 'Download & Deploy',
-    description: 'Download the complete package, import into your n8n instance, follow the setup wizard for each integration, and go live in minutes.',
-    example: 'workflow.json · .env.example · README-setup.md',
+    title: 'Connect & Activate',
+    description: 'Connect the integrations your workflow needs, run a safe test, then activate — it runs live on MagicFlux. No export, no self-hosting, no separate instance to set up.',
+    example: 'Integration setup · safe test run · one-click activation',
     color: 'from-emerald-500/20 to-emerald-500/5',
     iconColor: 'text-emerald-400'
   }
@@ -48,8 +48,8 @@ const MANAGED_STEPS = [
     step: '02',
     icon: Sparkles,
     title: 'We Configure Everything',
-    description: 'Our team sets up your n8n instance, connects your Gmail, Slack, Shopify — whatever integrations your workflow needs. No technical work on your end.',
-    example: 'n8n setup · credential configuration · integration testing',
+    description: 'Our team builds and configures your workflow on MagicFlux, connecting Gmail, Slack, Shopify — whatever integrations it needs. No technical work on your end.',
+    example: 'Workflow build · credential configuration · integration testing',
     color: 'from-primary/20 to-primary/5',
     iconColor: 'text-primary'
   },
@@ -178,7 +178,9 @@ export function HowItWorks() {
         {/* Bottom note */}
         <div className="mt-14 text-center">
           <p className="text-sm text-muted-foreground">
-            Powered by n8n-compatible workflow generation &middot; Works with any n8n instance (self-hosted or cloud)
+            {/* Phase 9.5 Step L: rewrote -- see hero.tsx/footer.tsx for the
+                same "powered by n8n" correction. */}
+            Generated, connected, and run entirely on MagicFlux &middot; No separate instance to set up
           </p>
         </div>
       </div>

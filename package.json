@@ -94,6 +94,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/nodemailer": "^8.0.0",
     "concurrently": "^9.1.2",
     "playwright": "^1.60.0",

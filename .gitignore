@@ -41,6 +41,8 @@ next-env.d.ts
 # test artifacts
 /test-results/
 /playwright-report/
+/e2e-results.json
+/production-validation-report.json
 
 # supabase local CLI state
 /supabase/.temp/

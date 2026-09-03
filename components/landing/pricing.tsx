@@ -203,7 +203,11 @@ export function Pricing() {
         {/* Bottom note */}
         <div className="text-center space-y-1.5 mt-8">
           <p className="text-sm text-muted-foreground">
-            All plans include n8n-compatible JSON export &middot; Works with any n8n instance
+            {/* Phase 9.5 Step L: workflow export is real (see
+                components/builder/output-panel.tsx), but every plan runs
+                the workflow live on MagicFlux itself -- it doesn't require
+                a separate n8n instance the way this line implied. */}
+            Every plan runs your workflow live on MagicFlux &middot; Export the JSON anytime
           </p>
           <p className="text-xs text-muted-foreground">
             Questions?{' '}
