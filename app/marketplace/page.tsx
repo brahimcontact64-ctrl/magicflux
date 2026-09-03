@@ -59,6 +59,20 @@ function TemplateCard({ template }: { template: AutomationTemplate }) {
         </span>
       </div>
 
+      {/* Phase 9.5.1A: this template's predefined workflow uses a
+          capability the runtime doesn't support yet (see lib/templates.ts)
+          -- flagged rather than presented as fully usable today. Kept
+          selectable/explorable; the save/activate flow already fails
+          closed with this same explanation. */}
+      {template.unavailableReason && (
+        <p
+          className="text-xs px-2 py-1.5 rounded-md bg-muted/50 border border-border text-muted-foreground"
+          title={template.unavailableReason}
+        >
+          Coming soon: {template.unavailableReason}
+        </p>
+      )}
+
       {/* Stats */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">

@@ -78,9 +78,23 @@ export function IndustrySelector({
                         ? 'bg-primary/15 text-primary font-medium'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                     )}
+                    // Phase 9.5.1A: a few of these predefined templates use
+                    // a capability the runtime doesn't support yet (most
+                    // often custom code for bespoke field parsing) -- kept
+                    // selectable (the underlying save/activate flow
+                    // already fails closed with an honest explanation, and
+                    // the concept stays visible for future product
+                    // direction) but flagged here rather than presented as
+                    // fully usable today. See lib/templates.ts.
+                    title={template.unavailableReason ? `${template.name} — ${template.unavailableReason}` : template.name}
                   >
                     <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', selectedTemplate?.id === template.id ? colors.dot : 'bg-border')} />
                     <span className="truncate">{template.name}</span>
+                    {template.unavailableReason && (
+                      <span className="ml-auto flex-shrink-0 text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+                        Soon
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

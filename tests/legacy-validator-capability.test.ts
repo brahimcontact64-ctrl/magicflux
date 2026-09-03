@@ -73,6 +73,23 @@ describe('lib/validator validateWorkflow() — capability truth', () => {
     }
   });
 
+  it('Phase 9.5.1A: code_transform (n8n-nodes-base.code) also fails the same way if spliced in directly — regression test #4', () => {
+    const { plan, composition, n8nJson } = basePlan();
+    const block = BLOCKS.code_transform;
+    expect(block).toBeDefined();
+    const node = block.buildN8nNode('code_transform_1', [999, 0], {});
+    expect(node.type).toBe('n8n-nodes-base.code');
+    n8nJson.nodes.push(node);
+
+    const result = validateWorkflow(plan, composition, n8nJson);
+    expect(result.valid).toBe(false);
+    expect(result.deploymentReady).toBe(false);
+    const capabilityIssue = result.errors.find((e) => e.code === 'CAPABILITY_UNAVAILABLE');
+    expect(capabilityIssue).toBeDefined();
+    expect(capabilityIssue?.message).not.toContain('n8n-nodes-base');
+    expect(capabilityIssue?.message.toLowerCase()).not.toContain('sandbox');
+  });
+
   it('activationBlockReason and the deployment summary never mention n8n', () => {
     const { plan, composition, n8nJson } = basePlan();
     const result = validateWorkflow(plan, composition, n8nJson);

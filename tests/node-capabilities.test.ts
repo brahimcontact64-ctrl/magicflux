@@ -88,7 +88,9 @@ describe('checkNodeCapability', () => {
   });
 
   it('accepts safe generic types', () => {
-    for (const type of ['n8n-nodes-base.webhook', 'n8n-nodes-base.scheduleTrigger', 'n8n-nodes-base.code', 'n8n-nodes-base.if', 'n8n-nodes-base.httpRequest']) {
+    // Phase 9.5.1A: 'n8n-nodes-base.code' removed from this list -- see the
+    // dedicated "code/function nodes are unsupported" section below.
+    for (const type of ['n8n-nodes-base.webhook', 'n8n-nodes-base.scheduleTrigger', 'n8n-nodes-base.if', 'n8n-nodes-base.httpRequest']) {
       expect(checkNodeCapability({ type }).capable, type).toBe(true);
     }
   });
@@ -130,6 +132,38 @@ describe('checkNodeCapability', () => {
     if (!result.capable) {
       expect(result.userMessage).not.toContain('company.customThing');
       expect(result.userMessage.toLowerCase()).not.toContain('handler');
+    }
+  });
+
+  // ── Phase 9.5.1A: code/function nodes are unsupported (traced Blocks ->
+  // planner assembly -> node type -> handler routing exactly, see
+  // node-capabilities.ts's BLOCKLIST comment) ──────────────────────────────
+
+  it('blocks n8n-nodes-base.code (regression test #1) despite matching the generic "code" substring', () => {
+    expect(isKnownNodeType('n8n-nodes-base.code')).toBe(true); // known to dispatch (to codeHandler)...
+    const result = checkNodeCapability({ type: 'n8n-nodes-base.code' });
+    expect(result.capable).toBe(false); // ...but still blocked
+    if (!result.capable) {
+      expect(result.userMessage).not.toContain('n8n-nodes-base');
+      expect(result.userMessage.toLowerCase()).not.toContain('handler');
+      expect(result.userMessage.toLowerCase()).not.toContain('sandbox');
+      expect(result.userMessage.toLowerCase()).not.toContain('vm.runinnewcontext');
+    }
+  });
+
+  it('blocks every other type that routes to the same disabled handler (regression test #2): function, functionItem, and case variants', () => {
+    for (const type of ['n8n-nodes-base.function', 'n8n-nodes-base.functionItem', 'N8N-NODES-BASE.CODE', 'n8n-nodes-base.myCodeStep']) {
+      expect(checkNodeCapability({ type }).capable, type).toBe(false);
+    }
+  });
+
+  it('the code-block userMessage is generic and reusable, not type-specific (one message for the whole substring class)', () => {
+    const codeMsg = checkNodeCapability({ type: 'n8n-nodes-base.code' });
+    const funcMsg = checkNodeCapability({ type: 'n8n-nodes-base.function' });
+    expect(codeMsg.capable).toBe(false);
+    expect(funcMsg.capable).toBe(false);
+    if (!codeMsg.capable && !funcMsg.capable) {
+      expect(codeMsg.userMessage).toBe(funcMsg.userMessage);
     }
   });
 });
@@ -180,6 +214,29 @@ describe('planner: createAutomationPlan never returns an unsupported node', () =
     for (const node of result.n8nJson.nodes) {
       expect(checkNodeCapability({ type: node.type, parameters: node.parameters }).capable, node.type).toBe(true);
     }
+  });
+
+  // Phase 9.5.1A regression test #3: the planner used to force-insert a
+  // 'transform' step (-> code_transform -> n8n-nodes-base.code) as the
+  // FIRST step of every single generated plan, regardless of whether the
+  // prompt asked for it -- see buildPlanSteps() in lib/planner/index.ts.
+  // That made every plan permanently un-generatable once code became
+  // correctly unsupported. Confirms that's fixed (no forced insertion),
+  // and that a prompt genuinely asking for custom parsing/processing logic
+  // -- something only a code node could ever have done -- now surfaces as
+  // an honest UNSUPPORTED_REQUIREMENTS instead of either crashing or
+  // silently generating an unusable workflow.
+  it('a plan with no explicit transform/parse request never contains a code node (the old forced-insertion bug)', async () => {
+    const { createAutomationPlan } = await import('../lib/planner');
+    const result = createAutomationPlan('When a webhook is received, send a slack message to the team channel');
+    const types = result.n8nJson.nodes.map(n => n.type.toLowerCase());
+    expect(types.some(t => t.includes('code') || t.includes('function'))).toBe(false);
+  });
+
+  it('a prompt explicitly requesting custom data parsing throws UNSUPPORTED_REQUIREMENTS rather than silently using a code node', async () => {
+    const { createAutomationPlan } = await import('../lib/planner');
+    expect(() => createAutomationPlan('When a webhook is received, parse and extract custom fields from the payload, then send a slack message'))
+      .toThrow(/UNSUPPORTED_REQUIREMENTS/);
   });
 });
 
@@ -237,6 +294,41 @@ describe('validator + activation: unsupported nodes are rejected before they can
     });
     expect(r.valid).toBe(true);
   });
+
+  // Phase 9.5.1A regression test #4: a hand-crafted/imported/bypassed
+  // workflow_json (not planner output) containing a code node must still
+  // fail validation -- the capability gate is not something the planner
+  // alone enforces.
+  it('a directly-constructed workflow with a code node fails validation, not just planner-generated ones', async () => {
+    const { validateWorkflow } = await import('../lib/workflow-validator');
+    const r = validateWorkflow({
+      nodes: [
+        { name: 'Start', type: 'n8n-nodes-base.webhook' },
+        { name: 'Custom Logic', type: 'n8n-nodes-base.code', parameters: { jsCode: 'return $input.all();' } },
+      ],
+      connections: { Start: { main: [[{ node: 'Custom Logic' }]] } },
+    });
+    expect(r.valid).toBe(false);
+    expect(r.errors.some(e => e.code === 'UNSUPPORTED_NODE_CAPABILITY')).toBe(true);
+  });
+
+  it('a directly-constructed workflow with a legacy Function node also fails validation (same disabled handler)', async () => {
+    const { validateWorkflow } = await import('../lib/workflow-validator');
+    const r = validateWorkflow({
+      nodes: [
+        { name: 'Start', type: 'n8n-nodes-base.webhook' },
+        { name: 'Legacy Function', type: 'n8n-nodes-base.function' },
+      ],
+      connections: { Start: { main: [[{ node: 'Legacy Function' }]] } },
+    });
+    expect(r.valid).toBe(false);
+  });
+
+  // lib/validator (the deterministic-Blocks scorer used by the live
+  // /builder flow) is covered separately in
+  // tests/legacy-validator-capability.test.ts, which already has the
+  // BLOCKS[id].buildN8nNode() splicing fixture this needs -- extended
+  // there with a code_transform case rather than duplicated here.
 });
 
 // ─── 5. Runtime dispatch ──────────────────────────────────────────────────────

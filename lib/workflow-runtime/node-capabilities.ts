@@ -115,12 +115,21 @@ export function isKnownNodeType(type: string): boolean {
 // ─── Layer 2: explicit blocklist — known type, unsafe anyway ─────────────
 
 type BlockRule = {
-  /** Exact lowercase type string this rule applies to. */
-  type: string;
+  /** Exact lowercase type string this rule applies to. Mutually exclusive with `substrings`. */
+  type?: string;
+  /**
+   * Lowercase substrings; the rule applies if the node's type contains ANY
+   * of these (case-insensitive). Mutually exclusive with `type`. Use this
+   * form when a whole class of types shares one disabled handler via
+   * pickHandler()'s own generic substring routing (node-handlers/index.ts)
+   * — e.g. 'code'/'function' below — so the block is provably as broad as
+   * the routing it's blocking, not a guessed/partial alias list.
+   */
+  substrings?: string[];
   /**
    * Optional parameter-level check. If present, the rule only applies when
    * this returns true for the node's `parameters`. Absent = applies to
-   * every node of this type regardless of parameters.
+   * every node this rule's type/substrings match, regardless of parameters.
    */
   matchesParameters?: (parameters: Record<string, unknown>) => boolean;
   /** Internal diagnostic reason (safe for logs, not necessarily for end users). */
@@ -175,6 +184,32 @@ const BLOCKLIST: ReadonlyArray<BlockRule> = [
     reason: 'waitHandler only understands date/duration waits; resume:"webhook" (the Approval Step block\'s n8n resume-webhook mechanism) matches none of its recognized keys, so it silently falls through to "no wait time specified — continuing" and the workflow proceeds immediately, as if already approved.',
     userMessage: 'Approval steps that pause for a person to respond aren\'t available yet — this step would not actually wait.',
   },
+  {
+    // Phase 9.5.1A — traced Blocks -> planner assembly -> node type ->
+    // handler routing exactly, not guessed:
+    //   lib/blocks/index.ts's `code_transform` block is the only Blocks-
+    //   layer abstraction that emits a code-executing n8nType; its
+    //   buildN8nNode() hardcodes n8nType: 'n8n-nodes-base.code'.
+    //   pickHandler() (node-handlers/index.ts) routes ANY type containing
+    //   the substring "code" OR "function" to codeHandler — not just
+    //   n8n-nodes-base.code — so a hand-edited/imported workflow, or a
+    //   legacy n8n export using the historical "Function"/"Function Item"
+    //   node ('n8n-nodes-base.function' / 'n8n-nodes-base.functionItem'),
+    //   reaches the exact same disabled handler. This rule uses the same
+    //   substring predicate as that routing, so it is provably as broad as
+    //   what it blocks — not a partial alias list that could drift.
+    //   codeHandler (node-handlers/code.ts) permanently refuses to execute
+    //   in live mode by product policy (Phase 9.5.1A: arbitrary JavaScript
+    //   execution is not offered in V1, and is not safely sandboxable —
+    //   see that file's own comment on vm.runInNewContext() not being a
+    //   security boundary). This BLOCKLIST entry is the single authoritative
+    //   place that fact is now recorded; CODE_NODES_DISABLED_LIVE_MODE in
+    //   code.ts remains the runtime's own final defense-in-depth and is
+    //   deliberately not removed.
+    substrings: ['code', 'function'],
+    reason: 'Matches pickHandler()\'s own "code"/"function" substring routing to codeHandler (node-handlers/code.ts), which is permanently disabled in live mode by product policy — arbitrary JavaScript execution is not offered in V1 and is not safely sandboxable.',
+    userMessage: 'Custom code execution isn\'t available yet.',
+  },
 ];
 
 /**
@@ -187,7 +222,12 @@ export function checkNodeCapability(node: { type: string; parameters?: unknown }
   const parameters = asRecord(node.parameters);
 
   for (const rule of BLOCKLIST) {
-    if (rule.type !== lc) continue;
+    const typeMatches = rule.type !== undefined
+      ? rule.type === lc
+      : rule.substrings !== undefined
+        ? rule.substrings.some((s) => lc.includes(s))
+        : false;
+    if (!typeMatches) continue;
     if (rule.matchesParameters && !rule.matchesParameters(parameters)) continue;
     return { capable: false, reason: rule.reason, userMessage: rule.userMessage };
   }

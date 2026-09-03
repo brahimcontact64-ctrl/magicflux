@@ -109,7 +109,13 @@ function validWorkflow() {
     name: 'Valid workflow',
     nodes: [
       { id: 't1', name: 'Trigger', type: 'n8n-nodes-base.webhook', parameters: { path: '/x' } },
-      { id: 'n1', name: 'Do', type: 'n8n-nodes-base.code', parameters: {} },
+      // Phase 9.5.1A: was 'n8n-nodes-base.code' -- a generic placeholder
+      // action node chosen only because it used to be considered capable.
+      // Code/function nodes are now correctly blocked (node-capabilities.ts),
+      // so this fixture -- which exists to prove a *supported* workflow
+      // activates cleanly, not to test code-node rejection specifically --
+      // uses 'set' instead, a genuinely supported deterministic type.
+      { id: 'n1', name: 'Do', type: 'n8n-nodes-base.set', parameters: {} },
     ],
     connections: { Trigger: { main: [[{ node: 'Do' }]] } },
   };

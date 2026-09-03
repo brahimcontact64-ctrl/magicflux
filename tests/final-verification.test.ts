@@ -185,10 +185,17 @@ describe('V2 — HANDLER_NODE_ALLOWLIST: no handler lookup regression', () => {
     expect(r.status).toBe('simulated_success');
   });
 
-  it('V2.8: code node → codeHandler → disabled in live, simulated_success in test', async () => {
+  it('V2.8: code node → blocked at the capability gate before reaching codeHandler → failed in live, simulated_success in test', async () => {
+    // Phase 9.5.1A: code/function nodes are now blocked by
+    // checkNodeCapability() itself, so pickHandler() routes them to the
+    // generic unsupportedHandler() before codeHandler is ever reached --
+    // an earlier interception than before (not weaker). codeHandler's own
+    // CODE_NODES_DISABLED_LIVE_MODE refusal is untouched and still proven
+    // directly in tests/code-node-sandbox.security.test.ts as
+    // defense-in-depth.
     const rLive = await dispatchNode({ type: 'n8n-nodes-base.code', parameters: { jsCode: 'output = 42' } }, {}, LIVE_CTX);
     expect(rLive.status).toBe('failed');
-    expect(rLive.error).toBe('CODE_NODES_DISABLED_LIVE_MODE');
+    expect(rLive.error).toContain('UNSUPPORTED_NODE_TYPE');
 
     const rTest = await dispatchNode({ type: 'n8n-nodes-base.code', parameters: { jsCode: 'output = 42' } }, { x: 1 }, TEST_CTX);
     expect(rTest.status).toBe('simulated_success');

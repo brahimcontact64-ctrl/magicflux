@@ -65,6 +65,15 @@ export const codeNode: NodeDef = {
   description: 'Runs a custom JavaScript snippet and returns its output.',
   icon: Code2,
   iconColor: 'bg-gray-100 text-gray-700',
+  // Phase 9.5.1A: arbitrary code execution is permanently disabled in live
+  // mode by product policy (not safely sandboxable -- see
+  // lib/workflow-runtime/node-handlers/code.ts) and is now correctly
+  // blocked at the capability layer (lib/workflow-runtime/
+  // node-capabilities.ts). Same "Coming Soon" treatment already used for
+  // Google Drive / Gmail-watch below -- kept registered (not deleted) so
+  // the concept stays visible for future product direction, but disabled
+  // and explained rather than offered as if functional.
+  unavailableReason: 'Custom code execution isn\'t available yet.',
   fields: [
     {
       key: 'language',

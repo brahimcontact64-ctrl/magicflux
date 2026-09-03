@@ -1,3 +1,5 @@
+import { checkNodeCapability } from '@/lib/workflow-runtime/node-capabilities';
+
 export type Industry = 'property-management' | 'airbnb' | 'shopify';
 export type Complexity = 'beginner' | 'intermediate' | 'advanced';
 
@@ -14,6 +16,22 @@ export interface AutomationTemplate {
   workflow: object;
   envConfig: string;
   setupGuide: string;
+  /**
+   * Phase 9.5.1A — set when this template's own predefined workflow (not
+   * anything the planner generated) contains a node the certified runtime
+   * cannot actually execute today (most commonly a code_transform /
+   * n8n-nodes-base.code step used for bespoke field parsing that no
+   * deterministic native node can replicate). Computed directly from the
+   * same authoritative lib/workflow-runtime/node-capabilities.ts check
+   * every other layer uses -- not a second, hand-maintained list that
+   * could drift. Selecting the template is still allowed (the business
+   * logic concept stays visible for future product direction, per "prefer
+   * Coming Soon over deleting"), but it cannot reach deployment-ready or
+   * activate until the underlying capability exists, and the picker UI
+   * should show this reason rather than presenting the template as fully
+   * usable today.
+   */
+  unavailableReason?: string;
 }
 
 const propertyMaintenanceWorkflow = {
@@ -202,7 +220,7 @@ const returnsWorkflow = {
   meta: { templateId: 'returns-workflow', instanceId: 'ai-automation-builder' }
 };
 
-export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
+const RAW_AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   {
     id: 'tenant-maintenance',
     name: 'Tenant Maintenance Requests',
@@ -814,6 +832,32 @@ Submit a test return request with a real order ID and verify all steps complete.
 `
   }
 ];
+
+/** First capability-blocked node's userMessage in this template's predefined workflow, or undefined if fully supported. */
+function findUnavailableReason(workflow: object): string | undefined {
+  const nodes = (workflow as { nodes?: Array<{ type?: string; parameters?: unknown }> }).nodes ?? [];
+  for (const node of nodes) {
+    const capability = checkNodeCapability({ type: String(node.type ?? ''), parameters: node.parameters });
+    if (!capability.capable) return capability.userMessage;
+  }
+  return undefined;
+}
+
+// Phase 9.5.1A: several of these predefined templates use a code_transform
+// step (n8n-nodes-base.code) for bespoke field parsing that no
+// deterministic native node can replicate (date arithmetic, string
+// templating, array mapping -- beyond what a literal-only Set node can
+// express). Rewriting each template's business logic to avoid it risks
+// getting real, customer-facing automation logic subtly wrong, and isn't
+// a "small fix" -- so, per "prefer Coming Soon over deleting historical/
+// future product concepts", they stay registered and selectable, but are
+// tagged with why they can't reach deployment-ready today. The picker UI
+// (components/builder/industry-selector.tsx, app/marketplace/page.tsx)
+// surfaces this instead of presenting them as fully usable now.
+export const AUTOMATION_TEMPLATES: AutomationTemplate[] = RAW_AUTOMATION_TEMPLATES.map((template) => ({
+  ...template,
+  unavailableReason: findUnavailableReason(template.workflow),
+}));
 
 export const INDUSTRIES = [
   {

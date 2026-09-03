@@ -27,6 +27,7 @@ import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
 import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider, toProviderToken } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
+import { findIncapableNodes } from '@/lib/agent/capability-filter';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,6 +267,7 @@ Forbidden provider names: notification, notification_action, send_message, email
 Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
 Do not emit generic provider placeholders; attach provider metadata directly on every node.
+Do NOT use n8n-nodes-base.code, n8n-nodes-base.function, or any custom-code/scripting node -- arbitrary code execution is not available in this product yet. For data shaping or field mapping, use n8n-nodes-base.set instead (direct field assignment only, no expressions or scripting). For branching, use n8n-nodes-base.if. If the automation genuinely requires custom logic that set/if/an available action cannot express, say so plainly in the explanation rather than inventing a code node.
 Keep it production-ready and deployable.`;
 
   const response = await openai.chat.completions.create({
@@ -542,6 +544,41 @@ export async function executeTool(
           nodes: result.nodes,
           connections: result.connections,
         });
+
+        // Phase 9.5.1A: this is the primary, LLM-driven canonical
+        // generation path (the /builder chat flow, via runAgentLoop ->
+        // this tool) -- unlike lib/planner's deterministic path, it had no
+        // capability check at all before this. The prompt given to the
+        // model (see generateWorkflowJson() above) now steers it away from
+        // code/function nodes, but that's guidance, not a guarantee; this
+        // is the deterministic backstop. Uses the same authoritative
+        // checkNodeCapability() every other path (planner, both
+        // validators, runtime dispatch) already uses -- one source of
+        // truth, not a second blocklist. A capability failure is reported
+        // back into the loop the same way the provider-parity check below
+        // already does (success:false with a safe, non-technical reason),
+        // never silently dropped or replaced with a node that can't
+        // actually do what was asked.
+        const incapableNodes = findIncapableNodes(result.nodes);
+
+        if (incapableNodes.length > 0) {
+          const reasons = Array.from(new Set(incapableNodes.map((n) => n.userMessage)));
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: reasons.join(' '),
+              capability_unavailable: true,
+              unsupported_steps: incapableNodes.map((n) => n.name),
+            },
+            event: {
+              type: 'error',
+              label: 'Unsupported capability requested',
+              detail: reasons.join(' '),
+              agent: 'planner',
+            },
+          };
+        }
 
         const requestedProviders = Array.isArray(args.requested_providers)
           ? Array.from(

@@ -127,6 +127,15 @@ export function IndustryTemplates() {
                 <span>{template.nodeCount} nodes</span>
               </div>
 
+              {/* Phase 9.5.1A: see lib/templates.ts -- flags templates
+                  whose predefined workflow uses a capability not supported
+                  yet, instead of presenting them as fully usable today. */}
+              {template.unavailableReason && (
+                <p className="text-xs px-2 py-1.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground mb-5" title={template.unavailableReason}>
+                  Coming soon: {template.unavailableReason}
+                </p>
+              )}
+
               {/* Tags */}
               <div className="flex flex-wrap gap-1.5 mb-5">
                 {template.tags.slice(0, 3).map(tag => (

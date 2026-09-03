@@ -176,14 +176,14 @@ describe('B — dispatchNode: code nodes reach disabled handler', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY    = FAKE_SUPA_KEY;
   });
 
-  it('B1: n8n-nodes-base.code live → CODE_NODES_DISABLED_LIVE_MODE', async () => {
+  it('B1: n8n-nodes-base.code live → blocked at the capability gate (Phase 9.5.1A: earlier than codeHandler, still fails closed)', async () => {
     const result = await dispatchNode(
       { type: 'n8n-nodes-base.code', parameters: { jsCode: ESCAPE_PAYLOAD } },
       INPUT_DATA,
       LIVE_CTX
     );
     expect(result.status).toBe('failed');
-    expect(result.error).toBe('CODE_NODES_DISABLED_LIVE_MODE');
+    expect(result.error).toContain('UNSUPPORTED_NODE_TYPE');
     expect(containsAnySecret(result.outputData)).toBe(false);
   });
 
@@ -203,8 +203,11 @@ describe('B — dispatchNode: code nodes reach disabled handler', () => {
       INPUT_DATA,
       LIVE_CTX
     );
-    // 'function' substring routes to codeHandler via generic routing
-    expect(result.error).toBe('CODE_NODES_DISABLED_LIVE_MODE');
+    // 'function' substring is blocked at the capability gate itself now
+    // (Phase 9.5.1A) -- it used to reach codeHandler via generic routing
+    // and fail there; blocking it upstream is earlier, not weaker.
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('UNSUPPORTED_NODE_TYPE');
     expect(containsAnySecret(result.outputData)).toBe(false);
   });
 
@@ -222,7 +225,9 @@ describe('B — dispatchNode: code nodes reach disabled handler', () => {
         LIVE_CTX
       );
       expect(result.status, `${type} should fail`).toBe('failed');
-      expect(result.error, `${type} wrong error`).toBe('CODE_NODES_DISABLED_LIVE_MODE');
+      // Phase 9.5.1A: blocked at the capability gate (earlier than
+      // codeHandler) for every one of these substring variants.
+      expect(result.error, `${type} wrong error`).toContain('UNSUPPORTED_NODE_TYPE');
     }
   });
 
@@ -300,6 +305,39 @@ describe('D — End-to-end: confirmed exploit payload is inert', () => {
 
   it('D2: confirmed audit payload via dispatchNode live mode — hard failure, no secrets', async () => {
     const result = await dispatchNode(
+      {
+        type: 'n8n-nodes-base.code',
+        parameters: {
+          jsCode: `
+            const hostCtx = this.constructor.constructor('return this')();
+            output = {
+              enc_key:  hostCtx['process']['env']['INTEGRATIONS_ENCRYPTION_KEY'],
+              supa_key: hostCtx['process']['env']['SUPABASE_SERVICE_ROLE_KEY'],
+            };
+          `,
+        },
+      },
+      INPUT_DATA,
+      LIVE_CTX
+    );
+
+    // Phase 9.5.1A: dispatchNode's own pickHandler() now runs
+    // checkNodeCapability() first and intercepts code nodes with
+    // UNSUPPORTED_NODE_TYPE before they ever reach codeHandler at all --
+    // an earlier, more defensive interception than before, not a weaker
+    // one. codeHandler's own CODE_NODES_DISABLED_LIVE_MODE refusal is
+    // untouched and still verified directly (test A1 above, and
+    // "defense-in-depth" below) as the runtime's final backstop in case
+    // something ever bypasses pickHandler's capability gate.
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('UNSUPPORTED_NODE_TYPE');
+    expect(result.error).toContain("Custom code execution isn't available yet");
+    expect(JSON.stringify(result)).not.toContain(FAKE_ENC_KEY);
+    expect(JSON.stringify(result)).not.toContain(FAKE_SUPA_KEY);
+  });
+
+  it('D3 (Phase 9.5.1A): defense-in-depth — codeHandler itself still refuses live execution even called directly, bypassing pickHandler/dispatchNode entirely', async () => {
+    const result = await codeHandler(
       {
         type: 'n8n-nodes-base.code',
         parameters: {

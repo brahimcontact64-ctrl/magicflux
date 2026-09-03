@@ -651,24 +651,31 @@ function buildPlanSteps(pattern: WorkflowPattern, detectedActions: ActionType[])
   const seen = new Set<ActionType>();
   const actionList: ActionType[] = [];
 
-  // transform is always first — technically required to normalise upstream data
-  actionList.push('transform');
-  seen.add('transform');
-
-  // Only add other pattern.requiredActions if the prompt also detected them.
-  // This prevents pattern-injected steps the user never asked for.
-  // Exception: cart_recovery delay+email pair is a coherent unit that requires both.
+  // Phase 9.5.1A: 'transform' used to be force-inserted first, unconditionally,
+  // for every pattern ("technically required to normalise upstream data") --
+  // it only ever mapped to the code_transform block (n8nType
+  // 'n8n-nodes-base.code'), which the capability layer now correctly refuses
+  // as unsupported in V1 (see node-capabilities.ts). Forcing it in here would
+  // make every pattern whose requiredActions include 'transform' permanently
+  // un-generatable. It's treated like any other required/detected action
+  // instead: only included when the prompt actually asked for it (a genuine
+  // "parse/transform/format/extract/process" request), in which case it
+  // correctly surfaces as an honest UNSUPPORTED_REQUIREMENTS rather than
+  // being silently dropped or faked with a native node that can't replicate
+  // arbitrary data reshaping (set_fields only assigns literal values, no
+  // expression evaluation -- see set.ts). Patterns that used the code
+  // block purely as an internal passthrough/normalisation nicety the user
+  // never asked for now simply generate without that step.
   for (const a of pattern.requiredActions) {
-    if (a === 'transform') continue;
     if (detectedActions.includes(a) && !seen.has(a)) {
       actionList.push(a);
       seen.add(a);
     }
   }
 
-  // Add all remaining detected actions (not transform, not already added)
+  // Add all remaining detected actions not already added
   for (const a of detectedActions) {
-    if (a !== 'transform' && !seen.has(a)) {
+    if (!seen.has(a)) {
       actionList.push(a);
       seen.add(a);
     }
