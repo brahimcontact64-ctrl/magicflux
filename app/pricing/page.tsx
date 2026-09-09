@@ -141,6 +141,17 @@ export default function PricingPage() {
           </Link>
         </div>
 
+        {/* Phase 9.6 Section 5 — Beta product truth: state plainly that
+            paid plans aren't purchasable yet and access is free during
+            Beta, rather than letting a "Coming soon" button on its own
+            imply a temporary glitch. */}
+        {checkoutAvailable === false && (
+          <div className='mb-8 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900'>
+            <strong>MagicFlux is in Free Beta.</strong> Every account gets full access at no cost while we're in Beta —
+            paid plans below aren't purchasable yet. <a href='mailto:hello@magicflux.ai?subject=MagicFlux%20Pro%20access' className='underline'>Contact us</a> if you want to be notified when they open up.
+          </div>
+        )}
+
         {loading ? (
           <div className='flex items-center gap-2 text-sm text-muted-foreground'>
             <Loader2 className='h-4 w-4 animate-spin' />

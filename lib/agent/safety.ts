@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 
-import { createServiceClient } from '@/lib/supabase-server';
+import { createServiceClient, isAdminUser } from '@/lib/supabase-server';
 import { getToolExecutionPolicy } from '@/lib/runtime/tool-policy';
 
 export type SafetyMode = 'safe' | 'staging' | 'production';
@@ -63,8 +63,23 @@ const DEFAULT_POLICY: ExecutionPolicy = {
   maxApiCallsPerMinute: 60,
   duplicateWindowSeconds: 120,
   maxRepeatSameAction: 3,
-  maxAiTokensPerDay: 400000,
-  maxAiCostUsdPerDay: 25,
+  // Phase 9.6 Section 2 — tightened from 400000 / $25 for the Free Beta
+  // period. This is a GLOBAL default (every current user is effectively a
+  // Beta user today, since Stripe checkout is disabled), and the real
+  // abuse shape to defend against isn't one user maxing out their own
+  // budget -- it's an unknown number of Beta signups each getting their
+  // own full daily budget. Generation uses gpt-4o (not mini); at current
+  // published OpenAI pricing (~$2.50/1M input, $10/1M output tokens) $5/day
+  // is roughly 15-25 full workflow generations, comfortably enough for one
+  // person's genuine trial-and-iterate session without the multiplied
+  // exposure of a large default per unknown signup. A specific account
+  // (e.g. a demo/VIP Beta tester) can be given a higher cap without a code
+  // change via a row in agent_execution_policies -- see loadExecutionPolicy()
+  // above. Founder/admin accounts bypass this cap entirely (see the
+  // isAdminUser() check below) since it's a commercial quota, not a
+  // runtime-safety protection.
+  maxAiTokensPerDay: 75_000,
+  maxAiCostUsdPerDay: 5,
 };
 
 function stableStringify(value: unknown): string {
@@ -395,14 +410,23 @@ export async function evaluateToolSafety(ctx: GuardContext): Promise<GuardDecisi
     };
   }
 
-  const usage = await getDailyAiUsageTotals(ctx.userId, ctx.sessionId);
-  if (usage.tokens >= policy.maxAiTokensPerDay || usage.costUsd >= policy.maxAiCostUsdPerDay) {
-    return {
-      allowed: false,
-      mode: policy.mode,
-      blockCode: 'QUOTA_EXCEEDED',
-      reason: 'Daily AI usage quota exceeded. Raise budget limits or retry tomorrow.',
-    };
+  // Phase 9.6 Section 1 — the daily AI token/cost cap is a commercial
+  // quota (money), not a runtime-safety protection, so it's the one check
+  // in this function a Founder/admin account may bypass. Every other gate
+  // above and below this (mode restrictions, approval requirements,
+  // duplicate/rate-limit/loop-detection guards) stays fully intact for
+  // admins too -- those protect runtime/infra behavior, not billing.
+  const isFounder = await isAdminUser(ctx.userId);
+  if (!isFounder) {
+    const usage = await getDailyAiUsageTotals(ctx.userId, ctx.sessionId);
+    if (usage.tokens >= policy.maxAiTokensPerDay || usage.costUsd >= policy.maxAiCostUsdPerDay) {
+      return {
+        allowed: false,
+        mode: policy.mode,
+        blockCode: 'QUOTA_EXCEEDED',
+        reason: 'Daily AI usage quota exceeded. Raise budget limits or retry tomorrow.',
+      };
+    }
   }
 
   await createExecutionLock({

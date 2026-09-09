@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Inbox, Loader2, ShieldAlert, Zap } from 'lucide-react';
+import { ArrowLeft, Inbox, Loader2, MessageSquare, ShieldAlert, TrendingUp, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase-client';
@@ -136,11 +136,23 @@ export default function AdminPage() {
               <p className='mt-1 text-sm text-muted-foreground'>
                 Generate workflow draft, review setup requirements, and deploy only after customer integrations are connected.
               </p>
-              <div className='mt-4'>
+              <div className='mt-4 flex flex-wrap gap-2'>
                 <Link href='/admin/requests'>
                   <Button className='gap-2'>
                     <Inbox className='h-4 w-4' />
                     Open Managed Requests
+                  </Button>
+                </Link>
+                <Link href='/admin/beta'>
+                  <Button variant='outline' className='gap-2'>
+                    <TrendingUp className='h-4 w-4' />
+                    Beta Funnel Metrics
+                  </Button>
+                </Link>
+                <Link href='/admin/feedback'>
+                  <Button variant='outline' className='gap-2'>
+                    <MessageSquare className='h-4 w-4' />
+                    Feedback Inbox
                   </Button>
                 </Link>
               </div>

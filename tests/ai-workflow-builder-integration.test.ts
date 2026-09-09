@@ -22,6 +22,7 @@ const MOCK_WORKFLOW_ID = 'ai-wf-test-123';
 vi.mock('@/lib/supabase-server', () => ({
   getUserFromRequest: vi.fn(),
   createServiceClient: vi.fn(),
+  isAdminUser: vi.fn(async () => false),
 }));
 
 // ── Imports ───────────────────────────────────────────────────────────────────

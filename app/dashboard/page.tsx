@@ -7,6 +7,7 @@ import { Activity, ArrowLeft, Loader2, Plus, RefreshCw, Zap } from 'lucide-react
 import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { FeedbackWidget } from '@/components/feedback/FeedbackWidget';
 import { Button } from '@/components/ui/button';
 import { ExecutionStatusBadge } from '@/components/app/execution-status-badge';
 import { UsageSummaryWidget } from '@/components/billing/usage-summary';
@@ -147,6 +148,7 @@ export default function DashboardPage() {
           <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
           Refresh
         </Button>
+        <FeedbackWidget />
         <ThemeToggle />
         <Link href='/runtime'>
           <Button variant='outline' size='sm' className='gap-1.5 text-xs'>

@@ -3,7 +3,7 @@
  * Handles all plan-based restrictions and usage tracking
  */
 
-import { createServiceClient } from '@/lib/supabase-server';
+import { createServiceClient, isAdminUser } from '@/lib/supabase-server';
 import { getMonthlyAiTokenUsage } from '@/lib/runtime/usage-metering';
 
 export type PlanSlug = "free" | "pro" | "business";
@@ -50,11 +50,103 @@ const FREE_DEFAULT_PLAN: Plan = {
   created_at: new Date().toISOString(),
 };
 
+/**
+ * Phase 9.6 Section 1 — Founder/dogfood access.
+ *
+ * Computed, never persisted: no `subscriptions` row is ever written for
+ * this, so nothing here pretends a payment occurred (the explicit "do not
+ * fake billing entitlements" constraint). It exists only in the return
+ * value of resolveUserPlan() for the duration of one request, for a user
+ * isAdminUser() (app_metadata.role==='admin' -- server-API-only, never
+ * client-settable) recognizes as an admin.
+ *
+ * This ONLY ever flows through the commercial-quota functions below
+ * (canAddIntegration/canCreateWorkflow/canExecuteWorkflow/
+ * canDeployWorkflow) that read a Plan's numeric limits and deploy_enabled
+ * flag -- it cannot bypass capability validation (node-capabilities.ts),
+ * the Code/Function prohibition (same registry), tenant isolation (RLS +
+ * explicit user_id scoping in every route), SSRF protection
+ * (ssrf-guard.ts), secret redaction (redact.ts), credential security, or
+ * runtime dispatch safety -- none of those systems read plan/subscription
+ * data at all, so there is nothing here for them to trust.
+ */
+const FOUNDER_PLAN: Plan = {
+  id: "founder-override",
+  slug: "business",
+  name: "Founder",
+  price_monthly: 0,
+  integrations_limit: -1,
+  workflows_limit: -1,
+  executions_limit: -1,
+  deploy_enabled: true,
+  created_at: new Date().toISOString(),
+};
+
+/**
+ * Phase 9.6 Section 2 — Free Beta mode.
+ *
+ * Server-authoritative and explicit: read once, server-side, from an env
+ * var no client request can influence. Defaults to ON because this phase's
+ * own product decision is that MagicFlux is now in Free Beta -- Stripe
+ * checkout is disabled, so every current signup is already a Free/Beta
+ * user with no way to become anything else. Setting BETA_MODE=false in the
+ * deployment environment reverts every free-tier resolution to the
+ * `plans` table's real, unmodified "free" row (deploy disabled, today's
+ * stricter limits) with no code change or redeploy of logic needed.
+ */
+export function isBetaModeActive(): boolean {
+  return process.env.BETA_MODE !== "false";
+}
+
+/**
+ * Exact recommended Beta limits (Phase 9.6 Section 2 cost/abuse analysis):
+ *  - deploy_enabled: true -- required for the canonical journey to reach
+ *    "Activate supported automation -> Observe execution" at all; today's
+ *    stored free-plan row has this false, which is the one gap that
+ *    otherwise makes the full Beta journey impossible for a normal user.
+ *  - workflows_limit: 10 (was 3) -- three was too low to "experience the
+ *    useful end-to-end product" across more than one automation idea; ten
+ *    is enough for a genuine trial while still bounded. Workflow rows
+ *    themselves carry no ongoing cost (no AI spend, negligible storage),
+ *    so this number is about UX headroom, not cost containment.
+ *  - executions_limit: 100/month (was 20) -- execution compute (queue +
+ *    worker) is cheap per run and already hard-capped for concurrency by
+ *    RUNTIME_MAX_CONCURRENT_PER_USER (lib/runtime/concurrency-guard.ts,
+ *    unrelated to this plan-limit layer), so the real cost driver is
+ *    workflows that call a paid provider action (e.g. an OpenAI node)
+ *    per execution -- itself bounded by the separate, already-enforced
+ *    per-user daily AI cost cap (lib/agent/safety.ts, tightened to
+ *    $5/day / 75,000 tokens in this same phase). 100/month gives room for
+ *    iteration without materially raising the worst case.
+ *  - integrations_limit: 3 (was 1) -- a realistic automation commonly
+ *    needs a trigger plus 1-2 connected actions (e.g. Shopify + Slack, or
+ *    Airtable + Gmail); one connected integration could not exercise a
+ *    real multi-step journey at all.
+ *
+ * Never persisted to the `plans` table -- this is a pure in-memory
+ * transform of whatever real "free" row (or FREE_DEFAULT_PLAN fallback)
+ * resolveUserPlanRaw() already returned, applied only when
+ * isBetaModeActive() and the resolved plan is free. Turning Beta mode off
+ * requires no migration and leaves the stored "free" plan exactly as it
+ * is today for later, stricter post-Beta reactivation.
+ */
+export function applyBetaExpansion<T extends Pick<Plan, "name" | "integrations_limit" | "workflows_limit" | "executions_limit" | "deploy_enabled">>(basePlan: T): T {
+  return {
+    ...basePlan,
+    name: basePlan.name === "Free" ? "Free (Beta)" : basePlan.name,
+    integrations_limit: 3,
+    workflows_limit: 10,
+    executions_limit: 100,
+    deploy_enabled: true,
+  };
+}
+
 export type PlanResolutionSource =
   | "active_subscription" // real, active, unexpired paid (or free) plan on file
   | "no_subscription"     // no subscriptions row at all -- legitimately free
   | "inactive_subscription" // row exists but status/expiration doesn't currently entitle
-  | "resolution_error";   // DB/query failure -- fell back to free, but this is NOT a normal free user
+  | "resolution_error"    // DB/query failure -- fell back to free, but this is NOT a normal free user
+  | "founder_override";   // Phase 9.6: app_metadata.role==='admin' -- see resolveUserPlan()
 
 export interface PlanResolution {
   plan: Plan;
@@ -83,6 +175,34 @@ export interface PlanResolution {
  * resolved AND the subscription is active AND unexpired.
  */
 export async function resolveUserPlan(userId: string): Promise<PlanResolution> {
+  // Phase 9.6 Section 1 — checked first, before touching `subscriptions`
+  // at all, so a Founder/admin account's entitlement never depends on (or
+  // creates) any billing row. See FOUNDER_PLAN's own comment for exactly
+  // what this can and cannot bypass.
+  if (await isAdminUser(userId)) {
+    return { plan: FOUNDER_PLAN, source: "founder_override" };
+  }
+
+  const resolution = await resolveUserPlanRaw(userId);
+
+  // Phase 9.6 Section 2 — Free Beta expansion. Applied as a final,
+  // uniform transform over whatever the real resolver produced (rather
+  // than special-cased at each of its several free-tier return points)
+  // so it applies identically regardless of *why* the user resolved to
+  // free (no subscription row at all, an explicit free-plan subscription,
+  // or a fail-safe fallback). Never touches the `plans` table row itself
+  // -- "free" keeps its real, unmodified stored limits for whenever
+  // Stripe reactivates and this expansion is turned off -- and never
+  // applies to a paid plan, so it cannot be used to inflate a real
+  // Pro/Business entitlement.
+  if (isBetaModeActive() && resolution.plan.slug === "free") {
+    return { plan: applyBetaExpansion(resolution.plan), source: resolution.source };
+  }
+
+  return resolution;
+}
+
+async function resolveUserPlanRaw(userId: string): Promise<PlanResolution> {
   const supabase = createServiceClient();
 
   const { data: sub, error: subError } = await supabase

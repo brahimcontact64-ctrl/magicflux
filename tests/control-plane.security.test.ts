@@ -129,6 +129,7 @@ vi.mock('@/lib/supabase-server', () => ({
     }),
   })),
   getUserFromRequest: vi.fn(),
+  isAdminUser: vi.fn(async () => false),
 }));
 
 type EnqueueParams = { queueName: string; taskType: string; payload: Record<string, unknown>; dedupeKey?: string };
@@ -252,7 +253,11 @@ describe('POST /api/workflows/[id]/webhook — oversized payload rejection', () 
 describe('POST /api/workflows/[id]/webhook — quota and concurrency enforcement', () => {
   it('rejects with 429 PLAN_LIMIT_REACHED once the owner exceeds their monthly execution quota, and never runs the workflow', async () => {
     const now = new Date().toISOString();
-    tables.workflow_executions_v2 = Array.from({ length: 25 }, (_, i) => ({
+    // Phase 9.6: Free Beta mode raises the free-tier executions_limit to
+    // 100/month (from 20) -- seeded comfortably past that, not the old
+    // number, so this still exercises real quota enforcement rather than
+    // a number that no longer exceeds anything.
+    tables.workflow_executions_v2 = Array.from({ length: 105 }, (_, i) => ({
       id: `e${i}`, user_id: OWNER_ID, workflow_id: WORKFLOW_ID, status: 'success', created_at: now,
     }));
 
@@ -408,21 +413,31 @@ describe('POST /api/workflows/[id]/lifecycle — cross-tenant access (IDOR)', ()
   // placing it right after the IDOR test above — that this entitlement
   // check never fires ahead of (and so never masks) the ownership check.
   it("returns 403 PRO_REQUIRED — not 404 — when the actual owner activates on a plan without deploy enabled", async () => {
-    const { getUserFromRequest } = await import('@/lib/supabase-server');
-    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+    // Phase 9.6: Free Beta mode defaults to deploy_enabled:true for a free
+    // resolution, so this test's actual premise ("a plan without deploy
+    // enabled") is reconstructed by explicitly disabling Beta mode --
+    // otherwise there is no free-tier state left in which deploy is
+    // disabled to exercise this gate against.
+    process.env.BETA_MODE = 'false';
+    try {
+      const { getUserFromRequest } = await import('@/lib/supabase-server');
+      vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
 
-    tables.workflows[0].status = 'draft';
-    const { POST } = await import('../app/api/workflows/[id]/lifecycle/route');
-    const res = await POST(
-      makeReq(`http://localhost/api/workflows/${WORKFLOW_ID}/lifecycle`, { method: 'POST', body: JSON.stringify({ action: 'activate' }) }),
-      { params: { id: WORKFLOW_ID } },
-    );
-    const payload = await res.json() as { success: boolean; error?: string; redirect?: string };
+      tables.workflows[0].status = 'draft';
+      const { POST } = await import('../app/api/workflows/[id]/lifecycle/route');
+      const res = await POST(
+        makeReq(`http://localhost/api/workflows/${WORKFLOW_ID}/lifecycle`, { method: 'POST', body: JSON.stringify({ action: 'activate' }) }),
+        { params: { id: WORKFLOW_ID } },
+      );
+      const payload = await res.json() as { success: boolean; error?: string; redirect?: string };
 
-    expect(res.status).toBe(403);
-    expect(payload.error).toBe('PRO_REQUIRED');
-    expect(payload.redirect).toBe('/pricing');
-    expect(tables.workflows[0].status).toBe('draft'); // never transitioned to validating/active
+      expect(res.status).toBe(403);
+      expect(payload.error).toBe('PRO_REQUIRED');
+      expect(payload.redirect).toBe('/pricing');
+      expect(tables.workflows[0].status).toBe('draft'); // never transitioned to validating/active
+    } finally {
+      delete process.env.BETA_MODE;
+    }
   });
 
   it('returns 401 when there is no authenticated user at all', async () => {

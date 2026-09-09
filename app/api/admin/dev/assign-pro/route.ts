@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
+import { createServiceClient, getUserFromRequest, isAdminUser } from '@/lib/supabase-server';
 
 export async function POST(req: NextRequest) {
   const user = await getUserFromRequest(req);
@@ -10,22 +10,24 @@ export async function POST(req: NextRequest) {
 
   // Phase 9.3.1 P0 fix — this route was previously reachable and fully
   // functional for ANY authenticated user, not just admins. It is only
-  // ever surfaced through /admin, which middleware.ts gates on
-  // app_metadata/user_metadata role or user_profiles.role === 'admin' —
-  // but page-level gating in the browser is not a substitute for
+  // ever surfaced through /admin, which middleware.ts gates on admin
+  // status — but page-level gating in the browser is not a substitute for
   // server-side authorization on the API route itself, and this route had
-  // none. Confirmed live-exploitable in production against a disposable
-  // test account before this fix (any signed-up user could self-grant a
-  // real, persisted `subscriptions` row with status:'active', plan:'pro').
-  // This check mirrors middleware.ts's own admin determination exactly.
-  const { data: adminLookup } = await db.auth.admin.getUserById(user.id);
-  const appRole = adminLookup?.user?.app_metadata?.role;
-  const userRole = adminLookup?.user?.user_metadata?.role;
-  let isAdmin = appRole === 'admin' || userRole === 'admin';
-  if (!isAdmin) {
-    const { data: profile } = await db.from('user_profiles').select('role').eq('id', user.id).maybeSingle();
-    isAdmin = profile?.role === 'admin';
-  }
+  // none.
+  //
+  // Phase 9.6 P0 fix — the admin check added above had its own bug: it
+  // duplicated (a third time, alongside isAdminUser() and middleware.ts)
+  // an inline check that also trusted user_metadata.role and
+  // user_profiles.role, both of which turned out to be self-escalatable
+  // or non-functional (see isAdminUser()'s own fix notes). Confirmed
+  // live-exploitable against a disposable test account: any signed-up
+  // user could self-grant a real, persisted `subscriptions` row with
+  // status:'active', plan:'pro' by first setting their own
+  // user_metadata.role to 'admin' via the standard, unrestricted
+  // PUT /auth/v1/user endpoint. Now calls the single, fixed,
+  // app_metadata-only isAdminUser() instead of a third copy of the same
+  // logic that could drift out of sync again.
+  const isAdmin = await isAdminUser(user.id);
   if (!isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }

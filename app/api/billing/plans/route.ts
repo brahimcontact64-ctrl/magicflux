@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase-server';
 import { classifyError } from '@/lib/security/safe-error';
 import { getStripeClient } from '@/lib/billing/stripe-client';
 import { stripePriceIdForPlan } from '@/lib/billing/stripe-plans';
+import { applyBetaExpansion, isBetaModeActive } from '@/lib/billing/plan-limits';
 
 export async function GET() {
   const db = createServiceClient();
@@ -17,6 +18,18 @@ export async function GET() {
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
+  // Phase 9.6 Section 5 — this is the public plan CATALOG a pricing page
+  // renders, not a specific user's resolved entitlement, but it must still
+  // describe what a Free signup genuinely gets today. Without this, the
+  // page would advertise the raw stored "free" row (deploy disabled, 3
+  // workflows) while every real Free user's actual resolveUserPlan()
+  // result is Beta-expanded (deploy enabled, 10 workflows) — a real
+  // product-truth mismatch. Uses the exact same transform, not a second
+  // hand-copied set of numbers.
+  const displayPlans = (data ?? []).map((plan) =>
+    isBetaModeActive() && plan.slug === 'free' ? applyBetaExpansion(plan) : plan,
+  );
+
   // Phase 9.5 Step C/D: lets every CTA know, from a request it already
   // makes, whether checkout can succeed BEFORE attempting one -- Stripe
   // being unconfigured is a known, standing state today, not a transient
@@ -27,5 +40,5 @@ export async function GET() {
     getStripeClient() && stripePriceIdForPlan('pro') && stripePriceIdForPlan('business'),
   );
 
-  return NextResponse.json({ plans: data ?? [], checkoutAvailable });
+  return NextResponse.json({ plans: displayPlans, checkoutAvailable, betaModeActive: isBetaModeActive() });
 }

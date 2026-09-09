@@ -42,6 +42,7 @@ let tables: Record<string, Row[]>;
 
 vi.mock('@/lib/supabase-server', () => ({
   createServiceClient: vi.fn(() => ({ from: (name: string) => new FakeQuery(tables[name] ?? (tables[name] = [])) })),
+  isAdminUser: vi.fn(async () => false),
 }));
 vi.mock('@/lib/runtime/webhook-security', () => ({
   guardWebhookRequest: vi.fn(async () => ({ allowed: true, suspiciousScore: 0, requestHash: 'hash' })),

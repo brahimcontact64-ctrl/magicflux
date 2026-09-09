@@ -93,6 +93,43 @@ describe('GET /api/billing/plans -- checkoutAvailable', () => {
     expect(body.checkoutAvailable).toBe(false);
   });
 
+  it('Phase 9.6: the Free row in the catalog is Beta-expanded (deploy_enabled:true) by default, matching what resolveUserPlan() actually grants a real Free signup', async () => {
+    getStripeClientMock.mockReturnValue(null);
+    stripePriceIdForPlanMock.mockReturnValue(null);
+
+    const { GET } = await import('../app/api/billing/plans/route');
+    const res = await GET();
+    const body = await res.json() as { plans: Array<{ slug: string; deploy_enabled: boolean; workflows_limit: number }>; betaModeActive: boolean };
+
+    expect(body.betaModeActive).toBe(true);
+    const free = body.plans.find((p) => p.slug === 'free');
+    expect(free?.deploy_enabled).toBe(true);
+    expect(free?.workflows_limit).toBe(10);
+
+    // Paid plans are never touched by the Beta expansion.
+    const pro = body.plans.find((p) => p.slug === 'pro');
+    expect(pro?.workflows_limit).toBe(20);
+  });
+
+  it('Phase 9.6: with BETA_MODE=false, the catalog shows the real stored Free row unmodified', async () => {
+    process.env.BETA_MODE = 'false';
+    try {
+      getStripeClientMock.mockReturnValue(null);
+      stripePriceIdForPlanMock.mockReturnValue(null);
+
+      const { GET } = await import('../app/api/billing/plans/route');
+      const res = await GET();
+      const body = await res.json() as { plans: Array<{ slug: string; deploy_enabled: boolean; workflows_limit: number }>; betaModeActive: boolean };
+
+      expect(body.betaModeActive).toBe(false);
+      const free = body.plans.find((p) => p.slug === 'free');
+      expect(free?.deploy_enabled).toBe(false);
+      expect(free?.workflows_limit).toBe(3);
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+
   it('never leaks the underlying price ID or client details, only the boolean', async () => {
     getStripeClientMock.mockReturnValue({ checkout: {}, secretKeySentinel: 'sk_test_should_never_appear' } as never);
     stripePriceIdForPlanMock.mockImplementation((plan: string) => (plan === 'pro' ? 'price_SECRET_pro' : 'price_SECRET_business'));

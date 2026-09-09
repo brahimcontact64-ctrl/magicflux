@@ -154,6 +154,11 @@ export function Navbar() {
             <span className="font-semibold text-sm tracking-tight">
               MagicFlux
             </span>
+            {/* Phase 9.6 Section 5 — Beta product truth: visible on every
+                page this navbar renders on, not just the pricing page. */}
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+              Free Beta
+            </span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">

@@ -74,8 +74,25 @@ export function getBearerToken(req: Request): string | null {
 
 /**
  * Admin check:
- * - Preferred source: auth user app_metadata.role === 'admin'
- * - Fallback source: auth user user_metadata.role === 'admin'
+ * - Source: auth user app_metadata.role === 'admin'. app_metadata is only
+ *   ever writable via the Supabase service-role/Admin API — never by the
+ *   user's own session — so this cannot be self-granted.
+ *
+ * Phase 9.6 P0 fix — this previously also trusted user_metadata.role
+ * ('Fallback source: auth user user_metadata.role === 'admin'') and a
+ * user_profiles.role column. Confirmed live against a disposable test
+ * account: PUT /auth/v1/user with { data: { role: 'admin' } } — exactly
+ * what the standard, unrestricted client-side supabase.auth.updateUser()
+ * call does for a user's own account — succeeds (HTTP 200) and sets
+ * user_metadata.role, which this function then trusted as an admin
+ * signal. That made every caller of isAdminUser() (including
+ * /api/admin/dev/assign-pro, which grants a real persisted Pro
+ * subscription) self-escalatable by any authenticated user with zero
+ * privileged access. The user_profiles.role fallback was already inert
+ * in production (PGRST204: 'role' column does not exist on that table
+ * today) but is removed too rather than left as a second, confusing
+ * pseudo-check. app_metadata is the only source that was ever actually
+ * admin-only.
  */
 export async function isAdminUser(userId: string): Promise<boolean> {
   const db = createServiceClient();
@@ -83,17 +100,7 @@ export async function isAdminUser(userId: string): Promise<boolean> {
   if (error || !data.user) return false;
 
   const appRole = (data.user.app_metadata as Record<string, unknown> | undefined)?.role;
-  const userRole = (data.user.user_metadata as Record<string, unknown> | undefined)?.role;
-
-  if (appRole === 'admin' || userRole === 'admin') return true;
-
-  const { data: profile } = await db
-    .from('user_profiles')
-    .select('role')
-    .eq('id', userId)
-    .maybeSingle();
-
-  return profile?.role === 'admin';
+  return appRole === 'admin';
 }
 
 /**

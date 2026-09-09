@@ -117,6 +117,7 @@ function makeFakeDb() {
 vi.mock('@/lib/supabase-server', () => ({
   createServiceClient: vi.fn(() => makeFakeDb()),
   getUserFromRequest: vi.fn(),
+  isAdminUser: vi.fn(async () => false),
 }));
 
 vi.mock('@/lib/workflow/lifecycle', () => ({
@@ -143,12 +144,25 @@ const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 // ─── resolveUserPlan() / getUserPlan() — the canonical resolver ───────────
 
 describe('resolveUserPlan() / getUserPlan() — canonical server-side entitlement resolver', () => {
-  it('1. resolves Free when no subscription row exists at all', async () => {
+  it('1. resolves Free when no subscription row exists at all -- Beta-expanded (deploy_enabled:true) by default per Phase 9.6', async () => {
     const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
     const result = await resolveUserPlan(USER_A);
     expect(result.plan.slug).toBe('free');
-    expect(result.plan.deploy_enabled).toBe(false);
+    expect(result.plan.deploy_enabled).toBe(true);
     expect(result.source).toBe('no_subscription');
+  });
+
+  it('1b. Phase 9.6: with BETA_MODE explicitly off, the same Free resolution reverts to the real, unmodified stored limits (deploy_enabled:false)', async () => {
+    process.env.BETA_MODE = 'false';
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.plan.slug).toBe('free');
+      expect(result.plan.deploy_enabled).toBe(false);
+      expect(result.source).toBe('no_subscription');
+    } finally {
+      delete process.env.BETA_MODE;
+    }
   });
 
   it('2. resolves Pro for an active, unexpired Pro subscription', async () => {
@@ -231,6 +245,49 @@ describe('resolveUserPlan() / getUserPlan() — canonical server-side entitlemen
     expect(lastSelectCols).toMatch(/plans!subscriptions_plan_id_fkey/);
     expect(lastSelectCols).not.toMatch(/\bplan!inner\(/); // the exact historical bug
   });
+
+  // ─── Phase 9.6 Section 1: Founder/admin override ─────────────────────────
+
+  it('8. an admin (isAdminUser true) resolves to the unlimited Founder plan without ever touching subscriptions', async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(true);
+
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+    const result = await resolveUserPlan(USER_A);
+
+    expect(result.source).toBe('founder_override');
+    expect(result.plan.deploy_enabled).toBe(true);
+    expect(result.plan.integrations_limit).toBe(-1);
+    expect(result.plan.workflows_limit).toBe(-1);
+    expect(result.plan.executions_limit).toBe(-1);
+    // the critical assertion: no subscriptions row was read, and none was
+    // ever written by this codepath -- nothing here fakes a payment.
+    expect(subscriptionsQueryCount).toBe(0);
+  });
+
+  it("9. an admin's override is not affected by their own subscriptions row (there shouldn't be one, but even a hostile/broken one can't downgrade or confuse it)", async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(true);
+    subsTable.push({ user_id: USER_A, status: 'canceled', plan_id: null, plan: 'free', current_period_end: PAST });
+
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+    const result = await resolveUserPlan(USER_A);
+
+    expect(result.source).toBe('founder_override');
+    expect(subscriptionsQueryCount).toBe(0);
+  });
+
+  it('10. a non-admin user is completely unaffected by the founder-override branch', async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(false);
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: PRO_PLAN_ID, plan: 'pro', current_period_end: FUTURE });
+
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+    const result = await resolveUserPlan(USER_A);
+
+    expect(result.source).toBe('active_subscription');
+    expect(result.plan.slug).toBe('pro');
+  });
 });
 
 // ─── Route-level: activation entitlement gate ──────────────────────────────
@@ -240,12 +297,47 @@ function makeReq(url: string, init?: ConstructorParameters<typeof NextRequest>[1
 }
 
 describe('POST /api/workflows/[id]/lifecycle — activation cannot be self-granted or bypassed', () => {
-  it('8. a client-supplied plan field in the request body cannot alter entitlement for a genuinely Free account', async () => {
+  it('8. a client-supplied plan field in the request body cannot alter entitlement for a genuinely Free account (Beta mode off)', async () => {
+    // Phase 9.6 Section 2: Free Beta mode defaults ON (deploy_enabled:true
+    // for free), so this test explicitly disables it to exercise the
+    // underlying, still-real "post-Beta" free-tier semantics -- the
+    // property under test (a spoofed body field cannot alter server-
+    // resolved entitlement) is independent of which mode is active, and
+    // this is the one state where the historical assertion (blocked,
+    // activateWorkflow never reached) still holds unconditionally.
+    process.env.BETA_MODE = 'false';
+    try {
+      const { getUserFromRequest } = await import('@/lib/supabase-server');
+      const { loadWorkflow, activateWorkflow } = await import('@/lib/workflow/lifecycle');
+      vi.mocked(getUserFromRequest).mockResolvedValue({ id: USER_A, email: 'a@test.local' } as never);
+      vi.mocked(loadWorkflow).mockResolvedValue({ id: WORKFLOW_ID, user_id: USER_A, workflow_json: {}, status: 'draft' } as never);
+      // no subscription row seeded for USER_A -> genuinely free
+
+      const { POST } = await import('../app/api/workflows/[id]/lifecycle/route');
+      const res = await POST(
+        makeReq(`http://localhost/api/workflows/${WORKFLOW_ID}/lifecycle`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'activate', plan: 'pro', planSlug: 'business', entitlement: 'pro', isPro: true }),
+        }),
+        { params: { id: WORKFLOW_ID } },
+      );
+      const payload = await res.json() as { error?: string };
+
+      expect(res.status).toBe(403);
+      expect(payload.error).toBe('PRO_REQUIRED');
+      expect(activateWorkflow).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+
+  it('8b. Phase 9.6: during Beta (default), a genuinely Free account legitimately passes the deploy gate -- but a spoofed plan field still never reaches activateWorkflow() with anything other than the real resolved account', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     const { loadWorkflow, activateWorkflow } = await import('@/lib/workflow/lifecycle');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: USER_A, email: 'a@test.local' } as never);
     vi.mocked(loadWorkflow).mockResolvedValue({ id: WORKFLOW_ID, user_id: USER_A, workflow_json: {}, status: 'draft' } as never);
-    // no subscription row seeded for USER_A -> genuinely free
+    vi.mocked(activateWorkflow).mockResolvedValue({ success: true, status: 'active', version: 1, deploymentVersionId: 'dv-beta' } as never);
+    // no subscription row seeded for USER_A -> genuinely free, Beta-expanded
 
     const { POST } = await import('../app/api/workflows/[id]/lifecycle/route');
     const res = await POST(
@@ -255,11 +347,12 @@ describe('POST /api/workflows/[id]/lifecycle — activation cannot be self-grant
       }),
       { params: { id: WORKFLOW_ID } },
     );
-    const payload = await res.json() as { error?: string };
 
-    expect(res.status).toBe(403);
-    expect(payload.error).toBe('PRO_REQUIRED');
-    expect(activateWorkflow).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    // Beta legitimately allows this -- the security property is that
+    // activateWorkflow() is called with the REAL authenticated user id,
+    // never anything derived from the spoofed body fields.
+    expect(activateWorkflow).toHaveBeenCalledWith(USER_A, WORKFLOW_ID);
   });
 
   it('9. a genuinely active Pro subscription passes the gate and reaches activateWorkflow()', async () => {

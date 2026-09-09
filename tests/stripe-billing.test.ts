@@ -148,6 +148,7 @@ function makeFakeStripe() {
 vi.mock('@/lib/supabase-server', () => ({
   createServiceClient: vi.fn(() => makeFakeDb()),
   getUserFromRequest: vi.fn(),
+  isAdminUser: vi.fn(async () => false),
 }));
 
 vi.mock('@/lib/billing/stripe-client', () => ({
@@ -381,7 +382,12 @@ describe('applyStripeSubscription -> canonical resolver agreement', () => {
     const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
     const result = await resolveUserPlan(USER_A);
     expect(result.plan.slug).toBe('free');
-    expect(result.plan.deploy_enabled).toBe(false);
+    // Phase 9.6: deploy_enabled is now true for a free resolution by
+    // default (Free Beta mode) -- the meaningful "no paid entitlement"
+    // assertion is that the real Pro/Business unlimited-ish numeric
+    // limits were never granted, not the (Beta-expanded) deploy flag.
+    expect(result.plan.workflows_limit).not.toBe(-1);
+    expect(result.plan.executions_limit).not.toBe(-1);
   });
 
   it('10a. a genuinely active Pro Stripe subscription resolves to Pro through the real canonical resolver', async () => {

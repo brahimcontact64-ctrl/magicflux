@@ -52,31 +52,21 @@ export async function middleware(req: NextRequest) {
   const adminPayload = (await adminRes.json()) as {
     user?: {
       app_metadata?: Record<string, unknown>;
-      user_metadata?: Record<string, unknown>;
     };
   };
 
+  // Phase 9.6 P0 fix — this previously also trusted user_metadata.role and
+  // a (schema-absent) user_profiles.role as admin signals. user_metadata
+  // is writable by any authenticated user on their own account via the
+  // standard, unrestricted PUT /auth/v1/user endpoint (confirmed live: a
+  // disposable test account successfully self-set user_metadata.role to
+  // 'admin' with no privileged access at all), which made this gate
+  // self-escalatable. app_metadata is only ever writable via the
+  // service-role/Admin API, never by the user's own session — it's the
+  // only source that was ever actually admin-only. See
+  // lib/supabase-server.ts's isAdminUser(), fixed identically.
   const appRole = adminPayload.user?.app_metadata?.role;
-  const userRole = adminPayload.user?.user_metadata?.role;
-  let isAdmin = appRole === 'admin' || userRole === 'admin';
-
-  if (!isAdmin) {
-    const profileRes = await fetch(
-      `${supabaseUrl}/rest/v1/user_profiles?select=role&id=eq.${user.id}&limit=1`,
-      {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-        cache: 'no-store',
-      }
-    );
-
-    if (profileRes.ok) {
-      const profiles = (await profileRes.json()) as Array<{ role?: string }>;
-      isAdmin = profiles[0]?.role === 'admin';
-    }
-  }
+  const isAdmin = appRole === 'admin';
 
   if (!isAdmin) {
     return NextResponse.redirect(loginUrl);

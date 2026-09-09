@@ -137,8 +137,10 @@ export function Hero() {
           {/* Phase 9.5 Step L: "No account required" and "n8n-compatible
               JSON" are both false today -- /builder requires sign-in
               (Step E's auth guard), and generated workflows run on
-              MagicFlux's own native runtime, not an n8n export. */}
-          Free to generate &middot; Live in minutes
+              MagicFlux's own native runtime, not an n8n export.
+              Phase 9.6 Section 5: made explicit that this is Beta access,
+              not a permanent free tier. */}
+          Free during Beta &middot; Live in minutes
         </p>
 
         {/* Stats */}
