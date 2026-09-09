@@ -27,18 +27,20 @@ function makeFakeDb() {
     from(table: string) {
       if (table !== 'product_feedback') throw new Error(`unexpected table: ${table}`);
       if (!tableExists) {
-        const err = { select: () => err, eq: () => err, order: () => err, limit: () => err, update: () => err, insert: () => err, single: async () => ({ data: null, error: missingTableError() }) };
+        const err = { select: () => err, eq: () => err, gte: () => err, order: () => err, limit: () => err, update: () => err, insert: () => err, single: async () => ({ data: null, error: missingTableError() }) };
         // also cover the awaited-chain shape used by list/update (no .single())
         return {
           ...err,
-          then: (resolve: (v: { data: null; error: unknown }) => unknown) => Promise.resolve(resolve({ data: null, error: missingTableError() })),
+          then: (resolve: (v: { data: null; error: unknown; count: null }) => unknown) => Promise.resolve(resolve({ data: null, error: missingTableError(), count: null })).then(() => undefined),
         };
       }
 
       const filters: Array<[string, unknown]> = [];
+      const gteFilters: Array<[string, unknown]> = [];
       const api = {
         select: () => api,
         eq(col: string, val: unknown) { filters.push([col, val]); return api; },
+        gte(col: string, val: unknown) { gteFilters.push([col, val]); return api; },
         order: () => api,
         limit: () => api,
         insert(row: Row) {
@@ -48,12 +50,22 @@ function makeFakeDb() {
           return { select: () => ({ async single() { return { data: inserted, error: null }; } }) };
         },
         update(patch: Row) {
-          for (const r of rows) if (filters.every(([c, v]) => r[c] === v)) Object.assign(r, patch);
-          return { eq: () => Promise.resolve({ error: null }) };
+          return {
+            eq(col: string, val: unknown) {
+              const matched = rows.filter((r) => r[col] === val);
+              for (const r of matched) Object.assign(r, patch);
+              return {
+                select: () => Promise.resolve({ data: matched.map((r) => ({ id: r.id })), error: null }),
+              };
+            },
+          };
         },
-        then(resolve: (v: { data: Row[]; error: null }) => unknown) {
-          const matched = rows.filter((r) => filters.every(([c, v]) => r[c] === v));
-          return Promise.resolve(resolve({ data: matched, error: null })).then(() => undefined);
+        then(resolve: (v: { data: Row[]; error: null; count: number }) => unknown) {
+          const matched = rows.filter((r) =>
+            filters.every(([c, v]) => r[c] === v) &&
+            gteFilters.every(([c, v]) => String(r[c] ?? '') >= String(v)),
+          );
+          return Promise.resolve(resolve({ data: matched, error: null, count: matched.length })).then(() => undefined);
         },
       };
       return api;
@@ -101,10 +113,52 @@ describe('lib/feedback submitFeedback()', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('rejects a non-integer rating (Phase 9.6.1)', async () => {
+    const { submitFeedback } = await import('@/lib/feedback');
+    const result = await submitFeedback({ userId: USER_A, category: 'general', rating: 4.5 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('invalid');
+  });
+
   it('rejects an empty submission (no rating, no comment)', async () => {
     const { submitFeedback } = await import('@/lib/feedback');
     const result = await submitFeedback({ userId: USER_A, category: 'general' });
     expect(result.ok).toBe(false);
+  });
+
+  it('rejects an oversized comment (Phase 9.6.1) with a clean 400-shaped reason, not a raw DB error', async () => {
+    const { submitFeedback } = await import('@/lib/feedback');
+    const result = await submitFeedback({ userId: USER_A, category: 'general', comment: 'x'.repeat(4001) });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('invalid');
+    expect(lastInsert).toBeNull();
+  });
+
+  it('accepts a comment right at the limit (4000 chars)', async () => {
+    const { submitFeedback } = await import('@/lib/feedback');
+    const result = await submitFeedback({ userId: USER_A, category: 'general', comment: 'x'.repeat(4000) });
+    expect(result.ok).toBe(true);
+  });
+
+  it('Phase 9.6.1: rate-limits a user submitting more than 10 feedback rows within an hour', async () => {
+    const now = new Date().toISOString();
+    for (let i = 0; i < 10; i++) {
+      rows.push({ id: `existing-${i}`, user_id: USER_A, category: 'general', rating: 5, status: 'new', created_at: now });
+    }
+    const { submitFeedback } = await import('@/lib/feedback');
+    const result = await submitFeedback({ userId: USER_A, category: 'general', rating: 5 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('rate_limited');
+  });
+
+  it('Phase 9.6.1: the rate limit is per-user -- another user is unaffected by user A being at the limit', async () => {
+    const now = new Date().toISOString();
+    for (let i = 0; i < 10; i++) {
+      rows.push({ id: `existing-${i}`, user_id: USER_A, category: 'general', rating: 5, status: 'new', created_at: now });
+    }
+    const { submitFeedback } = await import('@/lib/feedback');
+    const result = await submitFeedback({ userId: 'a-different-user', category: 'general', rating: 5 });
+    expect(result.ok).toBe(true);
   });
 
   it('degrades to reason:"not_configured" (not a thrown error) when the table does not exist yet', async () => {
@@ -179,5 +233,14 @@ describe('GET/PATCH /api/admin/feedback', () => {
     const res = await PATCH(new NextRequest(new URL('http://localhost/api/admin/feedback'), { method: 'PATCH', body: JSON.stringify({ id: 'fb-1', status: 'resolved' }) }));
     expect(res.status).toBe(200);
     expect(rows[0].status).toBe('resolved');
+  });
+
+  it('Phase 9.6.1: PATCH on a nonexistent id reports 404, not a false 200 success', async () => {
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: USER_A } as never);
+    isAdmin = true;
+    const { PATCH } = await import('../app/api/admin/feedback/route');
+    const res = await PATCH(new NextRequest(new URL('http://localhost/api/admin/feedback'), { method: 'PATCH', body: JSON.stringify({ id: 'does-not-exist', status: 'resolved' }) }));
+    expect(res.status).toBe(404);
   });
 });

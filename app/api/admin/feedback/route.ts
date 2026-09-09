@@ -44,7 +44,8 @@ export async function PATCH(req: NextRequest) {
 
   const result = await updateFeedbackStatus(body.id, body.status as FeedbackStatus);
   if (!result.ok) {
-    return NextResponse.json({ error: 'update_failed', message: result.message }, { status: 500 });
+    const status = result.message === 'Feedback not found.' ? 404 : result.message === 'Feedback is not available yet.' ? 503 : 500;
+    return NextResponse.json({ error: 'update_failed', message: result.message }, { status });
   }
 
   return NextResponse.json({ success: true });

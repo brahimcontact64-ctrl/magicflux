@@ -38,7 +38,10 @@ export async function POST(req: NextRequest) {
   });
 
   if (!result.ok) {
-    const status = result.reason === 'invalid' ? 400 : result.reason === 'not_configured' ? 503 : 500;
+    const status =
+      result.reason === 'invalid' ? 400 :
+      result.reason === 'rate_limited' ? 429 :
+      result.reason === 'not_configured' ? 503 : 500;
     return NextResponse.json({ error: result.reason, message: result.message }, { status });
   }
 

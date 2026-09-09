@@ -1,5 +1,10 @@
 /*
   Phase 9.6 Section 3 — Product feedback.
+  Phase 9.6.1 — adversarial security review pass: added explicit
+  char_length CHECK constraints on comment/page_path/app_version (defense
+  in depth alongside the app-layer limits in lib/feedback.ts), no other
+  schema change. RLS policies below were re-verified least-privilege
+  (insert/select own row only, no client-reachable update/delete).
 
   PROPOSED, NOT YET APPLIED. Per the explicit instruction to "STOP before
   applying it and present the exact migration," this file is written but
@@ -40,9 +45,15 @@ CREATE TABLE IF NOT EXISTS product_feedback (
   user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   category text NOT NULL CHECK (category IN ('general', 'bug', 'feature_request')),
   rating smallint CHECK (rating IS NULL OR (rating BETWEEN 1 AND 5)),
-  comment text,
-  page_path text,
-  app_version text,
+  -- Phase 9.6.1 adversarial review: the app layer already validates/limits
+  -- these, but a DB-level CHECK is the real backstop against oversized
+  -- writes -- it holds even if a future code path inserts directly, or the
+  -- app-level check is ever weakened by mistake. 4000 chars is generous for
+  -- genuine feedback prose; 500/100 match the app's existing pagePath/
+  -- appVersion truncation exactly, so the two layers agree.
+  comment text CHECK (comment IS NULL OR char_length(comment) <= 4000),
+  page_path text CHECK (page_path IS NULL OR char_length(page_path) <= 500),
+  app_version text CHECK (app_version IS NULL OR char_length(app_version) <= 100),
   status text NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewed', 'resolved', 'archived')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
