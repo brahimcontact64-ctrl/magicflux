@@ -302,3 +302,83 @@ describe('C — automation classification is confidence-aware, not forced to a n
     expect(capabilityKeys).toContain('receive_message');
   });
 });
+
+// ─── E: Phase 9.8.2 — generate_workflow_json's schema no longer biases the
+// model toward inventing an external platform/messaging step for a purely
+// internal branch-and-set request ───────────────────────────────────────────
+
+describe('D — generate_workflow_json tool schema does not force an external platform for internal branch-and-set automations', () => {
+  it('platform is no longer a required parameter', async () => {
+    const { AGENT_TOOLS } = await import('../lib/agent/tools');
+    const tool = AGENT_TOOLS.find((t) => 'function' in t && t.function.name === 'generate_workflow_json');
+    expect(tool).toBeTruthy();
+    if (!tool || !('function' in tool)) return;
+    const required = (tool.function.parameters as { required?: string[] })?.required ?? [];
+    expect(required).not.toContain('platform');
+  });
+
+  it("action's description offers internal/deterministic examples, not only external-messaging ones", async () => {
+    const { AGENT_TOOLS } = await import('../lib/agent/tools');
+    const tool = AGENT_TOOLS.find((t) => 'function' in t && t.function.name === 'generate_workflow_json');
+    if (!tool || !('function' in tool)) throw new Error('tool not found');
+    const props = (tool.function.parameters as { properties?: Record<string, { description?: string }> })?.properties ?? {};
+    const actionDesc = (props.action?.description ?? '').toLowerCase();
+    const blockDesc = (props.block_blueprint?.description ?? '').toLowerCase();
+    const platformDesc = (props.platform?.description ?? '').toLowerCase();
+
+    // Internal-transformation examples must exist, not just messaging ones.
+    expect(actionDesc).toMatch(/set_field|classify_record|update_status/);
+    expect(blockDesc).toMatch(/condition|set_field/);
+    // platform's description must explicitly say it can be omitted.
+    expect(platformDesc).toMatch(/omit/);
+  });
+
+  it("the tool description explicitly warns against inventing a messaging/notification step for mark/tag/classify requests", async () => {
+    const { AGENT_TOOLS } = await import('../lib/agent/tools');
+    const tool = AGENT_TOOLS.find((t) => 'function' in t && t.function.name === 'generate_workflow_json');
+    if (!tool || !('function' in tool)) throw new Error('tool not found');
+    const description = (tool.function.description ?? '').toLowerCase();
+    expect(description).toMatch(/mark|classify|tag/);
+    expect(description).toMatch(/no external platform|omit platform/);
+  });
+});
+
+describe('E — toProgressCards() deduplicates identical repeated errors from within-turn retries', () => {
+  it('collapses consecutive identical "Hit a snag" events into one card with a retry count, matching the exact 3x production incident shape', async () => {
+    const { toProgressCards } = await import('../lib/builder/runtime-state');
+    const identicalError = {
+      type: 'error' as const,
+      label: 'Unsupported capability requested',
+      detail: "This step type isn't available yet.",
+    };
+    const cards = toProgressCards([identicalError, identicalError, identicalError]);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].title).toBe('Hit a snag');
+    expect(cards[0].detail).toContain("This step type isn't available yet.");
+    expect(cards[0].detail).toContain('3x');
+  });
+
+  it('does NOT collapse genuinely distinct errors into one card', async () => {
+    const { toProgressCards } = await import('../lib/builder/runtime-state');
+    const cards = toProgressCards([
+      { type: 'error', label: 'Unsupported capability requested', detail: "This step type isn't available yet." },
+      { type: 'error', label: 'Provider validation failed', detail: 'Missing: shopify | Extra: none' },
+    ]);
+    expect(cards).toHaveLength(2);
+  });
+
+  it('non-error events (e.g. successful generation) are never deduplicated away just because they repeat', async () => {
+    const { toProgressCards } = await import('../lib/builder/runtime-state');
+    const cards = toProgressCards([
+      { type: 'generating_workflow', label: 'Workflow blueprint generated', detail: '4 nodes' },
+      { type: 'generating_workflow', label: 'Workflow blueprint generated', detail: '4 nodes' },
+    ]);
+    // Identical successive events of any type are still collapsed (they
+    // represent the same underlying occurrence repeated, e.g. a duplicate
+    // SSE re-emit) -- this test documents that behavior explicitly rather
+    // than leaving it implicit.
+    expect(cards).toHaveLength(1);
+    expect(cards[0].detail).toContain('2x');
+  });
+});

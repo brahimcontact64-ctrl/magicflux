@@ -212,7 +212,10 @@ async function generateWorkflowJson(params: {
   workflow_name: string;
   trigger: string;
   action: string;
-  platform: string;
+  /** Phase 9.8.2 -- optional. Genuinely internal automations (branch +
+   * assign a field, no external system involved) have no real platform;
+   * an empty string here means "none", not "unspecified". */
+  platform?: string;
   destination?: string;
   ai_provider?: string;
   schedule?: string;
@@ -242,12 +245,28 @@ async function generateWorkflowJson(params: {
     payload: { model: 'gpt-4o', purpose: 'generate_workflow_json' },
   });
 
-  const prompt = `You are an expert n8n workflow engineer. Generate a complete, valid n8n workflow JSON for this automation:
+  // Phase 9.8.2 -- confirmed live in production (Founder manual re-test
+  // after 9.8.1): a request to "mark/classify/tag/set [field] as [value]
+  // if [condition]" was repeatedly interpreted as needing an external
+  // messaging platform (Telegram) or a provider-specific "order
+  // management" action, when it is really just n8n-nodes-base.if +
+  // n8n-nodes-base.set -- fully supported, deterministic primitives. The
+  // upstream tool schema (lib/agent/tools.ts) now makes platform optional
+  // and gives internal-transformation examples for action/block_blueprint,
+  // but this prompt is the last line of defense: it states the
+  // deterministic-primitive rule FIRST, unconditionally, before any
+  // platform-specific instructions, and only mentions Platform at all when
+  // one was actually given.
+  const hasPlatform = Boolean(params.platform && params.platform.trim());
+
+  const prompt = `You are an expert n8n workflow engineer. Generate a complete, valid n8n workflow JSON for this automation.
+
+CRITICAL RULE -- read this before anything else: many automations only need to branch on a condition and derive/assign a field value (e.g. "mark as VIP/Standard", "classify as high/low priority", "set status to approved/rejected", "tag as qualified/unqualified"). For these, use ONLY n8n-nodes-base.if (branching) and n8n-nodes-base.set (field assignment) -- do NOT invent a messaging step (Telegram, WhatsApp, Slack, email, etc.), a notification, or a CRM/"order management"-style external action unless the request explicitly names a real external platform or asks to send/post/notify something to a named destination. "Mark", "tag", "classify", and "flag" describe a FIELD VALUE CHANGE, not a message to send. When in doubt and no real platform was requested below, prefer if + set over any external action.
 
 Workflow Name: ${params.workflow_name}
 Trigger: ${params.trigger}
 Action: ${params.action}
-Platform: ${params.platform}
+${hasPlatform ? `Platform: ${params.platform}` : 'Platform: none -- this automation has no external platform. Do not introduce one.'}
 ${params.destination ? `Destination: ${params.destination}` : ''}
 ${params.ai_provider ? `AI Provider: ${params.ai_provider}` : ''}
 ${params.schedule ? `Schedule: ${params.schedule}` : ''}
@@ -267,12 +286,12 @@ Return a JSON object with this exact structure:
 
 Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.).
 Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider.
-For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase.
-Forbidden provider names: notification, notification_action, send_message, email, storage, upload, file_upload, team_chat, ai, utility, action, document_extraction, payment_action.
+For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase. n8n-nodes-base.if and n8n-nodes-base.set need NO provider at all (leave provider null) -- they are internal, deterministic nodes, never an external system.
+Forbidden provider names: notification, notification_action, send_message, email, storage, upload, file_upload, team_chat, ai, utility, action, document_extraction, payment_action, order_management, monitoring.
 Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
 Do not emit generic provider placeholders; attach provider metadata directly on every node.
-Do NOT use n8n-nodes-base.code, n8n-nodes-base.function, or any custom-code/scripting node -- arbitrary code execution is not available in this product yet. For data shaping or field mapping, use n8n-nodes-base.set instead (direct field assignment only, no expressions or scripting). For branching, use n8n-nodes-base.if. If the automation genuinely requires custom logic that set/if/an available action cannot express, say so plainly in the explanation rather than inventing a code node.
+Do NOT use n8n-nodes-base.code, n8n-nodes-base.function, or any custom-code/scripting node -- arbitrary code execution is not available in this product yet. For data shaping, field mapping, marking, classifying, or tagging, use n8n-nodes-base.set (direct field assignment only, no expressions or scripting). For branching on a condition, use n8n-nodes-base.if (two output ports: index 0 for true, index 1 for false). If the automation genuinely requires custom logic that set/if/an available action cannot express, say so plainly in the explanation rather than inventing a code node or an unrequested external platform.
 Keep it production-ready and deployable.`;
 
   const response = await openai.chat.completions.create({

@@ -804,25 +804,53 @@ export function deriveWorkflowSummary(graph?: WorkflowGraphSummary): WorkflowSum
   };
 }
 
+// Phase 9.8.2 -- a single generation turn can retry generate_workflow_json
+// several times internally (lib/agent/loop.ts's tool-call rounds) before
+// giving up, and every genuinely-unsupported-node rejection carries the
+// same generic, non-specific userMessage ("This step type isn't available
+// yet.") regardless of which node type triggered it -- confirmed live in
+// production, where one Founder prompt produced three visually identical
+// "Hit a snag" cards for three separate (but equally rejected) generation
+// attempts. Collapsing consecutive, textually-identical error events into
+// one card removes the spam without hiding a genuinely distinct failure
+// (a different label/detail still gets its own card), and the retry count
+// is kept in the card so nothing is silently thrown away.
 export function toProgressCards(events: AgentEvent[]): ProgressCard[] {
-  return events.map((event, index) => {
-    const titleMap: Record<string, string> = {
-      generating_workflow: 'Building your workflow',
-      deploying: 'Deploying',
-      activating: 'Activating',
-      testing: 'Testing',
-      requesting_credential: 'Need a connection',
-      explaining_architecture: 'Putting it together',
-      workflow_ready: 'Ready to go',
-      error: 'Hit a snag',
-    };
+  const titleMap: Record<string, string> = {
+    generating_workflow: 'Building your workflow',
+    deploying: 'Deploying',
+    activating: 'Activating',
+    testing: 'Testing',
+    requesting_credential: 'Need a connection',
+    explaining_architecture: 'Putting it together',
+    workflow_ready: 'Ready to go',
+    error: 'Hit a snag',
+  };
+
+  const deduped: Array<{ event: AgentEvent; count: number }> = [];
+  for (const event of events) {
+    const prev = deduped[deduped.length - 1];
+    const isSameAsPrev =
+      prev &&
+      prev.event.type === event.type &&
+      prev.event.label === event.label &&
+      (prev.event.detail ?? '') === (event.detail ?? '');
+    if (isSameAsPrev) {
+      prev.count += 1;
+    } else {
+      deduped.push({ event, count: 1 });
+    }
+  }
+
+  return deduped.map(({ event, count }, index) => {
     const tone: ProgressCard['tone'] =
       event.type === 'error' ? 'warning' : event.type === 'workflow_ready' ? 'success' : 'working';
+    const detail = sanitizeVisibleText(event.detail, '');
 
     return {
       id: `${event.type}-${index}-${event.label}-${event.detail ?? ''}-${Date.now()}`,
       title: sanitizeVisibleText(titleMap[event.type] ?? event.label, 'Progress update'),
-      detail: sanitizeVisibleText(event.detail, ''),
+      detail: count > 1 ? `${detail} (tried ${count}x)`.trim() : detail,
       tone,
     };
   });

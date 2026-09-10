@@ -17,10 +17,16 @@ export const AGENT_TOOLS: AgentTool[] = [
       description:
         'Generate a production-ready n8n workflow JSON based on the automation requirements. ' +
         'Call this as soon as user intent is clear enough to start building. ' +
-        'Returns workflow nodes, connections, and a human explanation of how it works.',
+        'Returns workflow nodes, connections, and a human explanation of how it works. ' +
+        'Many valid automations involve NO external platform at all -- they only branch on a ' +
+        'condition and assign/derive a field (e.g. "mark as VIP", "classify as high priority", ' +
+        '"set status to approved"). For those, omit platform entirely and set action to a plain ' +
+        'internal transformation like set_field or classify_record -- do not invent a messaging, ' +
+        'notification, or CRM step just because the request uses a verb like "mark"/"tag"/"notify ' +
+        'the system"/"update".',
       parameters: {
         type: 'object',
-        required: ['workflow_name', 'trigger', 'action', 'platform', 'nodes_description'],
+        required: ['workflow_name', 'trigger', 'action', 'nodes_description'],
         properties: {
           workflow_name: {
             type: 'string',
@@ -32,11 +38,21 @@ export const AGENT_TOOLS: AgentTool[] = [
           },
           action: {
             type: 'string',
-            description: 'The primary action: auto_reply, send_slack_message, save_to_airtable, send_email, create_ticket, notify',
+            description:
+              'The primary action. External-side-effect examples: auto_reply, send_slack_message, ' +
+              'save_to_airtable, send_email, create_ticket, notify. Internal-only examples (no ' +
+              'platform, no external side effect): set_field, classify_record, update_status, ' +
+              'branch_and_set -- use one of these when the request is really about deriving or ' +
+              'assigning a value based on a condition, not sending/posting/notifying anything ' +
+              'externally.',
           },
           platform: {
             type: 'string',
-            description: 'Main platform/integration: gmail, shopify, slack, airtable, instagram, whatsapp',
+            description:
+              'Main external platform/integration, ONLY if one is genuinely involved: gmail, ' +
+              'shopify, slack, airtable, instagram, whatsapp, telegram. Omit this field entirely ' +
+              'for automations that only transform/branch data internally (no external system is ' +
+              'contacted) -- never guess or default to a platform that was not actually requested.',
           },
           destination: {
             type: 'string',
@@ -67,7 +83,11 @@ export const AGENT_TOOLS: AgentTool[] = [
           block_blueprint: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Ordered workflow block hints from block composer, e.g. trigger_schedule, scraper, ai_reasoner, messaging_send',
+            description:
+              'Ordered workflow block hints from block composer. External-side-effect examples: ' +
+              'trigger_schedule, scraper, ai_reasoner, messaging_send. Internal/deterministic ' +
+              'examples (no platform involved): condition, set_field -- use these for branch-and-' +
+              'assign automations like "if X then mark/classify/tag as Y".',
           },
           nodes_description: {
             type: 'string',
