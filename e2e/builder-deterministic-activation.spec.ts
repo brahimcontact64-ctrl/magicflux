@@ -56,6 +56,11 @@ test('Approve + Deploy reproduces the exact Founder journey deterministically, w
   // Real AI generation -- give it real time.
   const deployButton = page.getByRole('button', { name: /approve \+ deploy/i });
   await expect(deployButton).toBeVisible({ timeout: 60_000 });
+  // The card can render briefly blocked (integration/persistence status
+  // still settling from a just-arrived SSE event) before becoming
+  // clickable -- wait for the stable, enabled state rather than racing it.
+  await expect(deployButton).toBeEnabled({ timeout: 15_000 });
+  await page.waitForTimeout(500);
 
   // Confirm the classification-drift bug did not resurface during
   // generation itself before we even click deploy.
