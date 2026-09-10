@@ -16,8 +16,8 @@ const FOOTER_LINKS = {
   ],
   Company: [
     { label: 'Waitlist', href: '#waitlist' },
-    { label: 'Privacy', href: '#' },
-    { label: 'Terms', href: '#' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Terms', href: '/terms' },
     { label: 'Contact', href: 'mailto:hello@magicflux.ai' }
   ]
 };

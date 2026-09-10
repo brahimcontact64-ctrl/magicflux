@@ -93,6 +93,14 @@ export default function LoginPage() {
             Create one free
           </Link>
         </p>
+
+        {/* Phase 9.7 — login has no Footer today; make Privacy/Terms
+            reachable here too rather than only from signup. */}
+        <p className="text-center text-xs text-muted-foreground">
+          <Link href="/terms" className="hover:underline">Terms</Link>
+          <span className="mx-2">·</span>
+          <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
+        </p>
       </div>
     </div>
   );

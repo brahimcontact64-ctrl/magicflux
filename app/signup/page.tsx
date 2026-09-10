@@ -49,8 +49,13 @@ export default function SignupPage() {
 
         <div className="rounded-xl border border-border bg-muted/20 p-3 text-center">
           <p className="text-xs text-muted-foreground">
-            Free: generate and preview automations.{' '}
-            <span className="text-primary font-medium">Pro ($29/mo) unlocks live activation.</span>
+            {/* Phase 9.7 product-truth fix — this previously advertised a
+                "Pro ($29/mo) unlocks live activation" gate that no longer
+                reflects reality: Stripe checkout is disabled (paid plans
+                aren't purchasable) and Free Beta mode grants every account
+                full access, including live activation, at no cost (see
+                lib/billing/plan-limits.ts's applyBetaExpansion()). */}
+            <span className="text-primary font-medium">Free Beta:</span> build, activate, and run automations at no cost while MagicFlux is in Beta.
           </p>
         </div>
 
@@ -98,6 +103,17 @@ export default function SignupPage() {
             {loading ? 'Creating account...' : 'Create account'}
           </Button>
         </form>
+
+        {/* Phase 9.7 — informational notice, not a consent checkbox: no
+            persistence mechanism exists for a provable "I agree" record
+            today, and adding one would need a migration (see Phase 9.7
+            report). This links to the real pages and is honest about what
+            it is -- a notice, not a recorded acknowledgement. */}
+        <p className="text-center text-xs text-muted-foreground">
+          By creating an account, you agree to our{' '}
+          <Link href="/terms" className="text-primary hover:underline">Terms</Link>{' '}and{' '}
+          <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
+        </p>
 
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{' '}
