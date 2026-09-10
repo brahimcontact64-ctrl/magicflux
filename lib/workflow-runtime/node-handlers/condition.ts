@@ -8,6 +8,22 @@ type ConditionRule = {
   value?: unknown;
 };
 
+/**
+ * Phase 9.8.2 -- n8n-native IF-node condition rule, as actually generated
+ * by lib/agent/executor.ts's generateWorkflowJson() (which explicitly
+ * instructs the model to "use real n8n node types"). Distinct shape from
+ * the legacy ConditionRule above: keyed by type bucket (number/string/
+ * boolean/dateTime), each entry is {value1, operation, value2} rather than
+ * {field, operator, value}.
+ */
+type N8nConditionRule = { value1?: unknown; value2?: unknown; operation?: string };
+type N8nConditionsShape = {
+  number?: N8nConditionRule[];
+  string?: N8nConditionRule[];
+  boolean?: N8nConditionRule[];
+  dateTime?: N8nConditionRule[];
+};
+
 function asRecord(v: unknown): Record<string, unknown> {
   if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
   return {};
@@ -45,6 +61,84 @@ function evaluateCondition(rule: ConditionRule, data: Record<string, unknown>): 
   }
 }
 
+// Phase 9.8.2 -- deliberately narrow, not a general n8n expression
+// evaluator (the runtime's own documented policy -- see set.ts's header
+// comment -- is that `={{ ... }}` expressions are never interpreted).
+// This recognizes exactly one well-defined, extremely common shape: a
+// direct top-level reference to the incoming data, e.g.
+// `={{$json["orderAmount"]}}` or `={{$json.orderAmount}}`. Anything else
+// (nested paths, function calls, arithmetic, string concatenation) is left
+// unresolved on purpose -- resolveFieldReference() returns the original
+// string, which will simply fail to match value2 as expected rather than
+// silently guessing at a more complex expression's meaning.
+const JSON_FIELD_REFERENCE = /^=\{\{\s*\$json(?:\[["']([^"']+)["']\]|\.([a-zA-Z0-9_]+))\s*\}\}$/;
+
+function resolveFieldReference(value: unknown, data: Record<string, unknown>): unknown {
+  if (typeof value !== 'string') return value;
+  const match = value.trim().match(JSON_FIELD_REFERENCE);
+  if (!match) return value;
+  const fieldName = match[1] ?? match[2];
+  return getNestedValue(data, fieldName);
+}
+
+function isN8nConditionsShape(value: unknown): value is N8nConditionsShape {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return ['number', 'string', 'boolean', 'dateTime'].some((key) => Array.isArray(v[key]));
+}
+
+function evaluateN8nRule(rule: N8nConditionRule, data: Record<string, unknown>, logs: string[], typeBucket: string): boolean {
+  const left = resolveFieldReference(rule.value1, data);
+  const right = resolveFieldReference(rule.value2, data);
+  const operation = String(rule.operation ?? 'equal');
+
+  let result: boolean;
+  switch (operation) {
+    case 'larger':
+    case 'greaterThan':
+      result = Number(left) > Number(right);
+      break;
+    case 'largerEqual':
+      result = Number(left) >= Number(right);
+      break;
+    case 'smaller':
+    case 'lessThan':
+      result = Number(left) < Number(right);
+      break;
+    case 'smallerEqual':
+      result = Number(left) <= Number(right);
+      break;
+    case 'notEqual':
+      result = String(left) !== String(right);
+      break;
+    case 'contains':
+      result = typeof left === 'string' && left.includes(String(right));
+      break;
+    case 'notContains':
+      result = typeof left === 'string' && !left.includes(String(right));
+      break;
+    case 'startsWith':
+      result = typeof left === 'string' && left.startsWith(String(right));
+      break;
+    case 'endsWith':
+      result = typeof left === 'string' && left.endsWith(String(right));
+      break;
+    case 'isEmpty':
+      result = left === undefined || left === null || left === '';
+      break;
+    case 'isNotEmpty':
+      result = !(left === undefined || left === null || left === '');
+      break;
+    case 'equal':
+    default:
+      result = String(left) === String(right);
+      break;
+  }
+
+  logs.push(`Condition[${typeBucket}]: ${JSON.stringify(rule.value1)} ${operation} ${JSON.stringify(rule.value2)} (resolved: ${JSON.stringify(left)} vs ${JSON.stringify(right)}) → ${result ? 'TRUE' : 'FALSE'}`);
+  return result;
+}
+
 export async function conditionHandler(
   node: EngineNode,
   inputData: unknown,
@@ -53,33 +147,58 @@ export async function conditionHandler(
   const logs: string[] = [];
   const data = asRecord(inputData);
   const params = asRecord(node.parameters);
+  const conditions = params.conditions;
 
-  // Pull condition rules from typical n8n IF node structure
-  const conditions = (params.conditions ?? []) as ConditionRule[];
+  // Phase 9.8.2 -- n8n-native shape, exactly what generateWorkflowJson()
+  // actually produces for a real n8n-nodes-base.if node. Checked first
+  // since this is now the expected/common case.
+  if (isN8nConditionsShape(conditions)) {
+    const combinator = String(params.combinator ?? params.combineOperation ?? 'and').toLowerCase();
+    const allRules = (['number', 'string', 'boolean', 'dateTime'] as const).flatMap((bucket) =>
+      (conditions[bucket] ?? []).map((rule) => ({ rule, bucket }))
+    );
 
-  if (!Array.isArray(conditions) || conditions.length === 0) {
-    logs.push('Condition node: no conditions defined — passing through on true branch.');
+    if (allRules.length === 0) {
+      logs.push('Condition node: n8n conditions object present but empty — passing through on true branch.');
+      return { status: 'success', outputData: { ...data, _conditionResult: true }, logs };
+    }
+
+    const results = allRules.map(({ rule, bucket }) => evaluateN8nRule(rule, data, logs, bucket));
+    const passed = combinator === 'or' ? results.some(Boolean) : results.every(Boolean);
+    logs.push(`Overall condition result (${combinator.toUpperCase()}): ${passed ? 'TRUE (branch 0)' : 'FALSE (branch 1)'}`);
+
     return {
       status: 'success',
-      outputData: { ...data, _conditionResult: true },
+      outputData: { ...data, _conditionResult: passed, _conditionBranch: passed ? 0 : 1 },
       logs,
     };
   }
 
-  const results = conditions.map((rule, idx) => {
-    const result = evaluateCondition(rule, data);
-    logs.push(
-      `Condition[${idx}]: ${rule.field ?? '?'} ${rule.operator ?? 'exists'} ${String(rule.value ?? '')} → ${result ? 'TRUE' : 'FALSE'}`
-    );
-    return result;
-  });
+  // Legacy custom shape: a flat array of {field, operator, value}.
+  if (Array.isArray(conditions) && conditions.length > 0) {
+    const rules = conditions as ConditionRule[];
+    const results = rules.map((rule, idx) => {
+      const result = evaluateCondition(rule, data);
+      logs.push(
+        `Condition[${idx}]: ${rule.field ?? '?'} ${rule.operator ?? 'exists'} ${String(rule.value ?? '')} → ${result ? 'TRUE' : 'FALSE'}`
+      );
+      return result;
+    });
 
-  const allPass = results.every(Boolean);
-  logs.push(`Overall condition result: ${allPass ? 'TRUE (branch 0)' : 'FALSE (branch 1)'}`);
+    const allPass = results.every(Boolean);
+    logs.push(`Overall condition result: ${allPass ? 'TRUE (branch 0)' : 'FALSE (branch 1)'}`);
 
+    return {
+      status: 'success',
+      outputData: { ...data, _conditionResult: allPass, _conditionBranch: allPass ? 0 : 1 },
+      logs,
+    };
+  }
+
+  logs.push('Condition node: no conditions defined — passing through on true branch.');
   return {
     status: 'success',
-    outputData: { ...data, _conditionResult: allPass, _conditionBranch: allPass ? 0 : 1 },
+    outputData: { ...data, _conditionResult: true },
     logs,
   };
 }
