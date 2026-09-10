@@ -8,7 +8,7 @@ import { expectNoHorizontalOverflow, trackConsoleErrors } from './fixtures';
  * spec needs no test account and is safe to run against production anytime.
  */
 
-const PUBLIC_PAGES = ['/', '/pricing', '/login', '/signup', '/marketplace'];
+const PUBLIC_PAGES = ['/', '/pricing', '/login', '/signup', '/marketplace', '/privacy', '/terms'];
 
 for (const path of PUBLIC_PAGES) {
   test(`${path} renders with no horizontal overflow, no console errors, no raw error text`, async ({ page }) => {

@@ -281,6 +281,13 @@ export default function OnboardingPage() {
             </div>
           </div>
         </div>
+
+        {/* Phase 9.7 — onboarding had no reachable Privacy/Terms link at all. */}
+        <p className="text-center text-xs text-muted-foreground">
+          <Link href="/terms" className="hover:underline">Terms</Link>
+          <span className="mx-2">·</span>
+          <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
+        </p>
       </div>
     </div>
   );
