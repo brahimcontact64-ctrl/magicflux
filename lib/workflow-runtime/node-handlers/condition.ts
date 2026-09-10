@@ -29,11 +29,38 @@ function asRecord(v: unknown): Record<string, unknown> {
   return {};
 }
 
+// Phase 9.8.2 -- the AI generator is not deterministic about field-name
+// casing convention (e.g. it may write `orderAmount` in one generation and
+// `order_amount` in another for the identical semantic field named by the
+// user's own prompt words). A webhook trigger has no fixed input schema --
+// the incoming payload's key casing is whatever the real caller sends --
+// so an exact-key lookup alone would make branching depend on a casing
+// coincidence between the generated condition and the caller's payload.
+// This normalizes to a canonical form (lowercase, alphanumeric only) ONLY
+// as a fallback after an exact match fails. It never merges genuinely
+// different field names -- "orderAmount" and "order_amount" normalize to
+// the same string because they ARE the same identifier, just formatted
+// differently; "orderAmount" and "totalAmount" do not collide.
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findCaseInsensitiveKey(obj: Record<string, unknown>, field: string): string | undefined {
+  const target = normalizeKey(field);
+  return Object.keys(obj).find((k) => normalizeKey(k) === target);
+}
+
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.');
   let cur: unknown = obj;
   for (const part of parts) {
-    cur = asRecord(cur)[part];
+    const rec = asRecord(cur);
+    if (part in rec) {
+      cur = rec[part];
+    } else {
+      const matchedKey = findCaseInsensitiveKey(rec, part);
+      cur = matchedKey !== undefined ? rec[matchedKey] : undefined;
+    }
     if (cur === undefined) return undefined;
   }
   return cur;

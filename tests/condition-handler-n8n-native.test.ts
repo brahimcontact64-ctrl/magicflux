@@ -97,6 +97,20 @@ describe('conditionHandler — n8n-native IF condition shape (Phase 9.8.2)', () 
     expect(result.outputData).toMatchObject({ _conditionBranch: 1 });
   });
 
+  it('resolves the field by name even when the payload uses a different casing convention than the generated condition (e.g. orderAmount vs order_amount) -- the AI is not deterministic about casing, so branching must not depend on a casing coincidence', async () => {
+    const camelNode = makeIfNode({ number: [{ value1: '={{$json["orderAmount"]}}', operation: 'larger', value2: 100 }] });
+    expect((await conditionHandler(camelNode, { order_amount: 150 }, CTX)).outputData).toMatchObject({ _conditionBranch: 0 });
+    expect((await conditionHandler(camelNode, { order_amount: 50 }, CTX)).outputData).toMatchObject({ _conditionBranch: 1 });
+
+    const snakeNode = makeIfNode({ number: [{ value1: '={{$json["order_amount"]}}', operation: 'larger', value2: 100 }] });
+    expect((await conditionHandler(snakeNode, { orderAmount: 150 }, CTX)).outputData).toMatchObject({ _conditionBranch: 0 });
+
+    // Genuinely different field names must still NOT collide.
+    const distinctFieldsNode = makeIfNode({ number: [{ value1: '={{$json["orderAmount"]}}', operation: 'larger', value2: 100 }] });
+    const result = await conditionHandler(distinctFieldsNode, { totalAmount: 150 }, CTX);
+    expect(result.outputData).toMatchObject({ _conditionBranch: 1 });
+  });
+
   it('backward compatibility: the legacy custom {field, operator, value} flat-array shape still works unchanged', async () => {
     const node = makeIfNode([{ field: 'status', operator: 'equals', value: 'approved' }]);
     expect((await conditionHandler(node, { status: 'approved' }, CTX)).outputData).toMatchObject({ _conditionResult: true, _conditionBranch: 0 });
