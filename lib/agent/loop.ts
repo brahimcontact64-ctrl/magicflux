@@ -151,10 +151,28 @@ export async function runAgentLoop(
   const allowDeploymentActions = hasExplicitDeployIntent(latestUserMessage);
   let automationBrain: AutomationBrainResult | undefined;
 
-  try {
-    automationBrain = await analyzeAutomationPrompt(latestUserMessage);
-  } catch (error) {
-    console.warn('[agent-loop] automation brain failed:', error);
+  // Phase 9.8.1 -- a control message (approve/deploy/test/cancel/etc.) sent
+  // once a workflow is already under review carries no automation-domain
+  // content of its own and must not re-run classification at all: doing so
+  // previously fed a content-free string like "Approve and deploy this
+  // workflow now." through analyzeAutomationPrompt() every turn, which
+  // (combined with the now-fixed scoring floors in lib/automation/engine.ts)
+  // was the direct cause of the production classification drift confirmed
+  // in the Phase 9.8 investigation. "Already under review" is approximated
+  // here as: this control phrase is not the very first user turn in the
+  // conversation -- the primary fix (Approve + Deploy is now a deterministic
+  // REST call, never a chat message -- see components/builder/chat-interface.tsx)
+  // means this guard is defense-in-depth for any other control-like message
+  // that still reaches chat, not the only protection.
+  const priorUserTurns = history.filter((m) => m.role === 'user').length;
+  const isControlMessageMidConversation = isControlMessage(latestUserMessage) && priorUserTurns > 1;
+
+  if (!isControlMessageMidConversation) {
+    try {
+      automationBrain = await analyzeAutomationPrompt(latestUserMessage);
+    } catch (error) {
+      console.warn('[agent-loop] automation brain failed:', error);
+    }
   }
 
   await onProgress?.({
@@ -566,6 +584,14 @@ export async function runAgentLoop(
             workflowGraph,
           });
         }
+        // Phase 9.8.1 -- generate_workflow_json now persists the exact
+        // reviewed workflow immediately (lib/agent/executor.ts) and
+        // returns its stable id here, so the frontend can hold a real
+        // workflowId for a deterministic Approve + Deploy call instead of
+        // deferring persistence to a chat-driven "deploy" message.
+        if (result.output.workflow_id) {
+          workflowId = String(result.output.workflow_id);
+        }
       }
 
       // Track activation
@@ -785,6 +811,21 @@ function shouldStartAutonomousBuild(params: {
 function hasExplicitDeployIntent(message: string): boolean {
   const text = message.toLowerCase();
   return /(approve\s*(and)?\s*deploy|deploy\s*(now|it)?|proceed\s*with\s*deploy|ship\s*it|go\s*live|activate\s*workflow|start\s*deployment)/i.test(text);
+}
+
+/**
+ * Phase 9.8.1 -- a short control-style message (approve/deploy/test/cancel/
+ * stop/etc.) carries no automation-domain content of its own and must never
+ * be treated as a fresh automation description for classification purposes.
+ * Deliberately broader than hasExplicitDeployIntent() (which only detects
+ * deploy confirmations specifically) since test/cancel messages need the
+ * same protection from lib/automation/engine.ts's pattern classifier.
+ */
+function isControlMessage(message: string): boolean {
+  const text = message.toLowerCase().trim();
+  if (hasExplicitDeployIntent(text)) return true;
+  return /^(approve|deploy|activate|test( it)?|cancel|stop|abort|pause|resume|undo|yes|no|ok|okay)\b[.!]?$/i.test(text)
+    || /^(run|start)\s+(the\s+)?test\b/i.test(text);
 }
 
 

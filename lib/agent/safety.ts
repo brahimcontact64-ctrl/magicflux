@@ -90,37 +90,18 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
 }
 
+// Phase 9.8.1 -- deploy_workflow_to_n8n/activate_workflow-specific key
+// shaping and approval logic removed along with the tools themselves
+// (lib/agent/tools.ts). buildActionKey() now always hashes the full args
+// object; toolRequiresApproval() defers entirely to the tool policy table.
 export function buildActionKey(toolName: string, args: Record<string, unknown>): string {
-  let keyArgs: Record<string, unknown> = args;
-
-  // Deploy args can include large generated payloads that vary slightly between turns.
-  // Approval should remain bound to the concrete deploy intent within the same session.
-  if (toolName === 'deploy_workflow_to_n8n') {
-    keyArgs = {
-      workflow_id: args.workflow_id ?? null,
-      mode: args.mode ?? null,
-    };
-  }
-
-  if (toolName === 'activate_workflow') {
-    keyArgs = {
-      workflow_id: args.workflow_id ?? null,
-      mode: args.mode ?? null,
-    };
-  }
-
-  const raw = `${toolName}:${stableStringify(keyArgs)}`;
+  const raw = `${toolName}:${stableStringify(args)}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 
 export function toolRequiresApproval(toolName: string, args: Record<string, unknown>): boolean {
-  const toolPolicy = getToolExecutionPolicy(toolName);
-  if (toolPolicy.requiresApproval) return true;
-  if (toolName === 'deploy_workflow_to_n8n') {
-    const name = String(args.workflow_name ?? '').toLowerCase();
-    if (name.includes('cron') || name.includes('schedule')) return true;
-  }
-  return false;
+  void args;
+  return getToolExecutionPolicy(toolName).requiresApproval;
 }
 
 export function isExternalSideEffectTool(toolName: string): boolean {

@@ -20,14 +20,16 @@ class FakeQuery {
   private orderCol: string | null = null;
   private orderAsc = true;
   private limitN: number | null = null;
+  private negFilters: Array<[string, unknown]> = [];
   constructor(private rows: Row[], private op: 'select' | 'delete' = 'select') {}
   eq(col: string, val: unknown): this { this.filters.push([col, val]); return this; }
+  neq(col: string, val: unknown): this { this.negFilters.push([col, val]); return this; }
   select(_cols?: string): this { return this; }
   order(col: string, opts?: { ascending?: boolean }): this { this.orderCol = col; this.orderAsc = opts?.ascending ?? true; return this; }
   limit(n: number): this { this.limitN = n; return this; }
   single(): this { return this; }
   private matched(): Row[] {
-    let result = this.rows.filter((r) => this.filters.every(([c, v]) => r[c] === v));
+    let result = this.rows.filter((r) => this.filters.every(([c, v]) => r[c] === v) && this.negFilters.every(([c, v]) => r[c] !== v));
     if (this.orderCol) {
       const col = this.orderCol;
       result = [...result].sort((a, b) => {
@@ -73,7 +75,8 @@ class FakeTableHandle {
     const rows = this.rows;
     const matchTargets = () => {
       const filters = (q as unknown as { filters: Array<[string, unknown]> }).filters;
-      return rows.filter((r) => filters.every(([c, v]) => r[c] === v));
+      const negFilters = (q as unknown as { negFilters: Array<[string, unknown]> }).negFilters;
+      return rows.filter((r) => filters.every(([c, v]) => r[c] === v) && negFilters.every(([c, v]) => r[c] !== v));
     };
     q.maybeSingle = async () => {
       const targets = matchTargets();
@@ -130,6 +133,27 @@ function seedWorkflow(id: string, workflowJson: unknown, status = 'draft'): void
 beforeEach(() => { fakeDb.tables.clear(); });
 
 describe('activateWorkflow', () => {
+  // Phase 9.8.1 -- tenant isolation regression, required by the Builder
+  // Deterministic Activation Hotfix spec. loadWorkflow() scopes by
+  // .eq('user_id', userId), so a different account activating someone
+  // else's workflow id must be reported as "not found" (IDOR-safe),
+  // never touch the row, and never create a deployment_versions entry.
+  it('a different user activating another account\'s workflow id gets "not found", never activates it', async () => {
+    seedWorkflow('wf-1', validWorkflow());
+    const USER_B = '00000000-0000-4000-8000-0000000000f2';
+
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_B, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors).toContain('Workflow not found');
+
+    const workflow = (fakeDb.tables.get('workflows') ?? [])[0] as Row;
+    expect(workflow.status).toBe('draft'); // untouched
+    expect(fakeDb.tables.get('deployment_versions') ?? []).toHaveLength(0);
+  });
+
   it('freezes a deployment_versions row with status=active and points the workflow at it', async () => {
     seedWorkflow('wf-1', validWorkflow());
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
@@ -183,7 +207,11 @@ describe('activateWorkflow', () => {
     expect(result.errors.some((e) => e.includes('Every Day'))).toBe(true);
   });
 
-  it('re-activation supersedes the previous active version and increments the version number', async () => {
+  // Phase 9.8.1 -- repeated activation of the SAME reviewed content must be
+  // idempotent (no duplicate deployment_versions row); activating genuinely
+  // EDITED content while already active must still freeze a real new
+  // version. Both are required by the Phase 9.8.1 hotfix spec.
+  it('repeated activation of unchanged content is idempotent -- no duplicate deployment_versions row', async () => {
     seedWorkflow('wf-1', validWorkflow());
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
     const first = await activateWorkflow(USER_A, 'wf-1');
@@ -192,11 +220,55 @@ describe('activateWorkflow', () => {
     const second = await activateWorkflow(USER_A, 'wf-1');
     expect(second.success).toBe(true);
     if (!first.success || !second.success) return;
+
+    expect(second.version).toBe(first.version);
+    expect(second.deploymentVersionId).toBe(first.deploymentVersionId);
+    expect(second.alreadyActive).toBe(true);
+
+    const versions = (fakeDb.tables.get('deployment_versions') ?? []).filter((v) => v.workflow_id === 'wf-1');
+    expect(versions).toHaveLength(1);
+    expect(versions[0].status).toBe('active');
+  });
+
+  it('re-activating genuinely edited content (still active, but workflow_json changed) freezes a real new version and supersedes the old one', async () => {
+    seedWorkflow('wf-1', validWorkflow());
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const first = await activateWorkflow(USER_A, 'wf-1');
+    expect(first.success).toBe(true);
+
+    // Simulate PATCH /api/workflows/[id] editing the content of an
+    // already-active workflow (that route never resets status back to
+    // 'draft' -- see lifecycle.ts's stableJson() comment).
+    const rows = fakeDb.tables.get('workflows') ?? [];
+    const row = rows.find((r) => r.id === 'wf-1') as Row;
+    row.workflow_json = { ...validWorkflow(), name: 'Edited workflow' };
+
+    const second = await activateWorkflow(USER_A, 'wf-1');
+    expect(second.success).toBe(true);
+    if (!first.success || !second.success) return;
     expect(second.version).toBe(2);
+    expect(second.deploymentVersionId).not.toBe(first.deploymentVersionId);
+    expect(second.alreadyActive).toBeUndefined();
 
     const versions = fakeDb.tables.get('deployment_versions') ?? [];
     const firstVersion = versions.find((v) => v.id === first.deploymentVersionId) as Row;
     expect(firstVersion.status).toBe('superseded');
+  });
+
+  it('a concurrent second activation call while one is already validating reports "already in progress", not a second frozen version', async () => {
+    seedWorkflow('wf-1', validWorkflow());
+    const rows = fakeDb.tables.get('workflows') ?? [];
+    const row = rows.find((r) => r.id === 'wf-1') as Row;
+    row.status = 'validating'; // simulates another in-flight activate() call that already claimed it
+
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.some((e) => /already in progress/i.test(e))).toBe(true);
+
+    const versions = fakeDb.tables.get('deployment_versions') ?? [];
+    expect(versions).toHaveLength(0);
   });
 
   it('registers a schedule row for a schedule-trigger node in the activated workflow', async () => {

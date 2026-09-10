@@ -444,11 +444,17 @@ function inferCapabilities(
     }
   }
 
-  if (scores.size === 0) {
-    addCapabilityScore(scores, 'chatbot', 'Default capability baseline for automation requests.', 40);
-    addCapabilityScore(scores, 'notifications', 'Automation flows typically need status signaling.', 35);
-  }
-
+  // Phase 9.8.1 -- this used to inject a fake "chatbot" + "notifications"
+  // capability baseline whenever nothing genuinely matched, so a generic
+  // webhook+condition automation (or a control message with zero
+  // automation content, e.g. "Approve and deploy this workflow now.")
+  // would be reported as needing a chatbot/notifications capability it
+  // never asked for. That fabricated signal fed directly into
+  // detectDomainPack() and selectPatterns() below, producing hallucinated
+  // verticals (Customer Support, WhatsApp Sales Agent, etc.) for prompts
+  // with no such content. Reporting zero inferred capabilities here is the
+  // truthful result when no real signal exists -- callers already treat
+  // an empty capability list correctly (filters/joins degrade to "none").
   return filterCapabilityInferences(
     Array.from(scores.entries())
       .map(([key, value]) => ({ key, reason: value.reason, confidence: value.confidence }))
@@ -714,6 +720,19 @@ function scorePattern(prompt: string, inferredCapabilities: string[], row: Patte
   const capOverlap = requiredCaps.filter((cap) => inferredCapabilities.includes(cap)).length;
   const capScore = capOverlap * 10;
   const popularityScore = Math.min(20, Math.max(0, popularity / 5));
+
+  // Phase 9.8.1 -- popularity must never be independent evidence of
+  // relevance, only a tiebreaker among patterns that already have a real
+  // keyword or capability match. Without this floor, a popular-but-
+  // unrelated pattern (e.g. "Whatsapp Sales Agent") could clear the
+  // selectPatterns() `score > 0` threshold for a prompt with zero
+  // WhatsApp signal, purely because it's commonly used elsewhere --
+  // exactly the classification-drift bug confirmed in the Phase 9.8
+  // production investigation (a generic webhook+condition automation, and
+  // separately a content-free confirmation message, both got matched to
+  // unrelated verticals this way).
+  const hasGenuineSignal = keywordScore > 0 || capScore > 0;
+  if (!hasGenuineSignal) return 0;
 
   return keywordScore + capScore + popularityScore;
 }

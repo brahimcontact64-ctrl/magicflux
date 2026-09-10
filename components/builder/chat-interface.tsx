@@ -168,6 +168,9 @@ type BuilderRuntimeState = {
   approvalState: ApprovalState;
   liveWorkflow?: LiveWorkflowStatus;
   activeAssistantMessageId?: string;
+  // Phase 9.8.1 -- the exact persisted workflow row id, set as soon as
+  // generation succeeds. Approve + Deploy uses this directly.
+  persistedWorkflowId?: string | null;
 };
 
 type StreamToolEvent = {
@@ -595,10 +598,14 @@ function DeployActionCard({
   blocked,
   blockedReason,
   onDeploy,
+  activating,
+  error,
 }: {
   blocked: boolean;
   blockedReason?: string;
   onDeploy: () => void;
+  activating: boolean;
+  error?: string | null;
 }) {
   return (
     <div className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2">
@@ -606,15 +613,21 @@ function DeployActionCard({
       <p className="text-xs text-muted-foreground mt-1">
         {blocked
           ? (blockedReason ?? 'Connect required integrations first, then approve deployment.')
-          : 'Workflow is ready for approval and deployment.'}
+          : activating
+            ? 'Activating your automation...'
+            : 'Workflow is ready for approval and deployment.'}
       </p>
       <button
         onClick={onDeploy}
-        disabled={blocked}
+        disabled={blocked || activating}
         className="mt-2 inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-violet-500/35 enabled:hover:bg-violet-500/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Approve + Deploy
+        {activating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+        {activating ? 'Activating...' : 'Approve + Deploy'}
       </button>
+      {error ? (
+        <p className="mt-2 text-xs text-red-500" role="alert">{error}</p>
+      ) : null}
     </div>
   );
 }
@@ -685,6 +698,11 @@ export function ChatInterface({
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState(THINKING_STEPS[0]);
+  // Phase 9.8.1 -- Approve + Deploy state. Deliberately separate from
+  // isThinking/the chat pipeline: activation is a plain REST call, not a
+  // conversation turn.
+  const [isActivating, setIsActivating] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionId = useRef(runtimeState.session.id);
@@ -768,6 +786,11 @@ export function ChatInterface({
       approvalRequests?: Array<{ actionKey: string; actionType: string; reason: string; status: string }>;
       integrationWizard?: { autoLaunch: boolean; required: string[] };
       workflow?: { id: string; url: string; active: boolean } | null;
+      // Phase 9.8.1 -- the exact persisted workflow row id as soon as
+      // generation succeeds, independent of the legacy `workflow` field
+      // above. Approve + Deploy uses this for a deterministic
+      // POST /api/workflows/[id]/lifecycle call, never a chat message.
+      persistedWorkflowId?: string | null;
       workflowGraph?: WorkflowGraphSummary | null;
       automationBrain?: AutomationBrainSummary | null;
       safety?: { mode: 'safe' | 'staging' | 'production' };
@@ -1029,6 +1052,11 @@ export function ChatInterface({
           },
           liveWorkflow,
           activeAssistantMessageId: assistantId,
+          // Phase 9.8.1 -- once set, never cleared by a later turn that
+          // simply didn't mention it (e.g. a follow-up chat message after
+          // generation) -- Approve + Deploy must keep working off the last
+          // real persisted id for this conversation.
+          persistedWorkflowId: typedPayload.persistedWorkflowId ?? prev.persistedWorkflowId ?? null,
         };
       });
 
@@ -1069,6 +1097,69 @@ export function ChatInterface({
     } finally {
       setIsThinking(false);
       setThinkingLabel(THINKING_STEPS[0]);
+    }
+  }
+
+  /**
+   * Phase 9.8.1 -- root-cause fix for the Phase 9.8 production incident.
+   * Approve + Deploy is now a deterministic REST call against the exact
+   * persisted workflow the user reviewed:
+   *   POST /api/workflows/[workflowId]/lifecycle  { action: 'activate' }
+   *
+   * Deliberately does NOT call handleSend()/POST /api/conversation/stream.
+   * There is zero LLM invocation, zero automation-domain reclassification,
+   * zero generate_workflow_json call, and zero legacy n8n deploy path in
+   * this function -- it is a plain fetch to the already-certified native
+   * runtime's activation endpoint (lib/workflow/lifecycle.ts's
+   * activateWorkflow()), the same one the Dashboard's Production Control
+   * already uses. isActivating both disables the button immediately (no
+   * duplicate request from a rapid double-click) and reflects the request
+   * truthfully in the UI; a failure never renders as success, and
+   * activateWorkflow()'s own idempotency guard means even a request that
+   * *does* slip through as a genuine second call cannot create a second
+   * deployment_versions row for the same reviewed content.
+   */
+  async function handleApproveDeploy() {
+    const workflowId = runtimeState.persistedWorkflowId;
+    if (!workflowId || isActivating) return;
+
+    setDeployError(null);
+    setIsActivating(true);
+    try {
+      const res = await fetch(`/api/workflows/${workflowId}/lifecycle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ action: 'activate' }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success: true; status: string; alreadyActive?: boolean }
+        | { success: false; errors?: string[]; error?: string; message?: string }
+        | null;
+
+      if (!res.ok || !body?.success) {
+        const message =
+          (body && !body.success && (body.errors?.[0] || body.message || body.error)) ||
+          'Activation failed. Please try again.';
+        setDeployError(sanitizeVisibleText(message, 'Activation failed. Please try again.'));
+        return;
+      }
+
+      const webhookUrl = `${window.location.origin}/api/workflows/${workflowId}/webhook`;
+      setRuntimeState((prev) => ({
+        ...prev,
+        deployState: {
+          ...prev.deployState,
+          workflowActive: true,
+          workflowUrl: webhookUrl,
+        },
+      }));
+    } catch {
+      setDeployError('Network error while activating. Please try again.');
+    } finally {
+      setIsActivating(false);
     }
   }
 
@@ -1203,15 +1294,19 @@ export function ChatInterface({
                   ) : null}
                   {isActiveAssistant && runtimeState.workflowGraph && !runtimeState.deployState.workflowActive ? (
                     <DeployActionCard
-                      blocked={runtimeState.deployState.blocked}
+                      blocked={runtimeState.deployState.blocked || !runtimeState.persistedWorkflowId}
                       blockedReason={
                         runtimeState.deployState.blocked
                           ? runtimeState.automationBrain?.credentialIntelligence?.some((c) => !c.ready && c.missing.length > 0)
                             ? `Connect required integrations first: ${runtimeState.automationBrain.credentialIntelligence.filter((c) => !c.ready).map((c) => c.displayName).join(', ')}`
                             : 'Connect required integrations first, then approve deployment.'
-                          : undefined
+                          : !runtimeState.persistedWorkflowId
+                            ? 'Still saving your workflow — try again in a moment.'
+                            : undefined
                       }
-                      onDeploy={() => handleSend('Approve and deploy this workflow now.')}
+                      onDeploy={handleApproveDeploy}
+                      activating={isActivating}
+                      error={deployError}
                     />
                   ) : null}
                   {isActiveAssistant ? <ApprovalCards approvals={runtimeState.approvalState.requests} /> : null}

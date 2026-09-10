@@ -77,49 +77,19 @@ export const AGENT_TOOLS: AgentTool[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'deploy_workflow_to_n8n',
-      description:
-        'Deploy a generated workflow JSON to the local n8n instance. ' +
-        'Call this after generate_workflow_json succeeds. ' +
-        'Returns the workflow ID and URL.',
-      parameters: {
-        type: 'object',
-        required: ['workflow_json', 'workflow_name'],
-        properties: {
-          workflow_json: {
-            type: 'string',
-            description: 'The stringified n8n workflow JSON to deploy',
-          },
-          workflow_name: {
-            type: 'string',
-            description: 'Name for the workflow',
-          },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'activate_workflow',
-      description:
-        'Activate a deployed workflow in n8n so it starts listening for triggers. ' +
-        'Call this after deploy_workflow_to_n8n and credentials have been configured.',
-      parameters: {
-        type: 'object',
-        required: ['workflow_id'],
-        properties: {
-          workflow_id: {
-            type: 'string',
-            description: 'The n8n workflow ID to activate',
-          },
-        },
-      },
-    },
-  },
+  // Phase 9.8.1 -- deploy_workflow_to_n8n and activate_workflow removed.
+  // They deployed to an external n8n instance (misconfigured to
+  // localhost:5678 in production -- confirmed by the failed deployment_versions
+  // row from the Phase 9.8 Founder incident) and never persisted to this
+  // app's own `workflows` table, unlike the canonical native runtime
+  // (activateWorkflow() / POST /api/workflows/[id]/lifecycle). Reference
+  // audit confirmed no legitimate feature depends on these tools or on
+  // deploy_queue's routing for them: the Founder-only Managed Setup admin
+  // flow (app/api/admin/deploy/route.ts) makes its own direct n8n fetch()
+  // calls, entirely independent of this agent tool-calling loop. Approve +
+  // Deploy in the Builder is now a deterministic REST call
+  // (components/builder/chat-interface.tsx), never a chat message these
+  // tools could be invoked from.
   {
     type: 'function',
     function: {

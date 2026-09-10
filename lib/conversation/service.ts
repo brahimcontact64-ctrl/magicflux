@@ -184,6 +184,13 @@ export type ConversationTurnPayload = {
     url?: string;
     active: boolean;
   } | null;
+  // Phase 9.8.1 -- the exact persisted workflow row id as soon as
+  // generation succeeds, independent of `workflow` above (which stays
+  // gated behind the legacy workflow_complete/external-n8n concept). This
+  // is what the Builder's Approve + Deploy button now uses for a
+  // deterministic POST /api/workflows/[id]/lifecycle call -- never a chat
+  // message.
+  persistedWorkflowId: string | null;
   workflowGraph: Record<string, unknown> | null;
   agentTasks: unknown[];
   automationBrain: {
@@ -490,6 +497,7 @@ export async function processConversationTurn(params: {
       autoLaunch: resolvedIntegrations.length > 0,
       required: resolvedIntegrations,
     },
+    persistedWorkflowId: agentResult.workflow_id ?? null,
     workflow: agentResult.workflow_complete
       ? {
           id: agentResult.workflow_id,

@@ -36,13 +36,17 @@ let tables: Record<string, Row[]>;
 
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
+  private negFilters: Array<[string, unknown]> = [];
   private patch: Row | null = null;
   constructor(private rows: Row[]) {}
   eq(col: string, val: unknown): this { this.filters.push([col, val]); return this; }
+  neq(col: string, val: unknown): this { this.negFilters.push([col, val]); return this; }
+  order(): this { return this; }
+  limit(): this { return this; }
   select(): this { return this; }
   update(patch: Row): this { this.patch = patch; return this; }
   private matched(): Row[] {
-    const m = this.rows.filter(r => this.filters.every(([c, v]) => r[c] === v));
+    const m = this.rows.filter(r => this.filters.every(([c, v]) => r[c] === v) && this.negFilters.every(([c, v]) => r[c] !== v));
     if (this.patch) for (const row of m) Object.assign(row, this.patch);
     return m;
   }

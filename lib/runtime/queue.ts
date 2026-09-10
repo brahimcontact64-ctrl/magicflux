@@ -31,8 +31,6 @@ export type RuntimeQueueName =
   | 'ai_task_queue';
 
 export type RuntimeQueueTaskType =
-  | 'deploy_workflow'
-  | 'activate_workflow'
   | 'test_workflow'
   | 'get_workflow_status'
   | 'get_execution_logs'
@@ -266,9 +264,14 @@ export async function enqueueRuntimeJob(params: {
   };
 }
 
+// Phase 9.8.1 -- deploy_workflow_to_n8n/activate_workflow routing removed
+// (they used to return 'deploy_queue', now dead: nothing enqueues these
+// tool names anymore -- see lib/agent/tools.ts's removal comment). The
+// 'deploy_queue' queue name itself is left in RuntimeQueueName/worker
+// startup/health-check listings as harmless, unused infrastructure rather
+// than risk a wider change outside this hotfix's scope.
 export function runtimeQueueForTool(toolName: string): RuntimeQueueName {
   if (toolName === 'generate_workflow_json' || toolName === 'request_credential') return 'planner_queue';
-  if (toolName === 'deploy_workflow_to_n8n' || toolName === 'activate_workflow') return 'deploy_queue';
   if (toolName === 'test_workflow') return 'execution_queue';
   if (toolName === 'get_workflow_status' || toolName === 'get_execution_logs') return 'monitoring_queue';
   if (toolName.includes('ai_') || toolName.includes('reason')) return 'ai_task_queue';
@@ -276,8 +279,6 @@ export function runtimeQueueForTool(toolName: string): RuntimeQueueName {
 }
 
 export function runtimeTaskTypeForTool(toolName: string): RuntimeQueueTaskType {
-  if (toolName === 'deploy_workflow_to_n8n') return 'deploy_workflow';
-  if (toolName === 'activate_workflow') return 'activate_workflow';
   if (toolName === 'test_workflow') return 'test_workflow';
   if (toolName === 'get_workflow_status') return 'get_workflow_status';
   if (toolName === 'get_execution_logs') return 'get_execution_logs';

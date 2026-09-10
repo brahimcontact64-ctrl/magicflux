@@ -4,7 +4,7 @@ export type AgentName = 'planner' | 'integration' | 'deploy' | 'monitoring' | 'r
 
 export function agentForTool(toolName: string): AgentName {
   if (['validate_credential', 'request_credential'].includes(toolName)) return 'integration';
-  if (['deploy_workflow_to_n8n', 'activate_workflow', 'generate_workflow_json'].includes(toolName)) return 'deploy';
+  if (toolName === 'generate_workflow_json') return 'deploy';
   if (['get_workflow_status', 'get_execution_logs', 'test_workflow'].includes(toolName)) return 'monitoring';
   return 'planner';
 }

@@ -51,26 +51,8 @@ export const TOOL_EXECUTION_POLICIES: Record<string, ToolExecutionPolicy> = {
     retry: { attempts: 1, baseDelayMs: 300, maxDelayMs: 1000 },
     concurrency: { group: 'integration', max: 6 },
   },
-  deploy_workflow_to_n8n: {
-    tool: 'deploy_workflow_to_n8n',
-    riskLevel: 'high',
-    allowedModes: ['staging', 'production'],
-    requiresApproval: true,
-    timeoutMs: 90_000,
-    supportsRollback: true,
-    retry: { attempts: 2, baseDelayMs: 600, maxDelayMs: 5000 },
-    concurrency: { group: 'deploy', max: 2 },
-  },
-  activate_workflow: {
-    tool: 'activate_workflow',
-    riskLevel: 'high',
-    allowedModes: ['production'],
-    requiresApproval: true,
-    timeoutMs: 60_000,
-    supportsRollback: true,
-    retry: { attempts: 2, baseDelayMs: 800, maxDelayMs: 5000 },
-    concurrency: { group: 'deploy', max: 2 },
-  },
+  // Phase 9.8.1 -- deploy_workflow_to_n8n and activate_workflow policy
+  // entries removed along with the tools themselves (lib/agent/tools.ts).
   test_workflow: {
     tool: 'test_workflow',
     riskLevel: 'medium',

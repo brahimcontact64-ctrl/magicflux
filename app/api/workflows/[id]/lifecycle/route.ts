@@ -67,7 +67,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       const status = result.errors.includes('Workflow not found') ? 404 : 422;
       return NextResponse.json({ success: false, status: result.status, errors: result.errors }, { status });
     }
-    return NextResponse.json({ success: true, status: result.status, version: result.version, deploymentVersionId: result.deploymentVersionId });
+    return NextResponse.json({
+      success: true,
+      status: result.status,
+      version: result.version,
+      deploymentVersionId: result.deploymentVersionId,
+      alreadyActive: result.alreadyActive ?? false,
+    });
   }
 
   const handlers: Record<Exclude<Action, 'activate'>, (userId: string, workflowId: string) => Promise<{ success: boolean; error?: string }>> = {

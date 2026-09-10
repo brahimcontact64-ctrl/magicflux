@@ -1,19 +1,13 @@
 import {
-  activateWorkflow as n8nActivate,
-  deactivateWorkflow as n8nDeactivate,
-  createWorkflow,
   getWorkflowStatus,
   listExecutions,
   runTestExecution,
-  getN8nErrorDetails,
   type N8nConfig,
 } from '@/lib/ai-engine/n8n-deployer';
-import { withExponentialBackoff } from '@/lib/agent/recovery';
 import { createServiceClient } from '@/lib/supabase-server';
-import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { emitRuntimeEvent } from './events';
 import { appendExecutionEvent } from './event-store';
-import { pinWorkflowVersion, deadLetterExecutionCommands } from './command-bus';
+import { deadLetterExecutionCommands } from './command-bus';
 import type { RuntimeQueuePayload, RuntimeQueueName } from './queue';
 import { endSpan, startSpan } from './tracing';
 import { incrementWorkerJobs } from './worker-registry';
@@ -55,8 +49,6 @@ function getN8nConfig(): N8nConfig {
   };
 }
 
-const deploymentManager = new DeploymentManager();
-
 type RuntimeJob<T> = {
   data: T;
   id: string | number | undefined;
@@ -73,175 +65,13 @@ type RuntimeWorker = {
   pause: () => Promise<void>;
 };
 
-type WorkflowPayloadData = { nodes: object[]; connections: object };
-
-function readWorkflowData(args: Record<string, unknown>): WorkflowPayloadData {
-  try {
-    const parsed = JSON.parse(String(args.workflow_json ?? '{}')) as {
-      nodes?: object[];
-      connections?: object;
-    };
-    return {
-      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
-      connections: parsed.connections ?? {},
-    };
-  } catch {
-    return { nodes: [], connections: {} };
-  }
-}
-
-function deploymentAttemptId(jobId: string): string {
-  return `queue-${jobId}`;
-}
-
-async function upsertDeploymentAttempt(params: {
-  userId: string | null;
-  workflowId: string | undefined;
-  jobId: string;
-  status: 'deploying' | 'active' | 'failed';
-  workflowData: WorkflowPayloadData;
-  n8nWorkflowId?: string;
-  metadata?: Record<string, unknown>;
-}): Promise<void> {
-  if (!params.userId || !params.workflowId) return;
-
-  const db = createServiceClient();
-  const deploymentId = deploymentAttemptId(params.jobId);
-
-  const { data: existing } = await db
-    .from('deployment_versions')
-    .select('id, metadata')
-    .eq('user_id', params.userId)
-    .eq('workflow_id', params.workflowId)
-    .eq('deployment_id', deploymentId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!existing) {
-    if (params.status === 'active') {
-      await deploymentManager.recordDeployment(
-        params.userId,
-        params.workflowId,
-        deploymentId,
-        params.workflowData,
-        {
-          n8nWorkflowId: params.n8nWorkflowId,
-          metadata: {
-            source: 'runtime_worker',
-            job_id: params.jobId,
-            ...(params.metadata ?? {}),
-          },
-        }
-      );
-      return;
-    }
-
-    const { data: latest } = await db
-      .from('deployment_versions')
-      .select('version')
-      .eq('user_id', params.userId)
-      .eq('workflow_id', params.workflowId)
-      .order('version', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextVersion = Number(latest?.version ?? 0) + 1;
-
-    const { error: insertError } = await db.from('deployment_versions').insert({
-      user_id: params.userId,
-      workflow_id: params.workflowId,
-      version: nextVersion,
-      deployment_id: deploymentId,
-      n8n_workflow_id: params.n8nWorkflowId ?? null,
-      status: params.status,
-      deployed_at: new Date().toISOString(),
-      workflow_data: params.workflowData,
-      metadata: {
-        source: 'runtime_worker',
-        job_id: params.jobId,
-        ...(params.metadata ?? {}),
-      },
-    });
-
-    if (insertError) {
-      // Fallback to an active deployment row so persistence gates are still met.
-      const created = await deploymentManager.recordDeployment(
-        params.userId,
-        params.workflowId,
-        deploymentId,
-        params.workflowData,
-        {
-          n8nWorkflowId: params.n8nWorkflowId,
-          metadata: {
-            source: 'runtime_worker',
-            job_id: params.jobId,
-            fallback_from_status: params.status,
-            persistence_error: insertError.message,
-            ...(params.metadata ?? {}),
-          },
-        }
-      );
-
-      await db
-        .from('deployment_versions')
-        .update({ status: params.status })
-        .eq('id', created.id);
-    }
-
-    return;
-  }
-
-  const mergedMetadata = {
-    ...((existing.metadata ?? {}) as Record<string, unknown>),
-    ...(params.metadata ?? {}),
-  };
-
-  const { error: updateError } = await db
-    .from('deployment_versions')
-    .update({
-      status: params.status,
-      n8n_workflow_id: params.n8nWorkflowId ?? null,
-      workflow_data: params.workflowData,
-      metadata: mergedMetadata,
-      deployed_at: new Date().toISOString(),
-    })
-    .eq('id', existing.id);
-
-  if (updateError) {
-    await db
-      .from('deployment_versions')
-      .update({
-        metadata: {
-          ...mergedMetadata,
-          persistence_error: updateError.message,
-        },
-      })
-      .eq('id', existing.id);
-  }
-}
-
-async function insertDeploymentFailureTimeline(params: {
-  userId: string | null;
-  sessionId: string;
-  workflowId?: string;
-  title: string;
-  description: string;
-  metadata: Record<string, unknown>;
-}): Promise<void> {
-  if (!params.userId) return;
-  const db = createServiceClient();
-  await db.from('timeline_events').insert({
-    user_id: params.userId,
-    session_id: params.sessionId,
-    workflow_id: params.workflowId ?? null,
-    event_type: 'runtime_failure',
-    title: params.title,
-    description: params.description,
-    status: 'error',
-    metadata: params.metadata,
-    created_at: new Date().toISOString(),
-  });
-}
+// Phase 9.8.1 -- WorkflowPayloadData/readWorkflowData(),
+// deploymentAttemptId(), upsertDeploymentAttempt(), and
+// insertDeploymentFailureTimeline() removed: they existed only to support
+// the now-removed deploy_workflow_to_n8n/activate_workflow job handling
+// above. The canonical native runtime (lib/workflow/lifecycle.ts's
+// activateWorkflow()) freezes deployment_versions rows directly via
+// DeploymentManager.recordDeployment(), with no queue/worker involved.
 
 async function updateQueueJob(params: {
   userId: string | null;
@@ -749,260 +579,14 @@ export async function processRuntimeJob(job: RuntimeJob<RuntimeQueuePayload>, ow
     }
   }
 
-  if (toolName === 'deploy_workflow_to_n8n') {
-    const workflowName = String(args.workflow_name ?? 'MagicFlux Workflow');
-    const workflowData = readWorkflowData(args);
-    const workflowId = payload.workflowId ?? (args.workflow_id ? String(args.workflow_id) : undefined);
-
-    if (workflowId) {
-      void pinWorkflowVersion({
-        workflowId,
-        userId: payload.userId,
-        nodes: workflowData.nodes,
-        connections: workflowData.connections,
-      }).catch(() => undefined);
-    }
-
-    await upsertDeploymentAttempt({
-      userId: payload.userId,
-      workflowId,
-      jobId: String(job.id),
-      status: 'deploying',
-      workflowData,
-      metadata: {
-        workflow_name: workflowName,
-        queue_name: job.queueName,
-      },
-    });
-
-    const deployRequestRef = await appendExecutionEvent({
-      executionId: payload.executionId,
-      workflowId,
-      userId: payload.userId,
-      workerId: ownerCtx?.workerId,
-      eventType: 'side_effect_requested',
-      correlationId: payload.correlationId,
-      fencingToken: ownerCtx?.fencingToken,
-      payload: { operation: 'deploy_workflow_to_n8n', workflow_name: workflowName },
-    }).catch(() => null);
-
-    await assertOwnership(payload.executionId, payload.userId, ownerCtx, 'deploy_workflow_to_n8n');
-    const deployAttempt = await withExponentialBackoff(
-      async () => createWorkflow(n8n, {
-        name: workflowName,
-        nodes: workflowData.nodes,
-        connections: workflowData.connections,
-        settings: { executionOrder: 'v1' },
-        active: false,
-      }),
-      { retries: 2, baseDelayMs: 800, maxDelayMs: 5000 }
-    );
-
-    if (!deployAttempt.value || deployAttempt.value.status === 'error') {
-      const details = getN8nErrorDetails({
-        message: deployAttempt.error ?? deployAttempt.value?.error ?? 'Deploy failed',
-      });
-      const errorCode = deployAttempt.value?.errorCode ?? details.code;
-      const diagnostics = {
-        ...(deployAttempt.value?.diagnostics ?? {}),
-        retry_error: deployAttempt.error ?? null,
-      };
-
-      await upsertDeploymentAttempt({
-        userId: payload.userId,
-        workflowId,
-        jobId: String(job.id),
-        status: 'failed',
-        workflowData,
-        metadata: {
-          workflow_name: workflowName,
-          error_code: errorCode,
-          error_message: deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed',
-          diagnostics,
-        },
-      });
-
-      await emitRuntimeEvent({
-        eventType: 'deployment.failed',
-        userId: payload.userId,
-        sessionId: payload.sessionId,
-        workflowId,
-        executionId: payload.executionId,
-        agentId: 'deploy',
-        correlationId: payload.correlationId,
-        traceId: payload.traceId,
-        spanId: workerSpanId,
-        parentSpanId: payload.parentSpanId ?? payload.spanId,
-        severity: 'error',
-        payload: {
-          workflowName,
-          error_code: errorCode,
-          error: deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed',
-          diagnostics,
-        },
-      });
-
-      await insertDeploymentFailureTimeline({
-        userId: payload.userId,
-        sessionId: payload.sessionId,
-        workflowId,
-        title: 'Deployment failed',
-        description: deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed',
-        metadata: {
-          queue_name: job.queueName,
-          job_id: String(job.id),
-          workflow_name: workflowName,
-          error_code: errorCode,
-          diagnostics,
-        },
-      });
-
-      await appendExecutionEvent({
-        executionId: payload.executionId,
-        workflowId,
-        userId: payload.userId,
-        workerId: ownerCtx?.workerId,
-        eventType: 'side_effect_failed',
-        causationId: deployRequestRef?.eventId,
-        correlationId: payload.correlationId,
-        fencingToken: ownerCtx?.fencingToken,
-        payload: { operation: 'deploy_workflow_to_n8n', error_code: errorCode, error: deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed' },
-      }).catch(() => undefined);
-
-      throw new Error(`${errorCode}: ${deployAttempt.value?.error ?? deployAttempt.error ?? 'Deploy failed'}`);
-    }
-
-    await upsertDeploymentAttempt({
-      userId: payload.userId,
-      workflowId,
-      jobId: String(job.id),
-      status: 'active',
-      workflowData,
-      n8nWorkflowId: deployAttempt.value.workflowId,
-      metadata: {
-        workflow_name: workflowName,
-        workflow_url: deployAttempt.value.workflowUrl,
-      },
-    });
-
-    await appendExecutionEvent({
-      executionId: payload.executionId,
-      workflowId: deployAttempt.value.workflowId,
-      userId: payload.userId,
-      workerId: ownerCtx?.workerId,
-      eventType: 'side_effect_completed',
-      causationId: deployRequestRef?.eventId,
-      correlationId: payload.correlationId,
-      fencingToken: ownerCtx?.fencingToken,
-      payload: { operation: 'deploy_workflow_to_n8n', n8n_workflow_id: deployAttempt.value.workflowId },
-    }).catch(() => undefined);
-
-    await emitRuntimeEvent({
-      eventType: 'workflow.deployed',
-      userId: payload.userId,
-      sessionId: payload.sessionId,
-      workflowId: deployAttempt.value.workflowId,
-      executionId: payload.executionId,
-      agentId: 'deploy',
-      correlationId: payload.correlationId,
-      traceId: payload.traceId,
-      spanId: workerSpanId,
-      parentSpanId: payload.parentSpanId ?? payload.spanId,
-      payload: {
-        workflowName,
-        workflowUrl: deployAttempt.value.workflowUrl,
-      },
-    });
-
-    await endSpan({ userId: payload.userId, spanId: workerSpanId, status: 'success' });
-
-    return {
-      workflow_id: deployAttempt.value.workflowId,
-      workflow_url: deployAttempt.value.workflowUrl,
-      status: deployAttempt.value.status,
-    };
-  }
-
-  if (toolName === 'activate_workflow') {
-    const workflowId = String(args.workflow_id ?? '');
-
-    const isProductionActivate = payload.policyMode === 'production';
-
-    if (isProductionActivate) {
-      const preActivationStatus = await getWorkflowStatus(n8n, workflowId);
-      if (!preActivationStatus?.id) {
-        throw new Error('Health gate failed before activation: workflow not reachable.');
-      }
-    }
-
-    const activateRequestRef = await appendExecutionEvent({
-      executionId: payload.executionId,
-      workflowId,
-      userId: payload.userId,
-      workerId: ownerCtx?.workerId,
-      eventType: 'side_effect_requested',
-      correlationId: payload.correlationId,
-      fencingToken: ownerCtx?.fencingToken,
-      payload: { operation: 'activate_workflow', workflow_id: workflowId },
-    }).catch(() => null);
-
-    await assertOwnership(payload.executionId, payload.userId, ownerCtx, 'activate_workflow');
-    await n8nActivate(n8n, workflowId);
-
-    if (isProductionActivate) {
-      try {
-        const postActivationStatus = await getWorkflowStatus(n8n, workflowId);
-        if (!postActivationStatus.active) {
-          await n8nDeactivate(n8n, workflowId);
-          await appendExecutionEvent({
-            executionId: payload.executionId,
-            workflowId,
-            userId: payload.userId,
-            workerId: ownerCtx?.workerId,
-            eventType: 'side_effect_failed',
-            causationId: activateRequestRef?.eventId,
-            correlationId: payload.correlationId,
-            fencingToken: ownerCtx?.fencingToken,
-            payload: { operation: 'activate_workflow', error: 'Health gate failed after activation' },
-          }).catch(() => undefined);
-          throw new Error('Health gate failed after activation: workflow is not active.');
-        }
-      } catch (error) {
-        await n8nDeactivate(n8n, workflowId).catch(() => undefined);
-        throw error;
-      }
-    }
-
-    await appendExecutionEvent({
-      executionId: payload.executionId,
-      workflowId,
-      userId: payload.userId,
-      workerId: ownerCtx?.workerId,
-      eventType: 'side_effect_completed',
-      causationId: activateRequestRef?.eventId,
-      correlationId: payload.correlationId,
-      fencingToken: ownerCtx?.fencingToken,
-      payload: { operation: 'activate_workflow', workflow_id: workflowId, active: true },
-    }).catch(() => undefined);
-
-    await emitRuntimeEvent({
-      eventType: 'workflow.activated',
-      userId: payload.userId,
-      sessionId: payload.sessionId,
-      workflowId,
-      executionId: payload.executionId,
-      agentId: 'deploy',
-      correlationId: payload.correlationId,
-      traceId: payload.traceId,
-      spanId: workerSpanId,
-      parentSpanId: payload.parentSpanId ?? payload.spanId,
-      payload: { active: true },
-    });
-
-    await endSpan({ userId: payload.userId, spanId: workerSpanId, status: 'success' });
-
-    return { workflow_id: workflowId, active: true };
-  }
+  // Phase 9.8.1 -- deploy_workflow_to_n8n and activate_workflow job
+  // handling removed. Reference audit (see lib/agent/tools.ts's removal
+  // comment for the full rationale) confirmed nothing enqueues these job
+  // types anymore: the Builder's Approve + Deploy is now a deterministic
+  // POST /api/workflows/[id]/lifecycle call against the certified native
+  // runtime, never a queued agent-tool job, and no other feature (the
+  // Founder-only Managed Setup admin flow makes its own direct n8n calls)
+  // depended on this worker path.
 
   if (toolName === 'test_workflow') {
     const workflowId = String(args.workflow_id ?? '');

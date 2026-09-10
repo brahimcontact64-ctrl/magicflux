@@ -23,7 +23,7 @@ import { assertTrustedUserId } from '@/lib/credentials/storage';
 export type LifecycleStatus = 'draft' | 'validating' | 'active' | 'paused' | 'disabled' | 'error' | 'archived' | 'deployed';
 
 export type ActivationResult =
-  | { success: true; status: 'active'; version: number; deploymentVersionId: string }
+  | { success: true; status: 'active'; version: number; deploymentVersionId: string; alreadyActive?: boolean }
   | { success: false; status: 'error'; errors: string[] };
 
 type WorkflowRow = {
@@ -50,6 +50,15 @@ export async function loadWorkflow(userId: string, workflowId: string): Promise<
   return (data as WorkflowRow | null) ?? null;
 }
 
+/** Deterministic JSON stringify (sorted object keys) for structural equality checks that must not be fooled by key ordering. */
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => stableJson(v)).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
+}
+
 /**
  * Validates and activates a workflow: freezes the current workflow_json into
  * a new deployment_versions row (status='active', superseding any prior
@@ -74,7 +83,52 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     return { success: false, status: 'error', errors: ['Archived workflows cannot be activated. Restore to draft first.'] };
   }
 
-  await db.from('workflows').update({ status: 'validating', updated_at: new Date().toISOString() }).eq('id', workflowId).eq('user_id', userId);
+  // Phase 9.8.1 -- idempotency, content-aware. A repeated Approve + Deploy
+  // click (or a client retry after a success response was lost) on the
+  // SAME already-active reviewed content must be a harmless no-op, never a
+  // second frozen version -- this directly answers the Phase 9.8
+  // requirement that "repeated activation of the same reviewed version
+  // must not create duplicate deployment versions/jobs." Deliberately
+  // content-based, not just status-based: a workflow can be edited via
+  // PATCH /api/workflows/[id] while still 'active' (that route never
+  // resets status), so a genuinely edited-then-reactivated workflow must
+  // still freeze a real new version -- only a byte-for-byte-unchanged
+  // re-click is idempotent.
+  if (isExecutableStatus(workflow.status)) {
+    const { data: activeVersion } = await db
+      .from('deployment_versions')
+      .select('id, version, workflow_data')
+      .eq('workflow_id', workflowId)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (activeVersion && stableJson(activeVersion.workflow_data) === stableJson(workflow.workflow_json)) {
+      return { success: true, status: 'active', version: activeVersion.version, deploymentVersionId: activeVersion.id, alreadyActive: true };
+    }
+    // No matching frozen version, or content has changed since it was
+    // frozen -- fall through and freeze a real new one.
+  }
+
+  // Atomic claim: only one concurrent caller can move this workflow out of
+  // a state eligible for (re)activation. A concurrent second call (a rapid
+  // double-click arriving before the first has finished validating)
+  // affects zero rows here -- current status is already 'validating' -- and
+  // is reported as "already in progress" instead of racing ahead to freeze
+  // a second deployment_versions row for the same click.
+  const { data: claimed } = await db
+    .from('workflows')
+    .update({ status: 'validating', updated_at: new Date().toISOString() })
+    .eq('id', workflowId)
+    .eq('user_id', userId)
+    .neq('status', 'validating')
+    .select('id')
+    .maybeSingle();
+
+  if (!claimed) {
+    return { success: false, status: 'error', errors: ['Activation is already in progress for this workflow.'] };
+  }
 
   const structuralResult = validateWorkflow(workflow.workflow_json);
   const scheduleErrors = validateScheduleTriggers(workflow.workflow_json);

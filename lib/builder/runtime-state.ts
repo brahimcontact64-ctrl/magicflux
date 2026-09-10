@@ -169,6 +169,10 @@ export type BuilderRuntimeState = {
   approvalState: ApprovalState;
   liveWorkflow?: LiveWorkflowStatus;
   activeAssistantMessageId?: string;
+  // Phase 9.8.1 -- the exact persisted workflow row id, set as soon as
+  // generation succeeds. Approve + Deploy uses this directly for a
+  // deterministic POST /api/workflows/[id]/lifecycle call.
+  persistedWorkflowId?: string | null;
 };
 
 type PersistedMessage = Omit<MessageUi, 'timestamp'> & { timestamp: string };

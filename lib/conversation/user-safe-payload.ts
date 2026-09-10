@@ -485,6 +485,7 @@ function sanitizeFinalPayload(payload: unknown): {
     workflowGraph: ReturnType<typeof sanitizeWorkflowGraph>;
     automationBrain: ReturnType<typeof sanitizeAutomationBrain>;
     deploymentStatus: ReturnType<typeof sanitizeDeploymentSummary>;
+    persistedWorkflowId: string | null;
   };
 } {
   const rawEnvelope = payload as Record<string, unknown>;
@@ -512,6 +513,10 @@ function sanitizeFinalPayload(payload: unknown): {
       workflowGraph,
       automationBrain,
       deploymentStatus: sanitizeDeploymentSummary(raw.workflow),
+      // Phase 9.8.1 -- a plain workflow-row UUID (or null), never a secret;
+      // explicit allowlist entry so the Builder's Approve + Deploy button
+      // has a stable id to call POST /api/workflows/[id]/lifecycle with.
+      persistedWorkflowId: typeof raw.persistedWorkflowId === 'string' ? raw.persistedWorkflowId : null,
     },
   };
 }
