@@ -93,7 +93,13 @@ const CAPABILITY_SIGNALS: Array<{ capability: string; signals: string[]; reason:
   { capability: 'scheduling', signals: ['every', 'hourly', 'daily', 'weekly', 'cron', 'schedule', 'minutes'], reason: 'Recurring execution requested.' },
   { capability: 'notifications', signals: ['alert', 'notify', 'notification', 'ping'], reason: 'User needs proactive notifications.' },
   { capability: 'send_message', signals: ['telegram', 'discord', 'whatsapp', 'slack', 'send message'], reason: 'Outbound messaging required.' },
-  { capability: 'receive_message', signals: ['inbound', 'incoming message', 'receive', 'dm', 'chat'], reason: 'Inbound messaging signal found.' },
+  // Phase 9.8.1 -- 'receive' (bare) removed: confirmed live in production
+  // it substring-matches "receives a customer name and order amount"
+  // (describing webhook payload data, not a chat message) and incorrectly
+  // infers an inbound-messaging capability that then overlaps with
+  // WhatsApp/Telegram patterns' required_capabilities. 'receive message'/
+  // 'receive messages' are specific enough to keep.
+  { capability: 'receive_message', signals: ['inbound', 'incoming message', 'receive message', 'receive messages', 'dm', 'chat'], reason: 'Inbound messaging signal found.' },
   { capability: 'database_storage', signals: ['supabase', 'database', 'log', 'store', 'save record'], reason: 'Persistent storage requested.' },
   { capability: 'chatbot', signals: ['assistant', 'ai employee', 'chatbot', 'copilot', 'agent'], reason: 'Conversational AI behavior requested.' },
   { capability: 'memory', signals: ['memory', 'remember', 'context', 'history'], reason: 'Memory requirement detected.' },
@@ -706,9 +712,25 @@ function providerContaminationPenalty(
   return penalty;
 }
 
+// Phase 9.8.1 -- confirmed live in production (Phase 9.8 investigation
+// re-verification): many automation_patterns rows carry generic filler
+// terms in intent_keywords ("automation", "workflow", "agent", "ai",
+// "ops") that describe *every* automation a user could ever ask this
+// product to build, not anything specific to that pattern's vertical.
+// "Create a webhook automation..." matched "Whatsapp Sales Agent Pattern
+// 18" purely because it contains the word "automation" -- a
+// non-discriminating term present in nearly every prompt this product
+// receives. These terms are excluded from keyword scoring entirely: a
+// pattern needs a genuinely distinguishing keyword match, not credit for
+// words that don't discriminate between verticals at all.
+const NON_DISCRIMINATING_KEYWORDS = new Set([
+  'automation', 'automations', 'workflow', 'workflows', 'ops', 'agent', 'ai',
+  'flow', 'process', 'task', 'tasks', 'integration', 'integrations',
+]);
+
 function scorePattern(prompt: string, inferredCapabilities: string[], row: PatternRow): number {
   const normalized = normalize(prompt);
-  const keywords = row.intent_keywords ?? [];
+  const keywords = (row.intent_keywords ?? []).filter((k) => !NON_DISCRIMINATING_KEYWORDS.has(k.toLowerCase().trim()));
   const requiredCaps = row.required_capabilities ?? [];
   const popularity = row.popularity_score ?? 0;
 

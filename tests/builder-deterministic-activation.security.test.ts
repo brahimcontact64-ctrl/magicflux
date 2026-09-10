@@ -98,16 +98,27 @@ function baseClassification(overrides: Partial<Record<string, unknown>> = {}) {
 // scorePattern() (popularity alone could clear the score > 0 threshold),
 // these would incorrectly surface as matches; under the fix, they must not.
 const SYNTHETIC_PATTERNS = [
+  // Faithful reproduction of the REAL production automation_patterns row
+  // that caused the Phase 9.8 incident (confirmed via direct DB
+  // inspection: "Whatsapp Sales Agent Pattern 18", id
+  // c668080c-e7d7-49c3-ae9a-7d0edef6c594) -- intent_keywords include
+  // generic filler terms ("automation", "agent", "ai") that appear in
+  // nearly every prompt, not just WhatsApp ones. This is what a purely
+  // synthetic, "obviously distinct" fixture would have missed.
   {
-    id: 'p-whatsapp', name: 'Whatsapp Sales Agent', category: 'sales', description: 'WhatsApp-based sales agent',
-    intent_keywords: ['whatsapp', 'sales agent'], required_tools: [], optional_tools: [],
-    required_capabilities: [], risk: 'low', estimated_cost: 0, estimated_complexity: 'simple',
-    schedule_patterns: [], examples: [], popularity_score: 100, kind: 'abstract_template',
-    classification: baseClassification(),
+    id: 'p-whatsapp-18', name: 'Whatsapp Sales Agent Pattern 18', category: 'whatsapp_sales_agent',
+    description: 'WhatsApp-based sales agent',
+    intent_keywords: ['whatsapp sales agent', 'sales', 'automation', 'agent', 'ai'],
+    required_tools: ['whatsapp', 'hubspot'], optional_tools: ['supabase', 'openai', 'webhook'],
+    required_capabilities: ['send_message', 'receive_message', 'crm'],
+    risk: 'medium', estimated_cost: 0.02, estimated_complexity: 'moderate',
+    schedule_patterns: [], examples: [], popularity_score: 58, kind: 'provider_specific',
+    classification: baseClassification({ kind: 'provider_specific' }),
   },
   {
     id: 'p-support', name: 'Customer Support', category: 'support', description: 'Customer support ticketing',
-    intent_keywords: ['support ticket', 'customer support'], required_tools: [], optional_tools: [],
+    intent_keywords: ['support ticket', 'customer support', 'automation', 'workflow'],
+    required_tools: [], optional_tools: [],
     required_capabilities: [], risk: 'low', estimated_cost: 0, estimated_complexity: 'simple',
     schedule_patterns: [], examples: [], popularity_score: 90, kind: 'abstract_template',
     classification: baseClassification(),
@@ -278,15 +289,16 @@ describe('C — automation classification is confidence-aware, not forced to a n
     }
   });
 
-  it('a genuinely WhatsApp-specific prompt still correctly matches a WhatsApp-flavored capability/pattern (the fix removes false positives, not true positives)', async () => {
+  it('a genuinely WhatsApp-specific prompt still correctly detects WhatsApp as a provider and infers real messaging capabilities (the fix removes false positives, not true positives)', async () => {
     const { analyzeAutomationPrompt } = await import('../lib/automation');
     const brain = await analyzeAutomationPrompt(
       'When a customer sends a WhatsApp message, use AI to reply and log it in a WhatsApp sales tracker.',
     );
-    const patternNames = brain.matchedPatterns.map((p) => p.name.toLowerCase());
+    const providers = brain.providerResolutions.map((p) => p.provider.toLowerCase());
     const capabilityKeys = brain.capabilities.map((c) => c.key);
-    const hasWhatsappSignal =
-      patternNames.some((n) => n.includes('whatsapp')) || capabilityKeys.some((k) => k.includes('whatsapp'));
-    expect(hasWhatsappSignal, `patterns: ${patternNames.join(', ')} | capabilities: ${capabilityKeys.join(', ')}`).toBe(true);
+
+    expect(providers, `providers: ${providers.join(', ')}`).toContain('whatsapp');
+    expect(capabilityKeys).toContain('send_message');
+    expect(capabilityKeys).toContain('receive_message');
   });
 });
