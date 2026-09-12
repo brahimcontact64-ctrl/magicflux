@@ -142,3 +142,66 @@ test('after activation, "Open workflow" targets the canonical dashboard page, an
   await page.waitForURL(/\/dashboard\/workflows\//, { timeout: 15_000 });
   await expect(page.getByText(/production control/i)).toBeVisible({ timeout: 15_000 });
 });
+
+/**
+ * Phase 9.8.4 — production 401 incident: a plain external POST to an active
+ * webhook workflow always failed because the runtime silently required a
+ * global, never-exposed HMAC secret. The dashboard also lied, claiming
+ * "requests are accepted unsigned." This reproduces the Founder journey
+ * through activation and asserts the dashboard now shows a truthful,
+ * actually-usable auth section: a masked secret with Reveal/Hide and Copy,
+ * the exact required header name, and copy-paste curl/PowerShell examples
+ * — with no claim anywhere that unsigned requests are accepted.
+ */
+test('the workflow detail page shows a truthful, usable webhook auth section — masked secret, exact header, curl/PowerShell examples', async ({ page }) => {
+  const account = {
+    email: process.env.E2E_ACCOUNT_A_EMAIL!,
+    password: process.env.E2E_ACCOUNT_A_PASSWORD!,
+  };
+  if (!account.email || !account.password) {
+    throw new Error('E2E_ACCOUNT_A_EMAIL / E2E_ACCOUNT_A_PASSWORD not set');
+  }
+
+  await loginViaSession(page, account);
+  await page.goto('/builder', { waitUntil: 'domcontentloaded' });
+
+  const textarea = page.getByPlaceholder('What do you want to automate today?');
+  await expect(textarea).toBeVisible({ timeout: 20_000 });
+  await textarea.fill(FOUNDER_PROMPT);
+  await textarea.press('Enter');
+
+  const deployButton = page.getByRole('button', { name: /approve \+ deploy/i });
+  await expect(deployButton).toBeVisible({ timeout: 60_000 });
+  await expect(deployButton).toBeEnabled({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  await deployButton.click();
+
+  const openWorkflowLink = page.getByRole('link', { name: /open workflow/i });
+  await expect(openWorkflowLink).toBeVisible({ timeout: 30_000 });
+  await openWorkflowLink.click();
+  await page.waitForURL(/\/dashboard\/workflows\//, { timeout: 15_000 });
+
+  // Truthful auth section, not the old false "unsigned" claim.
+  await expect(page.getByText(/authentication required/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/accepted unsigned/i)).toHaveCount(0);
+  await expect(page.getByText('X-MagicFlux-Webhook-Secret').first()).toBeVisible();
+
+  // Masked by default, then revealed.
+  const revealButton = page.getByRole('button', { name: /^reveal$/i });
+  await expect(revealButton).toBeEnabled({ timeout: 15_000 });
+  const maskedField = page.locator('code', { hasText: '••••' });
+  await expect(maskedField).toBeVisible();
+  await revealButton.click();
+  await expect(page.getByRole('button', { name: /^hide$/i })).toBeVisible();
+  await expect(maskedField).toHaveCount(0);
+
+  await expect(page.getByRole('button', { name: /copy secret/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^rotate$/i })).toBeVisible();
+
+  // Copy-paste examples, both carrying the exact required header.
+  await page.getByText(/example request/i).click();
+  const bodyText = await page.locator('body').innerText();
+  expect(bodyText).toMatch(/curl -X POST/);
+  expect(bodyText).toMatch(/Invoke-RestMethod/);
+  expect((bodyText.match(/X-MagicFlux-Webhook-Secret/g) ?? []).length).toBeGreaterThanOrEqual(3);
+});

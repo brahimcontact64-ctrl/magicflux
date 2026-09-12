@@ -25,6 +25,7 @@ import {
   Archive,
   CalendarClock,
   Webhook,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -452,7 +453,6 @@ export default function WorkflowDetailsPage() {
     return {
       method,
       url: workflow ? `${origin}/api/workflows/${workflow.id}/webhook` : '',
-      hasSecret: Boolean((((workflow?.workflow_json?.security ?? workflow?.workflow_json?.webhook_security) as Record<string, unknown> | undefined)?.webhook_secret)),
     };
   }, [workflow]);
 
@@ -460,6 +460,97 @@ export default function WorkflowDetailsPage() {
     if (!webhookInfo?.url) return;
     navigator.clipboard.writeText(webhookInfo.url).then(() => toast.success('Webhook URL copied')).catch(() => toast.error('Copy failed'));
   }, [webhookInfo]);
+
+  // Phase 9.8.4 -- the webhook secret is fetched from its own owner-scoped
+  // endpoint, never embedded in the general workflow payload, so it stays
+  // masked until this page explicitly asks for it (and only this
+  // workflow's authenticated owner ever can). Loading this also backfills
+  // a secret for a workflow that was activated before per-workflow webhook
+  // secrets existed.
+  const [webhookSecretInfo, setWebhookSecretInfo] = useState<{
+    secret: string | null;
+    loading: boolean;
+    revealed: boolean;
+    rotating: boolean;
+  }>({ secret: null, loading: false, revealed: false, rotating: false });
+
+  const loadWebhookSecret = useCallback(async () => {
+    if (!workflow) return;
+    setWebhookSecretInfo((prev) => ({ ...prev, loading: true }));
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+      const res = await fetch(`/api/workflows/${workflow.id}/webhook-secret`, { headers, cache: 'no-store' });
+      const payload = (await res.json().catch(() => null)) as { secret?: string | null; hasWebhookTrigger?: boolean } | null;
+      setWebhookSecretInfo((prev) => ({
+        ...prev,
+        secret: res.ok && payload?.hasWebhookTrigger ? (payload.secret ?? null) : null,
+        loading: false,
+      }));
+    } catch {
+      setWebhookSecretInfo((prev) => ({ ...prev, loading: false }));
+    }
+  }, [workflow, withAuthHeaders]);
+
+  useEffect(() => {
+    if (webhookInfo) loadWebhookSecret();
+    // Only re-fetch when the webhook actually changes (workflow load/reload),
+    // not on every unrelated re-render of this memo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webhookInfo?.url]);
+
+  const copyText = useCallback((text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`)).catch(() => toast.error('Copy failed'));
+  }, []);
+
+  const handleCopyWebhookSecret = useCallback(() => {
+    if (!webhookSecretInfo.secret) return;
+    copyText(webhookSecretInfo.secret, 'Webhook secret');
+  }, [webhookSecretInfo.secret, copyText]);
+
+  const handleRotateWebhookSecret = useCallback(async () => {
+    if (!workflow) return;
+    const confirmed = window.confirm(
+      'Rotating immediately invalidates the current secret. Any external integration still using the old value will start failing until updated. Continue?'
+    );
+    if (!confirmed) return;
+
+    setWebhookSecretInfo((prev) => ({ ...prev, rotating: true }));
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+      const res = await fetch(`/api/workflows/${workflow.id}/webhook-secret`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'rotate' }),
+      });
+      const payload = (await res.json().catch(() => null)) as { secret?: string | null; hasWebhookTrigger?: boolean } | null;
+      if (!res.ok || !payload?.hasWebhookTrigger) throw new Error('Failed to rotate webhook secret');
+
+      setWebhookSecretInfo({ secret: payload.secret ?? null, loading: false, revealed: true, rotating: false });
+      toast.success('Webhook secret rotated — update any external integration with the new value');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to rotate webhook secret');
+      setWebhookSecretInfo((prev) => ({ ...prev, rotating: false }));
+    }
+  }, [workflow, withAuthHeaders]);
+
+  const webhookCurlExample = useMemo(() => {
+    if (!webhookInfo) return '';
+    const secretValue = webhookSecretInfo.secret ?? '<secret>';
+    return [
+      `curl -X POST "${webhookInfo.url}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -H "X-MagicFlux-Webhook-Secret: ${secretValue}" \\`,
+      `  -d '{"example":"value"}'`,
+    ].join('\n');
+  }, [webhookInfo, webhookSecretInfo.secret]);
+
+  const webhookPowerShellExample = useMemo(() => {
+    if (!webhookInfo) return '';
+    const secretValue = webhookSecretInfo.secret ?? '<secret>';
+    return `Invoke-RestMethod -Method Post -Uri "${webhookInfo.url}" -Headers @{ "X-MagicFlux-Webhook-Secret" = "${secretValue}" } -ContentType "application/json" -Body '{"example":"value"}'`;
+  }, [webhookInfo, webhookSecretInfo.secret]);
 
   const latestRun = runs[0] ?? null;
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null;
@@ -1071,19 +1162,79 @@ export default function WorkflowDetailsPage() {
           </div>
 
           {webhookInfo && (
-            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1.5">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
               <p className="text-xs font-medium flex items-center gap-1.5"><Webhook className="w-3.5 h-3.5" /> Production Webhook</p>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground font-mono">{webhookInfo.method}</span>
                 <code className="flex-1 min-w-[220px] truncate rounded bg-black/20 border border-border px-2 py-1">{webhookInfo.url}</code>
                 <Button size="sm" variant="outline" className="gap-1.5 h-7" onClick={handleCopyWebhookUrl}>
-                  <Copy className="w-3.5 h-3.5" /> Copy
+                  <Copy className="w-3.5 h-3.5" /> Copy URL
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {webhookInfo.hasSecret ? 'Signature verification is configured for this webhook.' : 'No webhook secret configured — requests are accepted unsigned.'}
-                {' '}Only fires while the workflow is Active.
-              </p>
+              <p className="text-[11px] text-muted-foreground">Only fires while the workflow is Active.</p>
+
+              {/* Phase 9.8.4 -- truthful auth section. Every webhook workflow
+                  requires this header; there is no "unsigned" mode in
+                  production, so this never claims one. */}
+              <div className="rounded-md border border-border bg-background/40 p-2 space-y-1.5">
+                <p className="text-[11px] font-medium">Authentication required</p>
+                <p className="text-[11px] text-muted-foreground">
+                  External requests must include this header with this workflow&apos;s secret. Requests without it, or with the wrong value, are rejected with 401 and never run the workflow.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Header:</span>
+                  <code className="px-1.5 py-0.5 rounded bg-muted/40 font-mono">X-MagicFlux-Webhook-Secret</code>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <code className="flex-1 min-w-[220px] truncate rounded bg-black/20 border border-border px-2 py-1 font-mono">
+                    {webhookSecretInfo.loading
+                      ? 'Loading…'
+                      : webhookSecretInfo.secret
+                        ? (webhookSecretInfo.revealed ? webhookSecretInfo.secret : '•'.repeat(24))
+                        : 'Unavailable'}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1.5"
+                    onClick={() => setWebhookSecretInfo((prev) => ({ ...prev, revealed: !prev.revealed }))}
+                    disabled={!webhookSecretInfo.secret}
+                  >
+                    {webhookSecretInfo.revealed ? 'Hide' : 'Reveal'}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={handleCopyWebhookSecret} disabled={!webhookSecretInfo.secret}>
+                    <Copy className="w-3.5 h-3.5" /> Copy Secret
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={handleRotateWebhookSecret} disabled={webhookSecretInfo.rotating}>
+                    {webhookSecretInfo.rotating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Rotate
+                  </Button>
+                </div>
+              </div>
+
+              <details className="rounded-md border border-border bg-background/40 p-2 text-[11px]">
+                <summary className="cursor-pointer font-medium">Example request</summary>
+                <div className="mt-2 space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-muted-foreground">curl</p>
+                      <Button size="sm" variant="outline" className="h-6 gap-1" onClick={() => copyText(webhookCurlExample, 'curl example')}>
+                        <Copy className="w-3 h-3" /> Copy
+                      </Button>
+                    </div>
+                    <pre className="rounded bg-black/20 border border-border p-2 overflow-auto whitespace-pre-wrap break-words">{webhookCurlExample}</pre>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-muted-foreground">PowerShell</p>
+                      <Button size="sm" variant="outline" className="h-6 gap-1" onClick={() => copyText(webhookPowerShellExample, 'PowerShell example')}>
+                        <Copy className="w-3 h-3" /> Copy
+                      </Button>
+                    </div>
+                    <pre className="rounded bg-black/20 border border-border p-2 overflow-auto whitespace-pre-wrap break-words">{webhookPowerShellExample}</pre>
+                  </div>
+                </div>
+              </details>
             </div>
           )}
 

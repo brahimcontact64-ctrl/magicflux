@@ -166,7 +166,14 @@ describe('activateWorkflow', () => {
     const versions = fakeDb.tables.get('deployment_versions') ?? [];
     expect(versions).toHaveLength(1);
     expect(versions[0].status).toBe('active');
-    expect(versions[0].workflow_data).toEqual(validWorkflow());
+    // Phase 9.8.4: this fixture has a webhook trigger, so activation also
+    // auto-provisions a per-workflow webhook secret into the frozen
+    // snapshot (lib/workflow/webhook-secret.ts) -- everything else about
+    // the frozen data is otherwise identical to what was submitted.
+    const frozenData = versions[0].workflow_data as Record<string, unknown>;
+    const { security, ...frozenWithoutSecurity } = frozenData;
+    expect(frozenWithoutSecurity).toEqual(validWorkflow());
+    expect((security as { webhook_secret?: string } | undefined)?.webhook_secret).toBeTruthy();
 
     const workflow = (fakeDb.tables.get('workflows') ?? [])[0] as Row;
     expect(workflow.status).toBe('active');

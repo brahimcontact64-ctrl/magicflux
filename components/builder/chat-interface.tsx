@@ -686,7 +686,7 @@ function WorkflowSuccessCard({ url, webhookUrl }: { url: string; webhookUrl?: st
       </a>
       {webhookUrl ? (
         <div className="rounded-md border border-emerald-500/20 bg-background/40 px-2 py-1.5 space-y-1">
-          <p className="text-[11px] text-muted-foreground">Webhook URL (expects POST)</p>
+          <p className="text-[11px] text-muted-foreground">Webhook URL (expects POST, requires an auth header)</p>
           <div className="flex items-center gap-2">
             <code className="flex-1 min-w-0 truncate text-[11px] font-mono">{webhookUrl}</code>
             <button
@@ -697,6 +697,7 @@ function WorkflowSuccessCard({ url, webhookUrl }: { url: string; webhookUrl?: st
               {copied ? 'Copied' : 'Copy URL'}
             </button>
           </div>
+          <p className="text-[11px] text-muted-foreground">Open the workflow page for the required X-MagicFlux-Webhook-Secret header and copy-paste examples.</p>
         </div>
       ) : null}
     </div>

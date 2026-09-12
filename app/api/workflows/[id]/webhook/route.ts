@@ -111,9 +111,16 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     ? security.ip_allowlist.map((item) => String(item)).filter(Boolean)
     : [];
 
-  const secret = typeof security.webhook_secret === 'string'
+  // Phase 9.8.4 -- removed the global MAGICFLUX_WEBHOOK_SECRET fallback.
+  // It silently forced full HMAC-signature auth on every workflow that had
+  // no secret of its own, using a credential no external caller could ever
+  // know (never exposed anywhere) and shared across every tenant. Auth now
+  // depends solely on this workflow's own provisioned secret (see
+  // lib/workflow/webhook-secret.ts -- generated automatically at
+  // activation, never a hidden cross-tenant default).
+  const secret = typeof security.webhook_secret === 'string' && security.webhook_secret.length > 0
     ? security.webhook_secret
-    : (process.env.MAGICFLUX_WEBHOOK_SECRET ?? null);
+    : null;
 
   // Provider-native idempotency: Shopify's delivery ID > a generic
   // Idempotency-Key header > a deterministic body hash fallback. Derived
@@ -134,6 +141,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     nonce: req.headers.get('x-mf-nonce') ?? req.headers.get('x-nonce'),
     ipAddress: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     secret,
+    staticSecretHeader: req.headers.get('x-magicflux-webhook-secret'),
     allowedIps: allowlist,
   });
 

@@ -11,6 +11,13 @@ type WebhookGuardInput = {
   nonce: string | null;
   ipAddress: string | null;
   secret: string | null;
+  /**
+   * Phase 9.8.4 -- value of the X-MagicFlux-Webhook-Secret header, a
+   * simple shared-secret alternative to full HMAC signing for typical
+   * external callers (Zapier, a script, a no-code tool) that can add a
+   * static header but can't compute a rolling per-request signature.
+   */
+  staticSecretHeader?: string | null;
   allowedIps?: string[];
 };
 
@@ -44,6 +51,17 @@ function safeCompareHex(aHex: string, bHex: string): boolean {
     const b = Buffer.from(bHex, 'hex');
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function safeCompareUtf8(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a, 'utf8');
+    const bufB = Buffer.from(b, 'utf8');
+    if (bufA.length !== bufB.length) return false;
+    return timingSafeEqual(bufA, bufB);
   } catch {
     return false;
   }
@@ -177,37 +195,49 @@ export async function guardWebhookRequest(input: WebhookGuardInput): Promise<Web
   }
 
   if (input.secret) {
-    if (!input.signature || !input.timestamp || !input.nonce) {
-      return bad('MISSING_SIGNATURE_HEADERS', 70);
-    }
+    if (input.staticSecretHeader) {
+      // Simple shared-secret path: sufficient on its own, no
+      // signature/timestamp/nonce required. No replay protection here (a
+      // static header is inherently replayable), which is the accepted
+      // tradeoff for a credential simple enough for a typical external
+      // caller to actually set.
+      const staticValid = safeCompareUtf8(input.staticSecretHeader, input.secret);
+      if (!staticValid) {
+        return bad('INVALID_STATIC_SECRET', 70);
+      }
+    } else {
+      if (!input.signature || !input.timestamp || !input.nonce) {
+        return bad('MISSING_SIGNATURE_HEADERS', 70);
+      }
 
-    const ts = Number(input.timestamp);
-    if (!Number.isFinite(ts)) {
-      return bad('INVALID_TIMESTAMP', 70);
-    }
+      const ts = Number(input.timestamp);
+      if (!Number.isFinite(ts)) {
+        return bad('INVALID_TIMESTAMP', 70);
+      }
 
-    const skew = Math.abs(Date.now() - ts * 1000);
-    if (skew > MAX_TIMESTAMP_SKEW_MS) {
-      return bad('TIMESTAMP_OUT_OF_WINDOW', 75);
-    }
+      const skew = Math.abs(Date.now() - ts * 1000);
+      if (skew > MAX_TIMESTAMP_SKEW_MS) {
+        return bad('TIMESTAMP_OUT_OF_WINDOW', 75);
+      }
 
-    const canonical = `${input.timestamp}.${input.nonce}.${input.rawBody}`;
-    const expected = createHmac('sha256', input.secret).update(canonical).digest('hex');
-    const provided = parseSignature(input.signature);
-    const signatureValid = safeCompareHex(expected, provided);
+      const canonical = `${input.timestamp}.${input.nonce}.${input.rawBody}`;
+      const expected = createHmac('sha256', input.secret).update(canonical).digest('hex');
+      const provided = parseSignature(input.signature);
+      const signatureValid = safeCompareHex(expected, provided);
 
-    if (!signatureValid) {
-      return bad('INVALID_SIGNATURE', 85);
-    }
+      if (!signatureValid) {
+        return bad('INVALID_SIGNATURE', 85);
+      }
 
-    const nonceResult = await markNonce({
-      workflowId: input.workflowId,
-      nonce: input.nonce,
-      requestHash,
-    });
+      const nonceResult = await markNonce({
+        workflowId: input.workflowId,
+        nonce: input.nonce,
+        requestHash,
+      });
 
-    if (!nonceResult.ok && nonceResult.replayed) {
-      return bad('REPLAY_ATTACK_DETECTED', 95, true);
+      if (!nonceResult.ok && nonceResult.replayed) {
+        return bad('REPLAY_ATTACK_DETECTED', 95, true);
+      }
     }
   }
 

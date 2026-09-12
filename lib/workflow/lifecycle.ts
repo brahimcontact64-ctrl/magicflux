@@ -6,6 +6,7 @@ import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { validateWorkflow } from '@/lib/workflow-validator';
 import { validateScheduleTriggers, syncWorkflowSchedules, disableWorkflowSchedules, enableWorkflowSchedules } from '@/lib/runtime/scheduler';
 import { assertTrustedUserId } from '@/lib/credentials/storage';
+import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -105,6 +106,12 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
       .limit(1)
       .maybeSingle();
     if (activeVersion && stableJson(activeVersion.workflow_data) === stableJson(workflow.workflow_json)) {
+      // Phase 9.8.4 -- backfill path: a workflow activated before per-workflow
+      // webhook secrets existed reaches this idempotent early-return on every
+      // repeat Approve+Deploy click without ever touching the "freeze a new
+      // version" code below, so it must provision its secret here too, not
+      // only on first-ever activation.
+      await ensureWebhookSecret(userId, workflowId);
       return { success: true, status: 'active', version: activeVersion.version, deploymentVersionId: activeVersion.id, alreadyActive: true };
     }
     // No matching frozen version, or content has changed since it was
@@ -169,6 +176,12 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     .eq('user_id', userId);
 
   await syncWorkflowSchedules({ userId, workflowId, workflowJson: workflow.workflow_json });
+
+  // Phase 9.8.4 -- provision this workflow's own webhook secret (if it has
+  // a webhook trigger and doesn't have one yet) now that activation has
+  // frozen a deployment version to patch it into. Idempotent: never
+  // regenerates an existing secret.
+  await ensureWebhookSecret(userId, workflowId);
 
   return { success: true, status: 'active', version: version.version, deploymentVersionId: version.id };
 }

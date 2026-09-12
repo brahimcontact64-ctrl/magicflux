@@ -48,7 +48,9 @@ const CHECKS: Check[] = [
 
   // ── Security-relevant secrets ──
   { name: 'CRON_SECRET', requirement: 'optional', purpose: 'Authenticates scheduled cron-triggered routes (stale-credential re-verification, etc.)' },
-  { name: 'MAGICFLUX_WEBHOOK_SECRET', requirement: 'optional', purpose: 'Validates inbound webhook triggers' },
+  // Phase 9.8.4: MAGICFLUX_WEBHOOK_SECRET removed from the webhook route --
+  // it was a global cross-tenant fallback secret no external caller could
+  // ever know. Webhook auth is now per-workflow (lib/workflow/webhook-secret.ts).
 
   // ── Non-Phase-7 platform email (unrelated to the Gmail node handler) ──
   { name: 'RESEND_API_KEY', requirement: 'optional', purpose: 'Platform transactional email (signup, etc.) — unrelated to the per-user Gmail node handler' },
