@@ -93,3 +93,52 @@ test('Approve + Deploy reproduces the exact Founder journey deterministically, w
 
   expect(errors.errors, `console errors: ${errors.errors.join('\n')}`).toEqual([]);
 });
+
+/**
+ * Phase 9.8.3 — production nav bug: "Open workflow" pointed straight at the
+ * POST-only webhook endpoint, so opening it (a browser GET) always 405'd.
+ * Reproduces the exact Founder journey through activation and asserts the
+ * CTA now targets the canonical workflow detail page, with the webhook URL
+ * presented separately as a copyable field, never as the navigation target.
+ */
+test('after activation, "Open workflow" targets the canonical dashboard page, and the webhook URL is shown separately', async ({ page }) => {
+  const account = {
+    email: process.env.E2E_ACCOUNT_A_EMAIL!,
+    password: process.env.E2E_ACCOUNT_A_PASSWORD!,
+  };
+  if (!account.email || !account.password) {
+    throw new Error('E2E_ACCOUNT_A_EMAIL / E2E_ACCOUNT_A_PASSWORD not set');
+  }
+
+  await loginViaSession(page, account);
+  await page.goto('/builder', { waitUntil: 'domcontentloaded' });
+
+  const textarea = page.getByPlaceholder('What do you want to automate today?');
+  await expect(textarea).toBeVisible({ timeout: 20_000 });
+  await textarea.fill(FOUNDER_PROMPT);
+  await textarea.press('Enter');
+
+  const deployButton = page.getByRole('button', { name: /approve \+ deploy/i });
+  await expect(deployButton).toBeVisible({ timeout: 60_000 });
+  await expect(deployButton).toBeEnabled({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  await deployButton.click();
+
+  const openWorkflowLink = page.getByRole('link', { name: /open workflow/i });
+  await expect(openWorkflowLink).toBeVisible({ timeout: 30_000 });
+
+  const href = await openWorkflowLink.getAttribute('href');
+  expect(href, 'Open workflow must never navigate to the raw API/webhook endpoint').not.toMatch(/\/api\//);
+  expect(href, 'Open workflow must target the canonical workflow detail page').toMatch(/^\/dashboard\/workflows\/[^/]+$/);
+
+  // The webhook URL is presented separately, with its own Copy control.
+  const webhookLabel = page.getByText(/webhook url/i);
+  await expect(webhookLabel).toBeVisible({ timeout: 10_000 });
+  const copyButton = page.getByRole('button', { name: /copy url/i });
+  await expect(copyButton).toBeVisible();
+
+  // Clicking Open workflow actually lands on the canonical detail page, not a 405.
+  await openWorkflowLink.click();
+  await page.waitForURL(/\/dashboard\/workflows\//, { timeout: 15_000 });
+  await expect(page.getByText(/production control/i)).toBeVisible({ timeout: 15_000 });
+});

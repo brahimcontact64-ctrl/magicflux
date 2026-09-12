@@ -56,6 +56,61 @@ describe('A — Approve + Deploy is a deterministic REST call, never a chat mess
   });
 });
 
+// ─── A3: "Open workflow" targets the canonical detail page, not the webhook ─
+//
+// Phase 9.8.3 -- production nav bug found during Founder manual test: after
+// activation, "Open workflow" linked straight to the POST-only webhook
+// endpoint (/api/workflows/[id]/webhook). Clicking it in a browser issues a
+// GET, which the route (only exports POST) always answers with 405 --
+// proven separately via a real production workflow with 0 executions
+// recorded despite the accidental GET (confirming no execution is created
+// by a bare GET). Root cause: handleApproveDeploy() set deployState.workflowUrl
+// to the webhook URL directly.
+
+describe('A3 — "Open workflow" targets the canonical workflow detail page, not /api/...', () => {
+  const source = fs.readFileSync(
+    path.join(process.cwd(), 'components/builder/chat-interface.tsx'),
+    'utf8',
+  );
+
+  it('handleApproveDeploy sets workflowUrl to the canonical /dashboard/workflows/[id] page', () => {
+    const fnMatch = source.match(/async function handleApproveDeploy\(\)[\s\S]*?\n  \}/);
+    expect(fnMatch, 'handleApproveDeploy function not found').toBeTruthy();
+    const body = fnMatch![0];
+    expect(body).toMatch(/workflowUrl:\s*`\/dashboard\/workflows\/\$\{workflowId\}`/);
+  });
+
+  it('the webhook endpoint is stored separately (webhookUrl), never assigned to workflowUrl', () => {
+    const fnMatch = source.match(/async function handleApproveDeploy\(\)[\s\S]*?\n  \}/);
+    const body = fnMatch![0];
+    expect(body).toMatch(/webhookUrl:\s*hasWebhookTrigger[\s\S]*?\/api\/workflows\/\$\{workflowId\}\/webhook/);
+    // The webhook endpoint string must not be the value assigned to workflowUrl.
+    expect(body).not.toMatch(/workflowUrl:\s*`[^`]*\/api\/workflows/);
+  });
+
+  it('WorkflowSuccessCard never targets /api/... for its "Open workflow" link', () => {
+    const cardMatch = source.match(/function WorkflowSuccessCard\([\s\S]*?\n}/);
+    expect(cardMatch, 'WorkflowSuccessCard not found').toBeTruthy();
+    const body = cardMatch![0];
+    const anchorMatch = body.match(/<a href=\{url\}[\s\S]*?Open workflow/);
+    expect(anchorMatch, 'Open workflow anchor not found').toBeTruthy();
+    expect(body).not.toMatch(/<a href=\{url\}[^>]*>[\s\S]{0,50}\/api\/workflows/);
+  });
+
+  it('WorkflowSuccessCard renders the webhook URL separately with its own Copy control, when present', () => {
+    const cardMatch = source.match(/function WorkflowSuccessCard\([\s\S]*?\n}/);
+    const body = cardMatch![0];
+    expect(body).toMatch(/webhookUrl/);
+    expect(body).toMatch(/Copy URL/);
+    expect(body).toMatch(/expects POST/i);
+  });
+
+  it('the canonical workflow detail route exists at app/dashboard/workflows/[id]/page.tsx', () => {
+    const exists = fs.existsSync(path.join(process.cwd(), 'app/dashboard/workflows/[id]/page.tsx'));
+    expect(exists).toBe(true);
+  });
+});
+
 // ─── B: legacy n8n deploy tools fully removed from the AI tool registry ────
 
 describe('A2 — legacy n8n deploy tools removed from the agent tool registry', () => {

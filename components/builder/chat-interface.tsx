@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Zap, Send, Loader as Loader2, RefreshCw, ChevronRight, Sparkles, Link2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -149,7 +149,10 @@ type DeployState = {
   blocked: boolean;
   ready: boolean;
   workflowActive: boolean;
+  /** Canonical workflow management/detail page -- the "Open workflow" target. */
   workflowUrl?: string;
+  /** Present only when the activated graph has a webhook trigger; shown separately, never as the Open workflow target. */
+  webhookUrl?: string;
 };
 
 type ApprovalState = {
@@ -650,19 +653,55 @@ function ApprovalCards({ approvals }: { approvals: ApprovalRequest[] }) {
   );
 }
 
-function WorkflowSuccessCard({ url }: { url: string }) {
+/**
+ * Phase 9.8.3 -- root-cause fix for a production nav bug: "Open workflow"
+ * previously linked straight to the POST-only webhook endpoint
+ * (/api/workflows/[id]/webhook), so clicking it in a browser (a GET) always
+ * hit a 405. `url` here must always be the canonical workflow detail page;
+ * the webhook endpoint, when the graph has one, is shown as its own
+ * copyable field instead of being a navigation target.
+ */
+function WorkflowSuccessCard({ url, webhookUrl }: { url: string; webhookUrl?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyWebhookUrl = useCallback(() => {
+    if (!webhookUrl) return;
+    navigator.clipboard
+      .writeText(webhookUrl)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }, [webhookUrl]);
+
   return (
-    <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+    <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 space-y-2">
       <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
         <CheckCircle2 className="w-3.5 h-3.5" />
         Your automation is live
       </p>
-      <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs text-emerald-700 dark:text-emerald-300 underline-offset-2 hover:underline">
+      <a href={url} className="inline-flex text-xs text-emerald-700 dark:text-emerald-300 underline-offset-2 hover:underline">
         Open workflow
       </a>
+      {webhookUrl ? (
+        <div className="rounded-md border border-emerald-500/20 bg-background/40 px-2 py-1.5 space-y-1">
+          <p className="text-[11px] text-muted-foreground">Webhook URL (expects POST)</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 truncate text-[11px] font-mono">{webhookUrl}</code>
+            <button
+              type="button"
+              onClick={handleCopyWebhookUrl}
+              className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 underline-offset-2 hover:underline flex-shrink-0"
+            >
+              {copied ? 'Copied' : 'Copy URL'}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
-};
+}
 
 type ChatInterfaceProps = {
   initialTemplate?: AutomationTemplate | null;
@@ -1147,13 +1186,21 @@ export function ChatInterface({
         return;
       }
 
-      const webhookUrl = `${window.location.origin}/api/workflows/${workflowId}/webhook`;
+      // Phase 9.8.3 -- "Open workflow" must go to the canonical workflow
+      // management page, never straight to the webhook endpoint (that
+      // endpoint is POST-only; opening it in a browser is a GET and always
+      // 405s). The webhook URL, when this graph has one, is surfaced
+      // separately as a copyable field instead.
+      const hasWebhookTrigger = (runtimeState.workflowGraph?.nodes ?? []).some((n) =>
+        n.type.toLowerCase().includes('webhook')
+      );
       setRuntimeState((prev) => ({
         ...prev,
         deployState: {
           ...prev.deployState,
           workflowActive: true,
-          workflowUrl: webhookUrl,
+          workflowUrl: `/dashboard/workflows/${workflowId}`,
+          webhookUrl: hasWebhookTrigger ? `${window.location.origin}/api/workflows/${workflowId}/webhook` : undefined,
         },
       }));
     } catch {
@@ -1311,7 +1358,7 @@ export function ChatInterface({
                   ) : null}
                   {isActiveAssistant ? <ApprovalCards approvals={runtimeState.approvalState.requests} /> : null}
                   {isActiveAssistant && runtimeState.deployState.workflowUrl && runtimeState.deployState.workflowActive ? (
-                    <WorkflowSuccessCard url={runtimeState.deployState.workflowUrl} />
+                    <WorkflowSuccessCard url={runtimeState.deployState.workflowUrl} webhookUrl={runtimeState.deployState.webhookUrl} />
                   ) : null}
                       </>
                     );
