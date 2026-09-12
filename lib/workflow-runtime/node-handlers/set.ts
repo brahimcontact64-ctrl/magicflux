@@ -10,11 +10,17 @@ import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types
  * a manually edited or future-generated workflow with real assignments
  * would have silently failed live activation).
  *
- * Supports every shape actually seen in the wild:
- *   - flat (Phase 9.8.3, what the current planner/generator produces):
- *     { fields: [{name, type?, value}] } -- fields itself is the array
+ * The current planner/generator is not deterministic about which real-world
+ * n8n Set-node parameter shape it emits from one generation to the next --
+ * three distinct shapes have each been observed live in production for the
+ * exact same kind of "assign a field" step. Every one is supported:
+ *   - flat: { fields: [{name, type?, value}] } -- fields itself is the array
+ *   - typed buckets under "fields" (what n8n's own Set node v1/v2 actually
+ *     calls "fields" in some versions, and what generation has produced for
+ *     the real Founder workflow): { fields: { string: [...], number: [...],
+ *     boolean: [...], dateTime: [...] } }
  *   - v3 "Edit Fields": { mode: 'manual', includeOtherFields, fields: { values: [{name, type?, value}] } }
- *   - legacy v1/v2 "Set": { keepOnlySet, values: { string: [...], number: [...], boolean: [...] } }
+ *   - legacy v1/v2 "Set": { keepOnlySet, values: { string: [...], number: [...], boolean: [...], dateTime: [...] } }
  *
  * Values are treated as LITERALS — no n8n expression syntax (`={{ ... }}`)
  * is evaluated. A value that looks like an unresolved expression is passed
@@ -84,26 +90,46 @@ function applyV3Fields(
   return assigned;
 }
 
-function applyLegacyFields(
+const TYPED_BUCKET_KEYS = ['string', 'number', 'boolean', 'dateTime'] as const;
+
+/** True for an object keyed by one or more of the typed n8n buckets (string/number/boolean/dateTime), each an array. */
+function hasTypedBuckets(value: Record<string, unknown>): boolean {
+  return TYPED_BUCKET_KEYS.some((key) => Array.isArray(value[key]));
+}
+
+/** Applies a typed-bucket assignment object -- {string:[...], number:[...], boolean:[...], dateTime:[...]}. Used for both the legacy `values` container and the (equally real) `fields` container that carries this same shape. */
+function applyTypedBucketFields(
   base: Record<string, unknown>,
-  values: Record<string, unknown>,
+  buckets: Record<string, unknown>,
   keepOnlySet: boolean,
   logs: string[]
 ): Record<string, unknown> {
   const assigned: Record<string, unknown> = keepOnlySet ? {} : { ...base };
-  const buckets: Array<[keyof typeof values, (v: unknown) => unknown]> = [
+  const coercers: Array<[(typeof TYPED_BUCKET_KEYS)[number], (v: unknown) => unknown]> = [
     ['string', (v) => v],
     ['number', (v) => coerceByDeclaredType(v, 'number')],
     ['boolean', (v) => coerceByDeclaredType(v, 'boolean')],
+    // Dates are treated as literals, consistent with this handler's
+    // no-expression-evaluation policy -- no date parsing/formatting is
+    // invented here.
+    ['dateTime', (v) => v],
   ];
 
-  for (const [bucketKey, coerce] of buckets) {
-    const bucket = values[bucketKey];
+  for (const [bucketKey, coerce] of coercers) {
+    const bucket = buckets[bucketKey];
     if (!Array.isArray(bucket)) continue;
-    for (const entry of bucket as FieldAssignment[]) {
-      const name = String(entry.name ?? entry.key ?? '').trim();
-      if (!name) continue;
-      let value = entry.value;
+    for (const [idx, entry] of bucket.entries()) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        logs.push(`Field assignment[${bucketKey}][${idx}]: not a valid {name, value} object — skipped.`);
+        continue;
+      }
+      const field = entry as FieldAssignment;
+      const name = String(field.name ?? field.key ?? '').trim();
+      if (!name) {
+        logs.push(`Field assignment[${bucketKey}][${idx}]: missing a field name — skipped.`);
+        continue;
+      }
+      let value = field.value;
       if (looksLikeUnresolvedExpression(value)) {
         logs.push(`Field "${name}": expression syntax is not evaluated — using the literal text as-is.`);
       }
@@ -124,26 +150,37 @@ export async function setHandler(
   const base = asRecord(inputData);
 
   let result: Record<string, unknown>;
+  const includeOtherFields = params.includeOtherFields !== false; // default true
+  const keepOnlySet = params.keepOnlySet === true;
 
   if (Array.isArray(params.fields)) {
-    // Phase 9.8.3 -- flat shape actually produced by the current planner/
-    // generator: parameters.fields = [{name, value, type?}] directly,
-    // rather than wrapped in {values: [...]}. Previously silently dropped
-    // (asRecord() rejects arrays, so fieldsContainer.values was always
-    // undefined here) -- the node ran but never wrote its field, a no-op
-    // masquerading as success. Handled as its own case so the existing
-    // fields.values[...] shape below is untouched.
-    const includeOtherFields = params.includeOtherFields !== false; // default true
+    // Phase 9.8.3 -- flat shape: parameters.fields = [{name, value, type?}]
+    // directly, rather than wrapped in {values: [...]}.
     result = applyV3Fields(base, params.fields, includeOtherFields, logs);
-  } else if (params.fields !== undefined || params.mode !== undefined) {
-    // v3 "Edit Fields" shape.
-    const includeOtherFields = params.includeOtherFields !== false; // default true
-    const fieldsContainer = asRecord(params.fields);
-    result = applyV3Fields(base, fieldsContainer.values, includeOtherFields, logs);
-  } else if (params.values !== undefined) {
-    // legacy v1/v2 "Set" shape.
-    const keepOnlySet = params.keepOnlySet === true;
-    result = applyLegacyFields(base, asRecord(params.values), keepOnlySet, logs);
+  } else if (params.fields && typeof params.fields === 'object') {
+    const fieldsObj = params.fields as Record<string, unknown>;
+    if (Array.isArray(fieldsObj.values)) {
+      // v3 "Edit Fields" shape: fields = { values: [...] }.
+      result = applyV3Fields(base, fieldsObj.values, includeOtherFields, logs);
+    } else if (hasTypedBuckets(fieldsObj)) {
+      // Phase 9.8.3 -- the shape the exact Founder workflow actually uses in
+      // production: fields = { string: [...], number: [...], boolean: [...] }
+      // -- structurally identical to the legacy `values` container, just
+      // nested under the key "fields" instead. Previously fell into the
+      // branch below expecting fields.values (undefined for this shape) and
+      // silently applied nothing -- the node ran and reported success, but
+      // never wrote its field.
+      result = applyTypedBucketFields(base, fieldsObj, keepOnlySet, logs);
+    } else {
+      logs.push('Set node: "fields" object has neither values[...] nor a recognized typed bucket — passing data through unchanged.');
+      result = { ...base };
+    }
+  } else if (params.mode !== undefined) {
+    logs.push('Set node: no field assignments configured — passing data through unchanged.');
+    result = { ...base };
+  } else if (params.values !== undefined && typeof params.values === 'object' && !Array.isArray(params.values)) {
+    // legacy v1/v2 "Set" shape: values = { string: [...], number: [...], boolean: [...] }.
+    result = applyTypedBucketFields(base, params.values as Record<string, unknown>, keepOnlySet, logs);
   } else {
     logs.push('Set node: no field assignments configured — passing data through unchanged.');
     result = { ...base };

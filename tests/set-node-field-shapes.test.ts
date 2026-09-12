@@ -42,6 +42,22 @@ describe('setHandler — field assignment shapes (Phase 9.8.3)', () => {
     expect(result.outputData).toMatchObject({ order_amount: 50, customerStatus: 'Standard' });
   });
 
+  it('the exact shape Brahim\'s real production workflow uses: typed buckets nested under "fields" (fields.string/number/boolean), not "values"', async () => {
+    const result = await setHandler(
+      node({ fields: { string: [{ name: 'customerStatus', value: 'VIP' }] } }),
+      { order_amount: 150, customer_name: 'Brahim Test' },
+      CTX,
+    );
+    expect(result.outputData).toMatchObject({ order_amount: 150, customer_name: 'Brahim Test', customerStatus: 'VIP' });
+
+    const standard = await setHandler(
+      node({ fields: { string: [{ name: 'customerStatus', value: 'Standard' }] } }),
+      { order_amount: 50 },
+      CTX,
+    );
+    expect(standard.outputData).toMatchObject({ order_amount: 50, customerStatus: 'Standard' });
+  });
+
   it('3: existing legacy typed values.string/number/boolean shape still works unchanged', async () => {
     const result = await setHandler(
       node({
