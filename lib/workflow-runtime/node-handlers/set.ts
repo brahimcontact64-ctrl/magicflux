@@ -10,7 +10,9 @@ import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types
  * a manually edited or future-generated workflow with real assignments
  * would have silently failed live activation).
  *
- * Supports both shapes actually seen in the wild:
+ * Supports every shape actually seen in the wild:
+ *   - flat (Phase 9.8.3, what the current planner/generator produces):
+ *     { fields: [{name, type?, value}] } -- fields itself is the array
  *   - v3 "Edit Fields": { mode: 'manual', includeOtherFields, fields: { values: [{name, type?, value}] } }
  *   - legacy v1/v2 "Set": { keepOnlySet, values: { string: [...], number: [...], boolean: [...] } }
  *
@@ -55,12 +57,21 @@ function applyV3Fields(
   includeOtherFields: boolean,
   logs: string[]
 ): Record<string, unknown> {
-  const values = Array.isArray(fields) ? (fields as FieldAssignment[]) : [];
+  const values = Array.isArray(fields) ? (fields as unknown[]) : [];
   const assigned: Record<string, unknown> = includeOtherFields ? { ...base } : {};
 
-  for (const field of values) {
+  for (const [idx, entry] of values.entries()) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      logs.push(`Field assignment[${idx}]: not a valid {name, value} object — skipped.`);
+      continue;
+    }
+
+    const field = entry as FieldAssignment;
     const name = String(field.name ?? field.key ?? '').trim();
-    if (!name) continue;
+    if (!name) {
+      logs.push(`Field assignment[${idx}]: missing a field name — skipped.`);
+      continue;
+    }
 
     let value = field.value;
     if (looksLikeUnresolvedExpression(value)) {
@@ -114,7 +125,17 @@ export async function setHandler(
 
   let result: Record<string, unknown>;
 
-  if (params.fields !== undefined || params.mode !== undefined) {
+  if (Array.isArray(params.fields)) {
+    // Phase 9.8.3 -- flat shape actually produced by the current planner/
+    // generator: parameters.fields = [{name, value, type?}] directly,
+    // rather than wrapped in {values: [...]}. Previously silently dropped
+    // (asRecord() rejects arrays, so fieldsContainer.values was always
+    // undefined here) -- the node ran but never wrote its field, a no-op
+    // masquerading as success. Handled as its own case so the existing
+    // fields.values[...] shape below is untouched.
+    const includeOtherFields = params.includeOtherFields !== false; // default true
+    result = applyV3Fields(base, params.fields, includeOtherFields, logs);
+  } else if (params.fields !== undefined || params.mode !== undefined) {
     // v3 "Edit Fields" shape.
     const includeOtherFields = params.includeOtherFields !== false; // default true
     const fieldsContainer = asRecord(params.fields);
