@@ -1,6 +1,7 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import nodemailer from 'nodemailer';
 import { redactText } from '@/lib/security/redact';
+import { asRecord, resolveFieldReference } from './json-field-reference';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -11,9 +12,22 @@ function getParam(node: EngineNode, keys: string[]): string {
   return '';
 }
 
-function asRecord(v: unknown): Record<string, unknown> {
-  if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
-  return {};
+/**
+ * Phase 9.8.7 -- resolves a node parameter through the same narrow
+ * `={{$json["field"]}}` shape condition.ts already supports (see
+ * ./json-field-reference), then falls through if unresolved. A static
+ * literal (the overwhelmingly common case -- e.g. "nssmpro@gmail.com") is
+ * returned completely unchanged, since it never matches that pattern:
+ * static configuration remains authoritative and is never affected by
+ * runtime input. Only a parameter that intentionally uses this exact
+ * expression syntax reads from the trigger payload at all.
+ */
+function resolveParam(node: EngineNode, keys: string[], data: Record<string, unknown>): string {
+  const raw = getParam(node, keys);
+  if (!raw) return '';
+  const resolved = resolveFieldReference(raw, data);
+  if (resolved === undefined || resolved === null) return '';
+  return typeof resolved === 'string' ? resolved : String(resolved);
 }
 
 function base64UrlEncode(input: string): string {
@@ -69,9 +83,9 @@ export async function emailHandler(
   const logs: string[] = [];
   const data = asRecord(inputData);
 
-  const to = getParam(node, ['to', 'emailTo', 'recipient']) || String(data.email ?? 'user@example.com');
-  const subject = getParam(node, ['subject']) || `Message from ${node.name ?? 'MagicFlux'}`;
-  const body = getParam(node, ['text', 'html', 'message']) || 'Automated message from MagicFlux.';
+  const to = resolveParam(node, ['to', 'emailTo', 'recipient'], data) || String(data.email ?? 'user@example.com');
+  const subject = resolveParam(node, ['subject'], data) || `Message from ${node.name ?? 'MagicFlux'}`;
+  const body = resolveParam(node, ['text', 'html', 'message'], data) || 'Automated message from MagicFlux.';
 
   const preview = { nodeName: node.name ?? node.id, to, subject, body };
 

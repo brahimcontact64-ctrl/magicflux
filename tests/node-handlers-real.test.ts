@@ -414,6 +414,95 @@ describe('emailHandler', () => {
     expect(result.status).toBe('success');
     expect((result.outputData as Record<string, unknown>).messageId).toBe('smtp-2');
   });
+
+  // Phase 9.8.7 -- production incident: a real live execution's generic
+  // trigger sample data ({name:'Test User', email:'test@example.com', ...})
+  // never influenced the actual send, because static node parameters
+  // already won -- these tests pin that precedence as an explicit,
+  // permanent regression guarantee (requirement #5/#6/#7 of Phase 9.8.7).
+  describe('static node parameters remain authoritative over runtime trigger input', () => {
+    it('#6: an unrelated/malicious trigger payload cannot override a static recipient', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'static-1' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const staticNode: EngineNode = {
+        id: 'n1', name: 'Send Email', type: 'n8n-nodes-base.gmail',
+        parameters: { to: 'nssmpro@gmail.com', subject: 'MagicFlux Real Workflow Test', message: 'Hello Nassim!' },
+      };
+      const ctx = baseContext({ integrations: [integration('email', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })] });
+
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      const result = await emailHandler(staticNode, { email: 'attacker@evil.com', name: 'Attacker' }, ctx);
+
+      expect((result.outputData as Record<string, unknown>).sent_to).toBe('nssmpro@gmail.com');
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'nssmpro@gmail.com' }));
+    });
+
+    it('#7: the exact production scenario -- generic sample data ({name, email, message}) cannot alter static recipient/subject/body', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'static-2' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const staticNode: EngineNode = {
+        id: 'n1', name: 'Send Email', type: 'n8n-nodes-base.gmail',
+        parameters: { to: 'nssmpro@gmail.com', subject: 'MagicFlux Real Workflow Test', message: 'Hello Nassim! This email was sent automatically by MagicFlux' },
+      };
+      const genericSampleData = { name: 'Test User', email: 'test@example.com', message: 'This is a test event' };
+      const ctx = baseContext({ integrations: [integration('email', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })] });
+
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      const result = await emailHandler(staticNode, genericSampleData, ctx);
+      const output = result.outputData as Record<string, unknown>;
+
+      expect(output.sent_to).toBe('nssmpro@gmail.com');
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
+        to: 'nssmpro@gmail.com',
+        subject: 'MagicFlux Real Workflow Test',
+        text: 'Hello Nassim! This email was sent automatically by MagicFlux',
+      }));
+    });
+  });
+
+  // Phase 9.8.7 -- narrow ={{$json["field"]}} expression support, mirroring
+  // condition.ts's existing (Phase 9.8.2) narrow resolver exactly (shared
+  // module: lib/workflow-runtime/node-handlers/json-field-reference.ts).
+  describe('narrow ={{$json["field"]}} expression support (Phase 9.8.7)', () => {
+    it('a node explicitly using the narrow expression syntax resolves against trigger data', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'expr-1' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const exprNode: EngineNode = {
+        id: 'n1', name: 'Send Email', type: 'n8n-nodes-base.gmail',
+        parameters: { to: '={{$json["email"]}}', subject: '={{$json.subject}}', message: 'Static body' },
+      };
+      const ctx = baseContext({ integrations: [integration('email', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })] });
+
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      const result = await emailHandler(exprNode, { email: 'dynamic-recipient@example.org', subject: 'Dynamic Subject' }, ctx);
+      const output = result.outputData as Record<string, unknown>;
+
+      expect(output.sent_to).toBe('dynamic-recipient@example.org');
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'dynamic-recipient@example.org', subject: 'Dynamic Subject', text: 'Static body' }));
+    });
+
+    it('a static literal is never affected by the expression resolver (does not accidentally match)', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'expr-2' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const staticNode: EngineNode = {
+        id: 'n1', name: 'Send Email', type: 'n8n-nodes-base.gmail',
+        parameters: { to: 'nssmpro@gmail.com', subject: 'MagicFlux Real Workflow Test', message: 'Hello Nassim!' },
+      };
+      const ctx = baseContext({ integrations: [integration('email', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })] });
+
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      const result = await emailHandler(staticNode, { email: 'someone-else@example.org' }, ctx);
+      expect((result.outputData as Record<string, unknown>).sent_to).toBe('nssmpro@gmail.com');
+    });
+  });
 });
 
 // ─── Shopify ───────────────────────────────────────────────────────────────────

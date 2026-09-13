@@ -26,6 +26,7 @@ import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCa
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 import { findIncapableNodes } from '@/lib/agent/capability-filter';
 import { SUPPORTED_TRIGGER_TYPES, isSupportedTriggerType } from '@/lib/agent/tools';
+import { checkConcreteValuesPreserved } from '@/lib/agent/concrete-value-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +73,16 @@ export type ExecutionContext = {
   correlationId?: string;
   traceId?: string;
   parentSpanId?: string;
+  /**
+   * Phase 9.8.7 -- the current turn's raw/canonical user message, passed
+   * through unmodified from lib/agent/loop.ts's `latestUserMessage`. Never
+   * a credential/secret -- just the user's own request text. Used so
+   * generate_workflow_json's second-stage generation (and its
+   * post-generation guard) can preserve concrete literals (recipient
+   * address, subject, message) the user actually typed, instead of relying
+   * solely on the outer tool-call's own summarized arguments.
+   */
+  rawUserIntent?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -226,6 +237,14 @@ async function generateWorkflowJson(params: {
   block_blueprint?: string[];
   requested_providers?: string[];
   nodes_description: string;
+  /**
+   * Phase 9.8.7 -- the user's own raw request text (never a credential),
+   * passed alongside the outer agent's summarized arguments so this
+   * generation call can preserve concrete literals (an exact recipient
+   * address, subject, message) verbatim even when nodes_description only
+   * describes the automation's shape rather than repeating its content.
+   */
+  raw_user_intent?: string;
 }): Promise<{
   nodes: object[];
   connections: object;
@@ -260,10 +279,15 @@ async function generateWorkflowJson(params: {
   // one was actually given.
   const hasPlatform = Boolean(params.platform && params.platform.trim());
 
+  const rawUserIntent = params.raw_user_intent?.trim();
+
   const prompt = `You are an expert n8n workflow engineer. Generate a complete, valid n8n workflow JSON for this automation.
 
 CRITICAL RULE -- read this before anything else: many automations only need to branch on a condition and derive/assign a field value (e.g. "mark as VIP/Standard", "classify as high/low priority", "set status to approved/rejected", "tag as qualified/unqualified"). For these, use ONLY n8n-nodes-base.if (branching) and n8n-nodes-base.set (field assignment) -- do NOT invent a messaging step (Telegram, WhatsApp, Slack, email, etc.), a notification, or a CRM/"order management"-style external action unless the request explicitly names a real external platform or asks to send/post/notify something to a named destination. "Mark", "tag", "classify", and "flag" describe a FIELD VALUE CHANGE, not a message to send. When in doubt and no real platform was requested below, prefer if + set over any external action.
 
+CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
+
+${rawUserIntent ? `Raw User Request (authoritative source for exact literals -- read this for the real recipient/subject/message/channel/etc.):\n"${rawUserIntent}"\n` : ''}
 Workflow Name: ${params.workflow_name}
 Trigger: ${params.trigger}
 Action: ${params.action}
@@ -540,6 +564,7 @@ export async function executeTool(
             ? args.requested_providers.map((value) => String(value)).filter(Boolean)
             : undefined,
           nodes_description: String(args.nodes_description ?? ''),
+          raw_user_intent: ctx.rawUserIntent,
         });
 
         await recordAiUsage({
@@ -665,6 +690,33 @@ export async function executeTool(
               },
             };
           }
+        }
+
+        // Phase 9.8.7 -- deterministic, fail-closed backstop: even with the
+        // raw user request now threaded into the generation prompt above,
+        // an LLM can still occasionally drop or paraphrase a literal the
+        // user actually provided (confirmed in production: "send an email
+        // to nssmpro@gmail.com..." generated parameters.to =
+        // "recipient@example.com"). This never touches runtime precedence
+        // (persisted node parameters still always win over trigger input at
+        // execution time) -- it only stops a wrong workflow from ever being
+        // persisted in the first place.
+        const concreteValueCheck = checkConcreteValuesPreserved(ctx.rawUserIntent ?? '', result.nodes);
+        if (!concreteValueCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: concreteValueCheck.reason,
+              concrete_value_mismatch: true,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated workflow did not preserve your exact details',
+              detail: concreteValueCheck.reason,
+              agent: 'planner',
+            },
+          };
         }
 
         // Phase 9.8.1 -- persist the exact reviewed workflow immediately on

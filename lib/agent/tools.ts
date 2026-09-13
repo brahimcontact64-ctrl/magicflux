@@ -91,7 +91,11 @@ export const AGENT_TOOLS: AgentTool[] = [
           },
           destination: {
             type: 'string',
-            description: 'Output destination if different from platform',
+            description:
+              'Output destination if different from platform. Phase 9.8.7: if the user gave an ' +
+              'exact recipient/address (an email address, a Slack channel, a phone number, etc.), ' +
+              'put it here VERBATIM -- copy the literal text, never generalize it into a category ' +
+              '("their email address") or invent a placeholder ("recipient@example.com").',
           },
           ai_provider: {
             type: 'string',
@@ -126,7 +130,16 @@ export const AGENT_TOOLS: AgentTool[] = [
           },
           nodes_description: {
             type: 'string',
-            description: 'Describe each node in the workflow in plain language',
+            description:
+              'Describe each node in the workflow in plain language. Phase 9.8.7: this must include ' +
+              'every concrete literal value the user actually provided -- the exact recipient ' +
+              'address, subject line, message/body text, Slack channel, webhook path, or other ' +
+              'concrete parameter -- copied verbatim, not summarized. A description like "sends an ' +
+              'email with a specified subject and message" is NOT sufficient when the user gave a ' +
+              'real subject and message; write the actual text. Placeholder values such as ' +
+              '"recipient@example.com", "Your Subject Here", or "Your message content here" are ' +
+              'forbidden whenever the user supplied a real value for that field -- only use them ' +
+              'when the user genuinely left that field unspecified.',
           },
         },
       },

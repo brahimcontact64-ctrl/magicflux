@@ -515,6 +515,7 @@ export async function runAgentLoop(
         correlationId,
         traceId,
         parentSpanId: plannerSpanId,
+        rawUserIntent: latestUserMessage,
       });
 
       // Track events
