@@ -49,6 +49,7 @@ type ReviewParams = {
   instruction: string;
   allowedOutcomes: string[];
   inputFields: string[] | null;
+  overwriteField: string | null;
 };
 
 function parseParams(node: EngineNode): ReviewParams {
@@ -64,7 +65,16 @@ function parseParams(node: EngineNode): ReviewParams {
   const inputFieldsRaw = Array.isArray(raw.inputFields) ? raw.inputFields : null;
   const inputFields = inputFieldsRaw ? inputFieldsRaw.map((f) => String(f).trim()).filter(Boolean) : null;
 
-  return { instruction, allowedOutcomes: allowedOutcomes.length > 0 ? allowedOutcomes : [...DEFAULT_OUTCOMES], inputFields };
+  // Phase 9.9.3.2 -- HUMAN DECISION AUTHORITY CONTRACT's "ALTERNATIVE" shape:
+  // only set when a workflow deliberately rejoins a shared classification
+  // chain after Human Review. When present, the human's chosen outcome
+  // deterministically overwrites exactly this one field on resume -- never
+  // any other -- so a downstream node re-reading it sees the decision, not
+  // the AI classifier's now-superseded value.
+  const overwriteFieldRaw = raw.overwriteField;
+  const overwriteField = typeof overwriteFieldRaw === 'string' && overwriteFieldRaw.trim() ? overwriteFieldRaw.trim() : null;
+
+  return { instruction, allowedOutcomes: allowedOutcomes.length > 0 ? allowedOutcomes : [...DEFAULT_OUTCOMES], inputFields, overwriteField };
 }
 
 /** Deep-redacts secrets (the one authoritative utility, shared with ai-classifier.ts and every other handler), then bounds size for jsonb storage. */
@@ -93,9 +103,18 @@ export async function humanReviewHandler(
 
   if (context.mode === 'test') {
     logs.push('Human Review: simulated in test mode -- auto-approved, no durable review record created.');
+    const simulatedDecision = params.allowedOutcomes[0];
     return {
       status: 'simulated_success',
-      outputData: { ...data, decision: params.allowedOutcomes[0], needs_review: false, reviewed_by: null, reviewed_at: null, _conditionBranch: 0 },
+      outputData: {
+        ...data,
+        ...(params.overwriteField ? { [params.overwriteField]: simulatedDecision } : {}),
+        decision: simulatedDecision,
+        needs_review: false,
+        reviewed_by: null,
+        reviewed_at: null,
+        _conditionBranch: 0,
+      },
       logs,
     };
   }
@@ -159,7 +178,16 @@ export async function humanReviewHandler(
 
     return {
       status: 'success',
-      outputData: { ...data, decision: row.decision_outcome, needs_review: false, _conditionBranch: branch },
+      outputData: {
+        ...data,
+        // Phase 9.9.3.2 -- deterministic, explicit, single-field overwrite
+        // ONLY when the node opted in via "overwriteField" -- never applied
+        // by default, and never touches any field other than this one.
+        ...(params.overwriteField ? { [params.overwriteField]: row.decision_outcome } : {}),
+        decision: row.decision_outcome,
+        needs_review: false,
+        _conditionBranch: branch,
+      },
       logs,
     };
   }

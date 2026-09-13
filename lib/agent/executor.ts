@@ -38,6 +38,7 @@ import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
 import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-guard';
 import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
 import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-guard';
+import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 
 // ---------------------------------------------------------------------------
@@ -317,6 +318,11 @@ HUMAN REVIEW CONTRACT -- MANDATORY whenever this automation needs to pause for a
   - "instruction": a clear natural-language description of what the reviewer needs to decide.
   - "allowedOutcomes": an array of the exact decision outcome strings (defaults to ["approve","reject"] if omitted -- prefer the default two-outcome shape unless the request names specific custom outcomes).
 Like an IF node, its connections MUST use separate output-port arrays in the SAME order as "allowedOutcomes" (main[0] for the first outcome, main[1] for the second, etc.), each present as its own array even if empty -- never collapsed into one port. When it exists to handle an aiClassifier node's low-confidence/needs_review case, it MUST be reached only via the needs_review IF node's true branch -- see NEEDS-REVIEW ROUTING CONTRACT above, which is the only correct way to place it after a classifier. It may also be placed directly after the trigger for a plain approval-gated action with no AI classification involved at all.
+
+HUMAN DECISION AUTHORITY CONTRACT -- MANDATORY, Phase 9.9.3.2. A human's decision at a magicflux-nodes.humanReview node is FINAL and must never be second-guessed by re-reading an AI classifier's earlier, now-superseded output. Concretely: once execution passes through Human Review, NOTHING downstream may branch again on the same field the AI classifier originally wrote (e.g. "={{$json[\"classification\"]}}") to decide which of the outcome's own actions to run -- Human Review's own output ports already encode exactly which outcome the human chose (main[0] for the first entry in "allowedOutcomes", main[1] for the second, etc., routed deterministically by node id, not by re-evaluating any data field). Two acceptable shapes, in order of preference:
+  1. PREFERRED -- when allowedOutcomes names the SAME set of routing destinations the confident (non-reviewed) path already uses (e.g. allowedOutcomes: ["Hot","Warm","Cold"] mirroring the classifier's own allowedLabels), wire each of Human Review's outcome ports DIRECTLY to that outcome's terminal action node(s) -- the exact same node names the confident path's own "If Hot"/"If Warm"/... chain already targets. Do NOT insert a second "If Hot"/"If Warm"/"If Cold"-style node after Human Review to re-check the classification -- that node would read the classifier's ORIGINAL field, which Human Review never overwrites, so a human overriding "Hot" to "Warm" would silently produce ZERO downstream actions (the re-check node's own condition would fail and its false branch is typically empty). The confident (non-reviewed) path may still use its own "If Hot" -> "If Warm" -> ... chain unchanged -- that path never went through Human Review and legitimately reads the classifier's real, current value.
+  2. ALTERNATIVE -- only if the request genuinely requires Human Review to rejoin the SAME classification-routing chain the confident path uses (rather than route directly): add "overwriteField": "<the classifier's outputField, e.g. \"classification\">" to the humanReview node's own parameters. On resume, the runtime deterministically overwrites exactly that one field with the human's chosen outcome string before continuing -- never any other field -- so a downstream IF re-reading it sees the human's decision, not the stale AI value. Only use this when explicitly rejoining a shared chain; the PREFERRED direct-port shape above needs no such field at all.
+Never leave Human Review's outcome ports feeding a node that re-checks the original AI field with neither of these two shapes in place -- that graph will be rejected before persistence.
 
 AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable node: you have NO knowledge of the founder's real Airtable base/table/field schema, so you MUST NOT invent a base id (e.g. "appXXXXXXXXXXXXXX"), a table id (e.g. "tblXXXXXXXXXXXXXX"), or guess that a made-up id is real. Parameters must be exactly:
   - "baseId": leave this an EMPTY STRING "" -- real base selection happens in a separate, real schema-picker step in the Builder after Airtable is connected, never here.
@@ -818,6 +824,33 @@ export async function executeTool(
               type: 'error',
               label: 'AI Classifier must route to Human Review through a real confidence gate',
               detail: aiReviewRoutingCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.3.2 -- product-truth backstop: a human's decision at a
+        // Human Review node must be authoritative. Rejects a graph where
+        // Human Review's outcome ports feed a conditional node that
+        // re-checks the upstream aiClassifier's original field -- a human
+        // overriding the AI's call would reach the right port and then
+        // silently produce zero downstream actions, since that field is
+        // never overwritten unless the node explicitly opts in via
+        // "overwriteField" (see HUMAN DECISION AUTHORITY CONTRACT above).
+        const humanReviewRoutingCheck = validateHumanReviewOutcomeRouting(result.nodes, result.connections);
+        if (!humanReviewRoutingCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: humanReviewRoutingCheck.reason,
+              stale_classification_reevaluation: true,
+              node: humanReviewRoutingCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Human Review outcome must not be re-evaluated against a stale AI value',
+              detail: humanReviewRoutingCheck.reason,
               agent: 'planner',
             },
           };

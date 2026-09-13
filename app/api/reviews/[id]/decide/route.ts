@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { data: item, error: lookupError } = await db
     .from('workflow_review_items')
-    .select('id, user_id, workflow_id, execution_id, node_id, deployment_version_id, status, allowed_outcomes, mode, resume_attempts')
+    .select('id, user_id, workflow_id, execution_id, node_id, node_name, deployment_version_id, status, allowed_outcomes, mode, resume_attempts')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .maybeSingle();
@@ -71,6 +71,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       workflow_id: item.workflow_id,
       execution_id: item.execution_id,
       node_id: item.node_id,
+      node_name: item.node_name,
       deployment_version_id: item.deployment_version_id,
       mode: (item.mode ?? 'live') as 'test' | 'live',
       resume_attempts: item.resume_attempts,
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // the already-decided path above rather than erroring.
     const { data: latest } = await db
       .from('workflow_review_items')
-      .select('id, user_id, workflow_id, execution_id, node_id, deployment_version_id, mode, resume_attempts')
+      .select('id, user_id, workflow_id, execution_id, node_id, node_name, deployment_version_id, mode, resume_attempts')
       .eq('id', params.id)
       .eq('user_id', user.id)
       .maybeSingle();
@@ -134,6 +135,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     workflow_id: item.workflow_id,
     execution_id: item.execution_id,
     node_id: item.node_id,
+    node_name: item.node_name,
     deployment_version_id: item.deployment_version_id,
     mode: (item.mode ?? 'live') as 'test' | 'live',
     resume_attempts: item.resume_attempts,

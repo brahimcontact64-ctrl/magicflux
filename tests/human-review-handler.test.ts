@@ -205,4 +205,51 @@ describe('humanReviewHandler', () => {
     expect(result.status).toBe('failed');
     expect(fakeDb.rows).toHaveLength(0);
   });
+
+  describe('Phase 9.9.3.2 -- "overwriteField" (HUMAN DECISION AUTHORITY CONTRACT alternative shape)', () => {
+    it('without overwriteField, resume never touches any field other than decision/needs_review/_conditionBranch', async () => {
+      const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
+      const node = reviewNode({ allowedOutcomes: ['Hot', 'Warm', 'Cold'] });
+      const input = { classification: 'Hot', confidence: 0.4, name: 'Acme Co' };
+      await humanReviewHandler(node, input, baseContext());
+      fakeDb.rows[0].status = 'resume_pending';
+      fakeDb.rows[0].decision_outcome = 'Warm';
+
+      const result = await humanReviewHandler(node, input, baseContext());
+      const output = result.outputData as Record<string, unknown>;
+      // The stale AI value is preserved, not overwritten -- by design, this
+      // is exactly why generation must either route Human Review's ports
+      // directly (preferred) or opt into overwriteField (alternative).
+      expect(output.classification).toBe('Hot');
+      expect(output.decision).toBe('Warm');
+      expect(output._conditionBranch).toBe(1);
+      expect(output.name).toBe('Acme Co');
+    });
+
+    it('with overwriteField set, resume deterministically overwrites exactly that field with the human decision', async () => {
+      const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
+      const node = reviewNode({ allowedOutcomes: ['Hot', 'Warm', 'Cold'], overwriteField: 'classification' });
+      const input = { classification: 'Hot', confidence: 0.4, name: 'Acme Co' };
+      await humanReviewHandler(node, input, baseContext());
+      fakeDb.rows[0].status = 'resume_pending';
+      fakeDb.rows[0].decision_outcome = 'Warm';
+
+      const result = await humanReviewHandler(node, input, baseContext());
+      const output = result.outputData as Record<string, unknown>;
+      expect(output.classification).toBe('Warm');
+      expect(output._conditionBranch).toBe(1);
+      // Never touches unrelated fields.
+      expect(output.name).toBe('Acme Co');
+      expect(output.confidence).toBe(0.4);
+    });
+
+    it('overwriteField also applies in test-mode simulation, consistently', async () => {
+      const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
+      const node = reviewNode({ allowedOutcomes: ['Hot', 'Warm', 'Cold'], overwriteField: 'classification' });
+      const result = await humanReviewHandler(node, { classification: 'Hot' }, baseContext({ mode: 'test' }));
+      const output = result.outputData as Record<string, unknown>;
+      expect(output.classification).toBe('Hot'); // simulated decision = allowedOutcomes[0] = 'Hot'
+      expect(output.decision).toBe('Hot');
+    });
+  });
 });

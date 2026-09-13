@@ -33,6 +33,33 @@ export class ExecutionManager {
       reason: 'Resume requested',
     });
 
+    // Phase 9.9.3.2 -- resume data-integrity fix. When a node parks with
+    // status:'waiting' (e.g. magicflux-nodes.humanReview, wait.ts), its
+    // pendingQueue at that moment is whatever was left AFTER it was
+    // dequeued -- for the common case of a single parked node with nothing
+    // else in flight, that is an EMPTY array. The engine's own fallback for
+    // an empty pendingQueue (runtime/workflow-engine.ts) re-seeds the queue
+    // from `resumeFromNodeId` using the CALLER's `inputData` -- but every
+    // caller of resumeExecution() (lib/runtime/review-resume.ts, the manual
+    // resume route) passes inputData:{} here, since they have no reason to
+    // reconstruct the node's actual prior input themselves. The result:
+    // the parked node was re-invoked with an empty object instead of the
+    // real data it originally received (its own AI classification,
+    // confidence, and every other upstream field), silently discarding it
+    // for every downstream node -- not merely a stale value, a lost one.
+    // The correct source of truth already exists: persistCheckpoint()
+    // always snapshots `{ output: <the parked node's own input> }` into
+    // stateSnapshot at the moment it went to 'waiting'
+    // (runtime/workflow-engine.ts). Use that here whenever there is no
+    // already-queued input to fall back on, instead of the caller's opaque
+    // inputData placeholder.
+    const checkpointOutput = checkpoint?.stateSnapshot?.output;
+    const pendingQueue = checkpoint?.pendingQueue && checkpoint.pendingQueue.length > 0
+      ? checkpoint.pendingQueue
+      : checkpoint?.currentNodeId
+        ? [{ nodeName: checkpoint.currentNodeId, input: checkpointOutput ?? params.inputData }]
+        : undefined;
+
     return this.engine.execute({
       workflowJson: params.workflowJson,
       inputData: params.inputData,
@@ -43,7 +70,7 @@ export class ExecutionManager {
       resumeFromNodeId: checkpoint?.currentNodeId ?? undefined,
       retryCount: params.retryCount ?? 0,
       maxRetries: params.maxRetries ?? 3,
-      pendingQueue: checkpoint?.pendingQueue,
+      pendingQueue,
     });
   }
 

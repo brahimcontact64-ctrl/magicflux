@@ -34,6 +34,24 @@ import { ExecutionManager } from '@/runtime/execution-manager';
  * called again; only this row's status is caught up to 'resumed'.
  * resumeExecution() is only (re)invoked when the execution is STILL
  * genuinely parked exactly at this review node.
+ *
+ * Phase 9.9.3.2 -- fixed a duplicate-guard identity mismatch found while
+ * investigating human-decision routing integrity: `stillAtThisNode` used to
+ * compare workflow_executions_v2.current_node_id against this row's
+ * `node_id` column. The engine (runtime/workflow-engine.ts) always
+ * populates current_node_id with the node's NAME (nodeMap/edgeMap/
+ * checkpoints are all keyed by name, never id), while workflow_review_items
+ * .node_id is the node's own `id` field (set by humanReviewHandler for its
+ * OWN re-lookup, where id vs name doesn't matter there). Since a real
+ * generated node's `id` ("4") and `name` ("Human Review") are virtually
+ * never equal, this comparison was ALWAYS false -- meaning
+ * attemptReviewResume() never once actually called resumeExecution() for a
+ * real decision made through app/api/reviews/[id]/decide/route.ts; it
+ * silently marked every review row "resumed" without the underlying
+ * workflow execution ever progressing. Fixed by comparing against this
+ * row's existing `node_name` column instead (already stored alongside
+ * node_id for exactly this kind of need -- see app/api/reviews/route.ts),
+ * matching the engine's own identity space.
  */
 
 export type ReviewItemForResume = {
@@ -42,6 +60,7 @@ export type ReviewItemForResume = {
   workflow_id: string;
   execution_id: string;
   node_id: string;
+  node_name: string | null;
   deployment_version_id: string | null;
   mode: 'test' | 'live';
   resume_attempts?: number | null;
@@ -62,7 +81,7 @@ export async function attemptReviewResume(item: ReviewItemForResume): Promise<At
     .maybeSingle();
 
   const stillAtThisNode = Boolean(
-    execRow && execRow.status === 'waiting' && execRow.current_node_id === item.node_id
+    execRow && execRow.status === 'waiting' && item.node_name && execRow.current_node_id === item.node_name
   );
 
   if (!stillAtThisNode) {
@@ -163,7 +182,7 @@ export async function recoverStuckReviewResumes(params?: {
 
   const { data: candidates } = await db
     .from('workflow_review_items')
-    .select('id, user_id, workflow_id, execution_id, node_id, deployment_version_id, mode, resume_attempts, updated_at')
+    .select('id, user_id, workflow_id, execution_id, node_id, node_name, deployment_version_id, mode, resume_attempts, updated_at')
     .eq('status', 'resume_pending')
     .lte('updated_at', cutoffIso)
     .limit(batchSize);

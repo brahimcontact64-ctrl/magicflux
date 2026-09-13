@@ -49,6 +49,16 @@ function freshTables(): Record<string, Row[]> {
         workflow_id: 'wf-1',
         execution_id: 'exec-1',
         node_id: 'node-1',
+        // Phase 9.9.3.2 -- node_id ("node-1") and node_name ("Human
+        // Review") are DELIBERATELY different values here, exactly like a
+        // real generated node (id: "4", name: "Human Review"). The
+        // duplicate-guard must compare against node_name (matching
+        // workflow_executions_v2.current_node_id, which the engine always
+        // populates with the node's name, never its id) -- a fixture where
+        // they happened to be equal previously masked a real production
+        // bug where the guard could never match and resumeExecution() was
+        // never actually called.
+        node_name: 'Human Review',
         deployment_version_id: null,
         status: 'resume_pending',
         decision_outcome: 'approve',
@@ -59,7 +69,7 @@ function freshTables(): Record<string, Row[]> {
       },
     ],
     workflow_executions_v2: [
-      { id: 'exec-1', status: 'waiting', current_node_id: 'node-1' },
+      { id: 'exec-1', status: 'waiting', current_node_id: 'Human Review' },
     ],
     workflows: [
       { id: 'wf-1', user_id: 'user-1', workflow_json: { nodes: [], connections: {} } },
@@ -96,6 +106,7 @@ function reviewItem(overrides: Partial<Row> = {}) {
     workflow_id: 'wf-1',
     execution_id: 'exec-1',
     node_id: 'node-1',
+    node_name: 'Human Review',
     deployment_version_id: null,
     mode: 'live' as const,
     resume_attempts: 0,
@@ -164,6 +175,23 @@ describe('attemptReviewResume — crash-window recovery', () => {
     expect(outcome.resumed).toBe(false);
     expect(tables.workflow_review_items[0].last_resume_error).toMatch(/not found/i);
     expect(resumeExecutionMock).not.toHaveBeenCalled();
+  });
+
+  it('Phase 9.9.3.2 regression: resumeExecution() is actually invoked even though node_id ("node-1") and node_name ("Human Review") are different values -- the real production shape', async () => {
+    // Before the fix, `stillAtThisNode` compared current_node_id against
+    // node_id -- since the engine always stores current_node_id as the
+    // node's NAME, this comparison ("Human Review" === "node-1") was always
+    // false, so a real decision through app/api/reviews/[id]/decide/route.ts
+    // would silently mark the row "resumed" WITHOUT ever calling
+    // resumeExecution(), leaving the actual workflow execution permanently
+    // parked at Human Review. This is the single most important assertion
+    // in this suite: a real decision must actually resume the execution.
+    const { attemptReviewResume } = await import('../lib/runtime/review-resume');
+    const outcome = await attemptReviewResume(reviewItem());
+
+    expect(resumeExecutionMock).toHaveBeenCalledTimes(1);
+    expect(outcome.resumed).toBe(true);
+    expect(outcome).not.toHaveProperty('alreadyResumed', true);
   });
 });
 
