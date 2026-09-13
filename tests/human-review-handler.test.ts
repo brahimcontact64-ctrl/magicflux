@@ -40,6 +40,17 @@ function makeFakeReviewTable() {
           rows.push({ id: `review-${rows.length + 1}`, status: 'pending', decision_outcome: null, ...row });
           return Promise.resolve({ error: null });
         },
+        update(patch: Row) {
+          const filters: Array<[string, unknown]> = [];
+          const builder = {
+            eq(col: string, val: unknown) { filters.push([col, val]); return builder; },
+            then(resolve: (v: { error: null }) => unknown) {
+              for (const row of rows) if (filters.every(([c, v]) => row[c] === v)) Object.assign(row, patch);
+              return Promise.resolve(resolve({ error: null }));
+            },
+          };
+          return builder;
+        },
       };
     },
   };
@@ -104,7 +115,7 @@ describe('humanReviewHandler', () => {
   it('approve resumes the correct branch (index 0, the default allowedOutcomes order)', async () => {
     const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
     await humanReviewHandler(reviewNode(), { leadId: 'lead-1' }, baseContext());
-    fakeDb.rows[0].status = 'approved';
+    fakeDb.rows[0].status = 'resume_pending';
     fakeDb.rows[0].decision_outcome = 'approve';
 
     const result = await humanReviewHandler(reviewNode(), { leadId: 'lead-1' }, baseContext());
@@ -118,7 +129,7 @@ describe('humanReviewHandler', () => {
   it('reject resumes the correct branch (index 1)', async () => {
     const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
     await humanReviewHandler(reviewNode(), {}, baseContext());
-    fakeDb.rows[0].status = 'rejected';
+    fakeDb.rows[0].status = 'resume_pending';
     fakeDb.rows[0].decision_outcome = 'reject';
 
     const result = await humanReviewHandler(reviewNode(), {}, baseContext());
@@ -130,18 +141,36 @@ describe('humanReviewHandler', () => {
     const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
     const node = reviewNode({ allowedOutcomes: ['approve', 'reject', 'escalate'] });
     await humanReviewHandler(node, {}, baseContext());
-    fakeDb.rows[0].status = 'decided';
+    fakeDb.rows[0].status = 'resume_pending';
     fakeDb.rows[0].decision_outcome = 'escalate';
 
     const result = await humanReviewHandler(node, {}, baseContext());
     expect((result.outputData as Record<string, unknown>)._conditionBranch).toBe(2);
   });
 
+  it('Phase 9.9.2A: the branch mapping is deterministic from the PERSISTED allowed_outcomes column, not re-derived from the node\'s live parameters at resume time', async () => {
+    const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
+    const node = reviewNode({ allowedOutcomes: ['approve', 'reject'] });
+    await humanReviewHandler(node, {}, baseContext());
+    fakeDb.rows[0].status = 'resume_pending';
+    fakeDb.rows[0].decision_outcome = 'reject';
+    // Simulate the persisted snapshot disagreeing with whatever the node's
+    // own live parameters would now say (should never happen in practice
+    // since workflow_json is frozen per deployment version -- but the
+    // guarantee must come from the durable column, not that assumption).
+    fakeDb.rows[0].allowed_outcomes = ['reject', 'approve'];
+
+    const result = await humanReviewHandler(node, {}, baseContext());
+    // Must resolve using the STORED order (['reject','approve'] -> reject=0),
+    // not the node's live parameters order (['approve','reject'] -> reject=1).
+    expect((result.outputData as Record<string, unknown>)._conditionBranch).toBe(0);
+  });
+
   it('original input data is preserved unchanged alongside the decision fields', async () => {
     const { humanReviewHandler } = await import('../lib/workflow-runtime/node-handlers/human-review');
     const input = { leadId: 'lead-9', name: 'Priya', budget: 1000 };
     await humanReviewHandler(reviewNode(), input, baseContext());
-    fakeDb.rows[0].status = 'approved';
+    fakeDb.rows[0].status = 'resume_pending';
     fakeDb.rows[0].decision_outcome = 'approve';
 
     const result = await humanReviewHandler(reviewNode(), input, baseContext());

@@ -159,7 +159,7 @@ describe('Human Review pause/resume (runtime/workflow-engine.ts + human-review.t
     // Simulate the decide endpoint's CAS update (the real route does the
     // same UPDATE ... WHERE status = 'pending').
     const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
-    reviewRows[0].status = 'approved';
+    reviewRows[0].status = 'resume_pending';
     reviewRows[0].decision_outcome = 'approve';
     reviewRows[0].reviewed_by = USER_ID;
 
@@ -179,7 +179,7 @@ describe('Human Review pause/resume (runtime/workflow-engine.ts + human-review.t
     });
 
     const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
-    reviewRows[0].status = 'rejected';
+    reviewRows[0].status = 'resume_pending';
     reviewRows[0].decision_outcome = 'reject';
     reviewRows[0].reviewed_by = USER_ID;
 

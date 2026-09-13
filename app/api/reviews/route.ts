@@ -5,13 +5,20 @@ import { classifyError } from '@/lib/security/safe-error';
 /**
  * GET /api/reviews
  *
- * Lists the authenticated user's own pending human-review items (Phase
- * 9.9.2's Pending Reviews panel). Owner-scoped: every query is filtered by
- * the authenticated user's id, never a client-supplied one -- a request
- * for someone else's reviews simply returns none, it never errors in a way
- * that would reveal whether other users' reviews exist.
+ * Lists the authenticated user's own human-review items (the Pending
+ * Reviews panel). Authorization truth (Phase 9.9.2A): this is OWNER-ONLY
+ * -- every query is filtered by the authenticated caller's own id, never a
+ * client-supplied one. There is no cross-tenant admin/founder view; a
+ * request only ever sees rows this exact user owns.
  *
- * ?status=pending|approved|rejected|decided|all (default: pending)
+ * `status` here is the resume LIFECYCLE (pending -> resume_pending ->
+ * resumed), not the decision's own value -- decision_outcome carries
+ * approve/reject/custom regardless of lifecycle stage. A resume_pending
+ * row already has a final decision_outcome; it just hasn't been confirmed
+ * to have taken effect on the execution yet (see lib/runtime/review-resume.ts).
+ *
+ * ?status=pending|resume_pending|resumed|all (default: pending -- awaiting
+ * an actual human decision)
  */
 export async function GET(req: NextRequest) {
   const user = await getUserFromRequest(req);

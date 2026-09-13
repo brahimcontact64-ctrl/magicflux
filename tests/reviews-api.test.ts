@@ -1,12 +1,16 @@
 /**
- * Phase 9.9.2 — /api/reviews/[id]/decide authorization & idempotency.
+ * Phase 9.9.2A — /api/reviews/[id]/decide authorization & idempotency.
  *
  * Covers the security requirements explicit in this phase: no public
  * unauthenticated approval (401 without a session), cross-tenant access
  * blocked (a review item scoped to a different user comes back 404, never
  * leaking existence), and idempotent decisions (a compare-and-swap update
- * means a second decide request for an already-decided item never resumes
- * the execution again -- "execution resumes exactly once").
+ * into 'resume_pending' means a second decide request for an
+ * already-decided item never re-accepts a new decision value -- it only
+ * drives the SAME recovery path forward via attemptReviewResume(), which
+ * is mocked here so this file tests the ROUTE's own auth/ownership/CAS
+ * logic in isolation from resume/engine internals (see
+ * tests/review-resume-crash-safety.test.ts for those).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -48,14 +52,14 @@ function freshTables(): Record<string, Row[]> {
         user_id: OWNER_ID,
         workflow_id: WORKFLOW_ID,
         execution_id: EXECUTION_ID,
+        node_id: 'node-1',
         deployment_version_id: null,
         status: 'pending',
         allowed_outcomes: ['approve', 'reject'],
         mode: 'live',
+        resume_attempts: 0,
       },
     ],
-    workflows: [{ id: WORKFLOW_ID, user_id: OWNER_ID, workflow_json: { nodes: [], connections: {} } }],
-    deployment_versions: [],
   };
 }
 
@@ -68,11 +72,9 @@ vi.mock('@/lib/supabase-server', () => ({
   getUserFromRequest: vi.fn(),
 }));
 
-const resumeExecutionMock = vi.fn().mockResolvedValue({ status: 'success' });
-vi.mock('@/runtime/execution-manager', () => ({
-  ExecutionManager: class {
-    resumeExecution(...args: unknown[]) { return resumeExecutionMock(...args); }
-  },
+const attemptReviewResumeMock = vi.fn().mockResolvedValue({ resumed: true });
+vi.mock('@/lib/runtime/review-resume', () => ({
+  attemptReviewResume: (...args: unknown[]) => attemptReviewResumeMock(...args),
 }));
 
 function makeReq(body: Record<string, unknown>): NextRequest {
@@ -84,13 +86,14 @@ function makeReq(body: Record<string, unknown>): NextRequest {
 
 beforeEach(async () => {
   tables = freshTables();
-  resumeExecutionMock.mockClear();
+  attemptReviewResumeMock.mockClear();
+  attemptReviewResumeMock.mockResolvedValue({ resumed: true });
   const { getUserFromRequest } = await import('@/lib/supabase-server');
   vi.mocked(getUserFromRequest).mockReset();
 });
 
 describe('POST /api/reviews/[id]/decide', () => {
-  it('unauthorized: no session -> 401, never touches the review item or resumes anything', async () => {
+  it('unauthorized: no session -> 401, never touches the review item or attempts resume', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue(null as never);
 
@@ -99,10 +102,10 @@ describe('POST /api/reviews/[id]/decide', () => {
 
     expect(res.status).toBe(401);
     expect(tables.workflow_review_items[0].status).toBe('pending');
-    expect(resumeExecutionMock).not.toHaveBeenCalled();
+    expect(attemptReviewResumeMock).not.toHaveBeenCalled();
   });
 
-  it('cross-tenant: a different user cannot see or decide someone else\'s review item -> 404, unchanged, no resume', async () => {
+  it('cross-tenant: a different user cannot see or decide someone else\'s review item -> 404, unchanged, no resume attempt', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: ATTACKER_ID } as never);
 
@@ -112,10 +115,10 @@ describe('POST /api/reviews/[id]/decide', () => {
     expect(res.status).toBe(404);
     expect(tables.workflow_review_items[0].status).toBe('pending');
     expect(tables.workflow_review_items[0].user_id).toBe(OWNER_ID); // never reassigned/leaked
-    expect(resumeExecutionMock).not.toHaveBeenCalled();
+    expect(attemptReviewResumeMock).not.toHaveBeenCalled();
   });
 
-  it('the real owner can approve, which resumes the execution exactly once', async () => {
+  it('the real owner can approve: CAS transitions pending -> resume_pending with decision metadata, then resume is attempted', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
 
@@ -125,14 +128,15 @@ describe('POST /api/reviews/[id]/decide', () => {
 
     expect(res.status).toBe(200);
     expect(body.resumed).toBe(true);
-    expect(tables.workflow_review_items[0].status).toBe('approved');
+    expect(tables.workflow_review_items[0].status).toBe('resume_pending');
     expect(tables.workflow_review_items[0].decision_outcome).toBe('approve');
     expect(tables.workflow_review_items[0].reviewed_by).toBe(OWNER_ID);
-    expect(resumeExecutionMock).toHaveBeenCalledTimes(1);
-    expect(resumeExecutionMock).toHaveBeenCalledWith(expect.objectContaining({ executionId: EXECUTION_ID, userId: OWNER_ID }));
+    expect(tables.workflow_review_items[0].reviewed_at).toBeTruthy();
+    expect(attemptReviewResumeMock).toHaveBeenCalledTimes(1);
+    expect(attemptReviewResumeMock).toHaveBeenCalledWith(expect.objectContaining({ execution_id: EXECUTION_ID, user_id: OWNER_ID }));
   });
 
-  it('duplicate decision does not resume twice: a second decide request for an already-decided item is a no-op', async () => {
+  it('duplicate decision request: a second decide call for an item already at resume_pending does NOT re-accept a new decision value -- it only drives recovery', async () => {
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
 
@@ -140,27 +144,32 @@ describe('POST /api/reviews/[id]/decide', () => {
     const first = await POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } });
     expect((await first.json()).resumed).toBe(true);
 
-    const second = await POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } });
+    // Attempt to flip the decision on the second call -- must be ignored.
+    const second = await POST(makeReq({ decision: 'reject' }), { params: { id: REVIEW_ID } });
     const secondBody = await second.json();
 
     expect(second.status).toBe(200);
     expect(secondBody.alreadyDecided).toBe(true);
-    // The critical assertion: resumeExecution was called exactly once total,
-    // not once per decide request.
-    expect(resumeExecutionMock).toHaveBeenCalledTimes(1);
+    expect(tables.workflow_review_items[0].decision_outcome).toBe('approve'); // unchanged by the later reject attempt
+    expect(attemptReviewResumeMock).toHaveBeenCalledTimes(2); // once per request, but never re-CAS'd the decision
   });
 
-  it('a conflicting decision (reject) after an approve is also a no-op -- the FIRST decision wins', async () => {
+  it('a decide request for an already-resumed item is a pure idempotent no-op that still reports success', async () => {
+    tables.workflow_review_items[0].status = 'resumed';
+    tables.workflow_review_items[0].decision_outcome = 'approve';
+    tables.workflow_review_items[0].reviewed_by = OWNER_ID;
+    tables.workflow_review_items[0].reviewed_at = new Date().toISOString();
+
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
 
     const { POST } = await import('../app/api/reviews/[id]/decide/route');
-    await POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } });
-    const conflicting = await POST(makeReq({ decision: 'reject' }), { params: { id: REVIEW_ID } });
+    const res = await POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } });
+    const body = await res.json();
 
-    expect((await conflicting.json()).alreadyDecided).toBe(true);
-    expect(tables.workflow_review_items[0].decision_outcome).toBe('approve'); // unchanged by the later reject attempt
-    expect(resumeExecutionMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+    expect(body.alreadyDecided).toBe(true);
+    expect(attemptReviewResumeMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a decision value that is not one of the item\'s own allowed_outcomes', async () => {
@@ -172,6 +181,23 @@ describe('POST /api/reviews/[id]/decide', () => {
 
     expect(res.status).toBe(400);
     expect(tables.workflow_review_items[0].status).toBe('pending');
-    expect(resumeExecutionMock).not.toHaveBeenCalled();
+    expect(attemptReviewResumeMock).not.toHaveBeenCalled();
+  });
+
+  it('when attemptReviewResume fails, the decision is still reported as recorded (not lost), with a retry warning', async () => {
+    attemptReviewResumeMock.mockResolvedValueOnce({ resumed: false, error: 'boom' });
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+
+    const { POST } = await import('../app/api/reviews/[id]/decide/route');
+    const res = await POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.resumed).toBe(false);
+    expect(body.warning).toMatch(/boom/);
+    // The decision itself is still durably persisted despite the resume failure.
+    expect(tables.workflow_review_items[0].status).toBe('resume_pending');
+    expect(tables.workflow_review_items[0].decision_outcome).toBe('approve');
   });
 });

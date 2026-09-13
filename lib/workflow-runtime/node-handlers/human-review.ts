@@ -80,7 +80,7 @@ function buildSafeReviewContext(data: Record<string, unknown>, inputFields: stri
   return safe as Record<string, unknown>;
 }
 
-type ReviewItemRow = { id: string; status: string; decision_outcome: string | null };
+type ReviewItemRow = { id: string; status: string; decision_outcome: string | null; allowed_outcomes: string[] | null };
 
 export async function humanReviewHandler(
   node: EngineNode,
@@ -111,7 +111,7 @@ export async function humanReviewHandler(
 
   const { data: existing, error: lookupError } = await db
     .from('workflow_review_items')
-    .select('id, status, decision_outcome')
+    .select('id, status, decision_outcome, allowed_outcomes')
     .eq('execution_id', context.executionId)
     .eq('node_id', nodeId)
     .maybeSingle();
@@ -125,9 +125,38 @@ export async function humanReviewHandler(
   const row = existing as ReviewItemRow | null;
 
   if (row && row.status !== 'pending') {
-    const outcomeIndex = params.allowedOutcomes.indexOf(row.decision_outcome ?? '');
+    // Phase 9.9.2A -- the branch mapping is computed from the DB row's OWN
+    // persisted allowed_outcomes (the exact snapshot taken when this review
+    // item was created), never by re-parsing the node's live parameters at
+    // resume time. The two should always agree (workflow_json is frozen
+    // per deployment version), but the persisted column is the actual
+    // guarantee, not an assumption.
+    const persistedOutcomes = Array.isArray(row.allowed_outcomes) && row.allowed_outcomes.length > 0
+      ? row.allowed_outcomes
+      : params.allowedOutcomes;
+    const outcomeIndex = persistedOutcomes.indexOf(row.decision_outcome ?? '');
     const branch = outcomeIndex >= 0 ? outcomeIndex : 0;
     logs.push(`Human Review: decision already recorded -- "${row.decision_outcome}". Continuing branch ${branch}.`);
+
+    // Self-healing: reaching this code at all proves a resume attempt
+    // reached this exact node again, so if our own bookkeeping is still at
+    // 'resume_pending' (e.g. the decide route's own final update crashed
+    // right after resumeExecution() itself succeeded), catch it up now --
+    // belt-and-suspenders alongside lib/runtime/review-resume.ts's own
+    // recovery paths. Best-effort: never fail the node over this.
+    if (row.status === 'resume_pending') {
+      try {
+        await db
+          .from('workflow_review_items')
+          .update({ status: 'resumed', resumed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('id', row.id)
+          .eq('status', 'resume_pending');
+      } catch {
+        // Best-effort -- lib/runtime/review-resume.ts's recovery paths
+        // will catch this up if this update didn't land.
+      }
+    }
+
     return {
       status: 'success',
       outputData: { ...data, decision: row.decision_outcome, needs_review: false, _conditionBranch: branch },

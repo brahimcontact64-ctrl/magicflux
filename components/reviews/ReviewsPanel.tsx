@@ -4,12 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Inbox, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 
+// `status` is the resume LIFECYCLE (pending -> resume_pending -> resumed),
+// not the decision's own value -- decision_outcome carries approve/reject/
+// custom regardless of lifecycle stage (see lib/runtime/review-resume.ts).
 type ReviewItem = {
   id: string;
   workflow_id: string;
   execution_id: string;
   node_name: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'decided';
+  status: 'pending' | 'resume_pending' | 'resumed';
   allowed_outcomes: string[];
   decision_outcome: string | null;
   instruction: string | null;
@@ -24,14 +27,26 @@ function formatDate(iso: string): string {
   });
 }
 
-function StatusPill({ status }: { status: ReviewItem['status'] }) {
-  const styles: Record<ReviewItem['status'], string> = {
-    pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-    approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-    rejected: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-    decided: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  };
-  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles[status]}`}>{status}</span>;
+function StatusPill({ item }: { item: ReviewItem }) {
+  if (item.status === 'pending') {
+    return <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">pending</span>;
+  }
+  // Decided (resume_pending or resumed) -- lead with the decision itself,
+  // since that's what a reviewer cares about; resume_pending additionally
+  // means "still finishing up," not "needs another decision."
+  const decisionStyle = item.decision_outcome === 'approve'
+    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+    : item.decision_outcome === 'reject'
+      ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+      : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${decisionStyle}`}>{item.decision_outcome}</span>
+      {item.status === 'resume_pending' ? (
+        <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">finishing…</span>
+      ) : null}
+    </span>
+  );
 }
 
 function ReviewCard({ item, onDecided }: { item: ReviewItem; onDecided: () => void }) {
@@ -69,7 +84,7 @@ function ReviewCard({ item, onDecided }: { item: ReviewItem; onDecided: () => vo
           <div className="text-sm font-medium text-foreground truncate">{item.node_name ?? 'Review step'}</div>
           <div className="text-xs text-muted-foreground">workflow {item.workflow_id.slice(0, 8)} · execution {item.execution_id.slice(0, 8)} · {formatDate(item.created_at)}</div>
         </div>
-        <StatusPill status={item.status} />
+        <StatusPill item={item} />
       </div>
 
       {item.instruction ? <p className="text-sm text-foreground/90">{item.instruction}</p> : null}

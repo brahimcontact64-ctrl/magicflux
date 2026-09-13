@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
-import { ExecutionManager } from '@/runtime/execution-manager';
+import { attemptReviewResume } from '@/lib/runtime/review-resume';
 import { classifyError } from '@/lib/security/safe-error';
 
 type Ctx = { params: { id: string } };
@@ -9,20 +9,29 @@ type Ctx = { params: { id: string } };
  * POST /api/reviews/[id]/decide
  * Body: { decision: string }  -- one of the review item's own allowed_outcomes
  *
- * Owner/admin-only (no public unauthenticated approval URLs -- this route
- * requires the same session auth as every other authenticated API route in
- * this app, never a bearer token embedded in a link). Idempotent: a
- * compare-and-swap UPDATE ... WHERE status = 'pending' means only the FIRST
- * decide request for a given review item ever transitions it and resumes
- * the execution; every later request (a duplicate, a race, a retried
- * network call) finds zero rows to update and returns an "already decided"
- * response without touching the execution again -- this is what makes
- * "execution resumes exactly once" true, not a separate lock.
+ * Authorization truth (Phase 9.9.2A): this is OWNER-ONLY. Every query is
+ * scoped to `id` AND `user_id = the authenticated caller's own id` in the
+ * same request -- there is no cross-tenant admin/founder path here. A row
+ * owned by a different user 404s, never leaking existence. If a founder/
+ * admin cross-tenant review surface is wanted later, it needs its own
+ * explicit, separately-tested authorization check (e.g. an admin-role
+ * lookup) -- it does not exist today and must not be implied by this
+ * route's naming.
  *
- * Cross-tenant isolation: the review item is fetched scoped to
- * `id` AND `user_id = the authenticated caller's id` in the SAME query --
- * a row owned by a different user comes back as not-found (404), never
- * leaking whether it exists.
+ * No public unauthenticated approval URLs -- this route requires the same
+ * session auth as every other authenticated API route in this app, never
+ * a bearer token embedded in a link.
+ *
+ * Crash-safe lifecycle (see lib/runtime/review-resume.ts): pending's
+ * compare-and-swap transition to resume_pending durably records the
+ * decision atomically with reviewer/timestamp; ONLY THEN is resume
+ * attempted. A request against an item already at resume_pending (a
+ * duplicate submit, a retried request after a network failure, or the
+ * founder reloading and clicking again) does not re-accept a new decision
+ * -- it drives the SAME recovery path (attemptReviewResume) using the
+ * decision already recorded, which itself refuses to call
+ * resumeExecution() again if the execution has already moved past this
+ * node (see that module for the duplicate-side-effect safety check).
  */
 export async function POST(req: NextRequest, { params }: Ctx) {
   const user = await getUserFromRequest(req);
@@ -30,13 +39,12 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const body = await req.json().catch(() => ({})) as { decision?: unknown };
   const decision = typeof body.decision === 'string' ? body.decision.trim() : '';
-  if (!decision) return NextResponse.json({ error: 'decision is required' }, { status: 400 });
 
   const db = createServiceClient();
 
   const { data: item, error: lookupError } = await db
     .from('workflow_review_items')
-    .select('id, user_id, workflow_id, execution_id, deployment_version_id, status, allowed_outcomes, mode')
+    .select('id, user_id, workflow_id, execution_id, node_id, deployment_version_id, status, allowed_outcomes, mode, resume_attempts')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .maybeSingle();
@@ -51,18 +59,45 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     ? (item.allowed_outcomes as string[])
     : ['approve', 'reject'];
 
+  // Already decided (resume_pending: decision recorded, resume not yet
+  // confirmed -- possibly crashed mid-flight; resumed: fully done). A new
+  // decision value in the request body is IGNORED past this point -- the
+  // first decision is final; this call only drives recovery forward using
+  // whatever was already recorded.
+  if (item.status !== 'pending') {
+    const outcome = await attemptReviewResume({
+      id: item.id,
+      user_id: item.user_id,
+      workflow_id: item.workflow_id,
+      execution_id: item.execution_id,
+      node_id: item.node_id,
+      deployment_version_id: item.deployment_version_id,
+      mode: (item.mode ?? 'live') as 'test' | 'live',
+      resume_attempts: item.resume_attempts,
+    });
+    return NextResponse.json({
+      ok: true,
+      alreadyDecided: true,
+      resumed: outcome.resumed,
+      warning: outcome.resumed ? undefined : `Decision already recorded; resume retry failed: ${outcome.error}`,
+    });
+  }
+
+  if (!decision) return NextResponse.json({ error: 'decision is required' }, { status: 400 });
   if (!allowedOutcomes.includes(decision)) {
     return NextResponse.json({ error: `decision must be one of: ${allowedOutcomes.join(', ')}` }, { status: 400 });
   }
 
-  const statusForOutcome = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'decided';
   const nowIso = new Date().toISOString();
 
   // Compare-and-swap: only succeeds if this is still the FIRST decision.
+  // Decision + reviewer + timestamp are set atomically with the lifecycle
+  // transition -- a 'pending' row never carries partial decision metadata
+  // (also enforced by the migration's CHECK constraint).
   const { data: updated, error: updateError } = await db
     .from('workflow_review_items')
     .update({
-      status: statusForOutcome,
+      status: 'resume_pending',
       decision_outcome: decision,
       reviewed_by: user.id,
       reviewed_at: nowIso,
@@ -80,48 +115,41 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   if (!updated) {
-    // Already decided (by an earlier request, or a concurrent duplicate) --
-    // idempotent no-op, not an error.
-    return NextResponse.json({ ok: true, alreadyDecided: true });
-  }
-
-  // Resolve the frozen workflow_json snapshot this execution actually
-  // started with -- exactly like scheduler.ts / execution-dispatch.ts /
-  // the manual resume route already do -- never whatever is live now.
-  const { data: workflow } = await db
-    .from('workflows')
-    .select('id, workflow_json')
-    .eq('id', item.workflow_id)
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  let workflowJson: unknown = workflow?.workflow_json;
-  if (item.deployment_version_id) {
-    const { data: version } = await db
-      .from('deployment_versions')
-      .select('workflow_data')
-      .eq('id', item.deployment_version_id)
+    // Lost a race with a concurrent decide request -- treat exactly like
+    // the already-decided path above rather than erroring.
+    const { data: latest } = await db
+      .from('workflow_review_items')
+      .select('id, user_id, workflow_id, execution_id, node_id, deployment_version_id, mode, resume_attempts')
+      .eq('id', params.id)
+      .eq('user_id', user.id)
       .maybeSingle();
-    if (version?.workflow_data) workflowJson = version.workflow_data;
+    if (!latest) return NextResponse.json({ error: 'Review item not found' }, { status: 404 });
+    const outcome = await attemptReviewResume({ ...latest, mode: (latest.mode ?? 'live') as 'test' | 'live' });
+    return NextResponse.json({ ok: true, alreadyDecided: true, resumed: outcome.resumed });
   }
 
-  if (!workflowJson) {
-    return NextResponse.json({ ok: true, resumed: false, decision, warning: 'Decision recorded, but the workflow could not be found to resume.' });
-  }
+  const outcome = await attemptReviewResume({
+    id: item.id,
+    user_id: item.user_id,
+    workflow_id: item.workflow_id,
+    execution_id: item.execution_id,
+    node_id: item.node_id,
+    deployment_version_id: item.deployment_version_id,
+    mode: (item.mode ?? 'live') as 'test' | 'live',
+    resume_attempts: item.resume_attempts,
+  });
 
-  const executionManager = new ExecutionManager();
-  try {
-    await executionManager.resumeExecution({
-      executionId: item.execution_id,
-      userId: user.id,
-      workflowJson,
-      workflowId: item.workflow_id,
-      mode: (item.mode ?? 'live') as 'test' | 'live',
-      inputData: {},
+  if (!outcome.resumed) {
+    // Decision IS durably persisted (the CAS above already committed) --
+    // only the resume attempt failed. The cron sweep (or a later retry of
+    // this same endpoint) will recover it; report that honestly rather
+    // than implying the decision itself failed.
+    return NextResponse.json({
+      ok: true,
+      decision,
+      resumed: false,
+      warning: `Decision recorded, but resuming failed and will be retried: ${outcome.error}`,
     });
-  } catch (err) {
-    const safe = classifyError(err);
-    return NextResponse.json({ ok: true, resumed: false, decision, warning: `Decision recorded, but resuming failed: ${safe.message}` });
   }
 
   return NextResponse.json({ ok: true, resumed: true, decision });
