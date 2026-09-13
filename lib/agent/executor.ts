@@ -27,6 +27,13 @@ import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-reg
 import { findIncapableNodes } from '@/lib/agent/capability-filter';
 import { SUPPORTED_TRIGGER_TYPES, isSupportedTriggerType } from '@/lib/agent/tools';
 import { checkConcreteValuesPreserved } from '@/lib/agent/concrete-value-guard';
+import {
+  detectOneTimeSchedulePhrase,
+  isValidIanaTimezone,
+  validateCanonicalScheduleTrigger,
+  ONE_TIME_SCHEDULE_REJECTION_MESSAGE,
+  MISSING_TIMEZONE_MESSAGE,
+} from '@/lib/agent/schedule-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,6 +238,8 @@ async function generateWorkflowJson(params: {
   destination?: string;
   ai_provider?: string;
   schedule?: string;
+  /** Phase 9.8.8 -- required IANA timezone whenever trigger === 'schedule'; see schedule-guard.ts. */
+  timezone?: string;
   automation_style?: string;
   required_capabilities?: string[];
   skill_packs?: string[];
@@ -295,6 +304,11 @@ ${hasPlatform ? `Platform: ${params.platform}` : 'Platform: none -- this automat
 ${params.destination ? `Destination: ${params.destination}` : ''}
 ${params.ai_provider ? `AI Provider: ${params.ai_provider}` : ''}
 ${params.schedule ? `Schedule: ${params.schedule}` : ''}
+${params.trigger === 'schedule' ? `
+SCHEDULE TRIGGER CONTRACT -- MANDATORY: this automation is time-triggered. The trigger node's "type" MUST be exactly "n8n-nodes-base.scheduleTrigger" -- never n8n-nodes-base.cron, never a wait/delay/interval/timer node, never any other invented alternate. Its "parameters" MUST include:
+  - "cronExpression": a valid 5-field cron expression that implements the recurring cadence described below (interpret the schedule as a RECURRING cadence only -- never a one-time absolute date/time).
+  - "timezone": exactly "${params.timezone}" (copy this literal string -- do not omit it, do not substitute UTC or any other timezone).
+` : ''}
 ${params.automation_style ? `Style: ${params.automation_style}` : ''}
 ${params.required_capabilities && params.required_capabilities.length > 0 ? `Required Capabilities: ${params.required_capabilities.join(', ')}` : ''}
 ${params.skill_packs && params.skill_packs.length > 0 ? `Activated Skill Packs: ${params.skill_packs.join(', ')}` : ''}
@@ -535,6 +549,54 @@ export async function executeTool(
           };
         }
 
+        // Phase 9.8.8 -- Schedule Contract Truth. Two fail-closed checks run
+        // BEFORE generation is even attempted, so a request the runtime
+        // cannot honestly represent never reaches the model at all:
+        //   (a) a one-time/absolute schedule phrase must never be silently
+        //       forced into a recurring cron (MagicFlux's scheduler is
+        //       recurring-cron only -- see schedule-guard.ts's module doc).
+        //   (b) a schedule trigger requires an explicit, real IANA timezone;
+        //       it must never silently default to UTC.
+        let scheduleTimezone: string | undefined;
+        if (rawTrigger === 'schedule') {
+          const scheduleText = String(args.schedule ?? '').trim() || (ctx.rawUserIntent ?? '');
+          if (detectOneTimeSchedulePhrase(scheduleText)) {
+            return {
+              tool: toolName,
+              success: false,
+              output: {
+                error: ONE_TIME_SCHEDULE_REJECTION_MESSAGE,
+                one_time_schedule_unsupported: true,
+              },
+              event: {
+                type: 'error',
+                label: 'One-time scheduling is not supported yet',
+                detail: ONE_TIME_SCHEDULE_REJECTION_MESSAGE,
+                agent: 'planner',
+              },
+            };
+          }
+
+          const tzArg = String(args.timezone ?? '').trim();
+          if (!isValidIanaTimezone(tzArg)) {
+            return {
+              tool: toolName,
+              success: false,
+              output: {
+                error: MISSING_TIMEZONE_MESSAGE,
+                missing_timezone: true,
+              },
+              event: {
+                type: 'error',
+                label: 'Timezone required for scheduled workflow',
+                detail: MISSING_TIMEZONE_MESSAGE,
+                agent: 'planner',
+              },
+            };
+          }
+          scheduleTimezone = tzArg;
+        }
+
         const requiredCapabilities = Array.isArray(args.required_capabilities)
           ? args.required_capabilities.map((value) => String(value).trim()).filter(Boolean)
           : [];
@@ -556,6 +618,7 @@ export async function executeTool(
           destination: args.destination ? String(args.destination) : undefined,
           ai_provider: args.ai_provider ? String(args.ai_provider) : undefined,
           schedule: args.schedule ? String(args.schedule) : undefined,
+          timezone: scheduleTimezone,
           automation_style: args.automation_style ? String(args.automation_style) : undefined,
           required_capabilities: requiredCapabilities,
           skill_packs: skillPacks,
@@ -616,6 +679,35 @@ export async function executeTool(
               agent: 'planner',
             },
           };
+        }
+
+        // Phase 9.8.8 -- deterministic backstop matching the concrete-value
+        // guard's placement: even with the strengthened prompt above, the
+        // model can still emit a schedule-like node that findIncapableNodes()
+        // happily accepts (e.g. a generic "wait"/legacy-cron type matches
+        // GENERIC_HANDLER_SUBSTRINGS, so it's "known" but not the canonical,
+        // certified schedule trigger this product actually runs). Reject
+        // before persistence rather than silently deploying an automation
+        // whose trigger doesn't behave the way the founder asked.
+        if (rawTrigger === 'schedule') {
+          const scheduleTriggerCheck = validateCanonicalScheduleTrigger(result.nodes, scheduleTimezone ?? '');
+          if (!scheduleTriggerCheck.ok) {
+            return {
+              tool: toolName,
+              success: false,
+              output: {
+                error: scheduleTriggerCheck.reason,
+                unsupported_schedule_trigger: true,
+                invalid_types: scheduleTriggerCheck.invalidTypes,
+              },
+              event: {
+                type: 'error',
+                label: 'Unsupported schedule trigger generated',
+                detail: scheduleTriggerCheck.reason,
+                agent: 'planner',
+              },
+            };
+          }
         }
 
         const requestedProviders = Array.isArray(args.requested_providers)

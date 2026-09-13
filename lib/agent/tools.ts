@@ -103,7 +103,22 @@ export const AGENT_TOOLS: AgentTool[] = [
           },
           schedule: {
             type: 'string',
-            description: 'Schedule expression if time-triggered, e.g. "daily", "every monday 9am"',
+            description:
+              'Phase 9.8.8: ONLY a recurring cadence, e.g. "every 5 minutes", "daily at 09:00", ' +
+              '"every monday at 09:00". MagicFlux\'s scheduler only supports recurring cron -- it ' +
+              'cannot run a workflow once at a specific date/time and stop. If the user asked for a ' +
+              'one-time/absolute run (e.g. "today at 14:45", "tomorrow at 9am", a specific date), do ' +
+              'NOT force it into a recurring cadence here -- the generation step will reject it. ' +
+              'Ask the user to restate it as a recurring schedule instead.',
+          },
+          timezone: {
+            type: 'string',
+            description:
+              'Phase 9.8.8: REQUIRED whenever trigger is "schedule". The IANA timezone the user\'s ' +
+              'schedule times mean, e.g. "Africa/Algiers", "America/New_York", "UTC". Never guess or ' +
+              'default this from IP/locale -- ask the user which timezone they mean if it is not ' +
+              'stated or already known from their profile. A schedule request without a clear ' +
+              'timezone must not be silently treated as UTC.',
           },
           automation_style: {
             type: 'string',

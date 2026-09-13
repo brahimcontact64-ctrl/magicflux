@@ -531,7 +531,6 @@ function inferMarketWorkflowName(capabilities: string[], prompt: string): string
   if (
     capabilitySet.has('lead_capture') ||
     capabilitySet.has('qualification') ||
-    capabilitySet.has('scheduling') ||
     capabilitySet.has('whatsapp_followups')
   ) {
     return 'Property Lead Engine';
@@ -551,6 +550,19 @@ function inferMarketWorkflowName(capabilities: string[], prompt: string): string
 
   if (normalized.includes('lead')) {
     return 'AI Lead Routing Assistant';
+  }
+
+  // Phase 9.8.8 -- 'scheduling' is a generic, domain-neutral capability
+  // (any time-based automation infers it, from a scheduled email to a
+  // recurring report), not a real-estate/lead signal. It used to sit in
+  // the Property Lead Engine OR-condition above purely because the
+  // real_estate DOMAIN_PACKS entry happens to list 'scheduling' among its
+  // five capabilities -- causing every scheduled request with no other
+  // domain match (e.g. "send an email at 14:45") to be mislabeled as a
+  // property-lead workflow. A scheduled-but-otherwise-domainless request
+  // gets a truthful generic name instead.
+  if (capabilitySet.has('scheduling')) {
+    return 'Scheduled Automation';
   }
 
   return 'AI Workflow Assistant';
