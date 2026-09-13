@@ -22,7 +22,7 @@ import { getToolExecutionPolicy } from '@/lib/runtime/tool-policy';
 import { createTraceId, endSpan, startSpan } from '@/lib/runtime/tracing';
 import { createServiceClient } from '@/lib/supabase-server';
 import { liveGraphManager } from '@/lib/graph/live-graph-manager';
-import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider, toProviderToken } from '@/lib/agent/provider-allowlist';
+import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCanonicalProvider, isInternalProviderLabel, normalizeProvider, toProviderToken } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 import { findIncapableNodes } from '@/lib/agent/capability-filter';
 
@@ -579,11 +579,22 @@ export async function executeTool(
 
         if (requestedProviders.length > 0) {
           const graphProviders = extractAllProvidersFromWorkflowGraph(workflowGraph);
+          // Phase 9.8.4 -- rawGraphProviders previously only dropped empty
+          // strings, unlike its sibling extractAllProvidersFromWorkflowGraph()
+          // above, which already excludes internal category labels (a node
+          // with no external system, e.g. a trigger or an if/set step, has
+          // provider: null and falls back to its WorkflowGraphNode.integration
+          // bucket -- 'core', 'scheduler', etc. -- for cost-estimation
+          // purposes only, never meant to be validated as a provider name).
+          // Missing that same exclusion here made any workflow combining an
+          // internal node with a genuinely requested external platform fail
+          // with a false "Invalid: core" -- reusing the one exported
+          // predicate keeps both extraction paths permanently in sync.
           const rawGraphProviders = Array.from(
             new Set(
               (workflowGraph.nodes ?? [])
                 .map((node) => normalizeProvider(String(node.provider ?? node.integration ?? '')))
-                .filter(Boolean)
+                .filter((provider) => Boolean(provider) && !isInternalProviderLabel(provider))
             )
           );
           const graphSet = new Set(graphProviders);

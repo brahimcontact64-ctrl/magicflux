@@ -11,6 +11,21 @@ const BLOCKED = new Set([
   'ai_provider',
 ]);
 
+/**
+ * Phase 9.8.4 -- single source of truth for "this is an internal category
+ * label, never a real external provider." A node with no external system
+ * (a trigger, an if/condition, a wait/utility step) has `provider: null`,
+ * and WorkflowGraphNode.integration then falls back to one of these values
+ * purely for cost/latency-estimation bucketing (see workflow-graph.ts's
+ * classifyNode()) -- it was never meant to be validated as a provider name.
+ * Exported as a predicate (not the raw Set) so every caller asks the same
+ * question the same way and the two provider-extraction paths below cannot
+ * drift out of sync with each other again.
+ */
+export function isInternalProviderLabel(value: string): boolean {
+  return BLOCKED.has(value);
+}
+
 export const FORBIDDEN_PROVIDER_PATTERNS: RegExp[] = [
   /notify/i,
   /notification/i,
@@ -271,7 +286,7 @@ export function parseRequestedProvidersFromPrompt(prompt: string): string[] {
 
     if (!hasNonNegatedMatch) continue;
     const normalized = normalizeProvider(provider);
-    if (!normalized || BLOCKED.has(normalized) || hasForbiddenProviderPattern(normalized) || !isCanonicalProvider(normalized)) continue;
+    if (!normalized || isInternalProviderLabel(normalized) || hasForbiddenProviderPattern(normalized) || !isCanonicalProvider(normalized)) continue;
     providers.add(normalized);
   }
 
@@ -284,7 +299,7 @@ export function extractAllProvidersFromWorkflowGraph(graph?: WorkflowGraphSummar
   const providers = new Set<string>();
   for (const node of graph.nodes ?? []) {
     const provider = normalizeProvider(String(node.provider ?? node.integration ?? ''));
-    if (!provider || BLOCKED.has(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
+    if (!provider || isInternalProviderLabel(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
     providers.add(provider);
   }
 
@@ -297,7 +312,7 @@ export function extractProvidersFromWorkflowGraph(graph?: WorkflowGraphSummary |
   const providers = new Set<string>();
   for (const node of graph.nodes ?? []) {
     const provider = normalizeProvider(node.provider ?? node.integration ?? '');
-    if (!provider || BLOCKED.has(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
+    if (!provider || isInternalProviderLabel(provider) || hasForbiddenProviderPattern(provider) || !isCanonicalProvider(provider)) continue;
     providers.add(provider);
   }
 
