@@ -17,13 +17,35 @@
  * (renders an arrow into every branch) can never reach persistence unless
  * the underlying wiring the certified runtime actually executes is
  * structurally correct too.
+ *
+ * Phase 9.9.3.1 -- the INVERSE defect, found via a real regeneration of the
+ * lead-routing workflow this guard was originally built for: a
+ * magicflux-nodes.aiClassifier node (genuinely non-branching -- see
+ * ai-classifier.ts, which never sets _conditionBranch) was wired with TWO
+ * separate output-port arrays (main[0] -> Airtable Save, main[1] -> Human
+ * Review). The runtime's branch-dispatch fallback for
+ * conditionBranch === null fires EVERY existing port -- correct for a
+ * single-port node with multiple fanned-out targets, catastrophic here,
+ * since it ran both downstream paths unconditionally for every lead. This
+ * module now validates BOTH directions from the exact same
+ * isConditionalNodeType() predicate used by handler routing
+ * (lib/workflow-runtime/node-handlers/index.ts) and by generation checks
+ * (lib/agent/ai-review-routing-guard.ts): a conditional node's ports must be
+ * structurally separated (checked above), and a non-conditional node must
+ * have AT MOST ONE output-port array -- multiple TARGETS inside that single
+ * port (fan-out) remain completely valid.
  */
 
 import { isConditionalNodeType } from '@/lib/workflow-runtime/node-capabilities';
 
 export type BranchConnectionValidation =
   | { ok: true }
-  | { ok: false; reason: string; node: string };
+  | {
+      ok: false;
+      reason: string;
+      node: string;
+      code: 'malformed_branch_connections' | 'malformed_non_branching_connections';
+    };
 
 type ConnectionEntryLike = { node?: unknown };
 type NodeConnectionsLike = { main?: unknown };
@@ -47,13 +69,34 @@ export function validateBranchConnections(nodes: unknown[], connections: unknown
     if (!rawNode || typeof rawNode !== 'object') continue;
     const node = rawNode as Record<string, unknown>;
     const type = String(node.type ?? '');
-    if (!isConditionalNodeType(type)) continue;
-
     const name = String(node.name ?? node.id ?? '').trim();
     if (!name) continue;
 
     const nodeConnections = connRecord[name] as NodeConnectionsLike | undefined;
     const main = nodeConnections?.main;
+
+    if (!isConditionalNodeType(type)) {
+      // Phase 9.9.3.1 -- inverse check. A node that never produces
+      // _conditionBranch must have AT MOST ONE output-port array: multiple
+      // TARGETS inside that single port (fan-out) are still valid, but
+      // multiple separate port arrays are only meaningful for a node that
+      // has actually decided a branch -- see this module's header comment
+      // for the exact production defect this rejects.
+      if (Array.isArray(main) && main.length > 1) {
+        return {
+          ok: false,
+          node: name,
+          code: 'malformed_non_branching_connections',
+          reason:
+            `Node "${name}" (${type}) does not produce a branch decision (_conditionBranch) but is wired ` +
+            `with ${main.length} separate output-port arrays. A non-branching node must have at most one ` +
+            'output port -- if it needs to reach multiple downstream nodes, list every target inside that ' +
+            'single main[0] array (fan-out), never split them across main[0]/main[1]/... as if this node ' +
+            'could choose which port fires.',
+        };
+      }
+      continue;
+    }
 
     // No outgoing wiring at all for this conditional node -- nothing to
     // collapse, nothing to validate (a dead-end branch node is not this
@@ -64,6 +107,7 @@ export function validateBranchConnections(nodes: unknown[], connections: unknown
       return {
         ok: false,
         node: name,
+        code: 'malformed_branch_connections',
         reason: `Conditional node "${name}" (${type}) has a malformed "main" connections value -- it must be an array of output-port arrays.`,
       };
     }
@@ -72,6 +116,7 @@ export function validateBranchConnections(nodes: unknown[], connections: unknown
       return {
         ok: false,
         node: name,
+        code: 'malformed_branch_connections',
         reason:
           `Conditional node "${name}" (${type}) collapses its branches into a single output port. ` +
           'True and false branches must each be their own entry in "main" (main[0] for true, main[1] ' +
@@ -86,6 +131,7 @@ export function validateBranchConnections(nodes: unknown[], connections: unknown
         return {
           ok: false,
           node: name,
+          code: 'malformed_branch_connections',
           reason: `Conditional node "${name}" (${type}) has a malformed output port at main[${portIndex}] -- each port must be an array (use [] for a branch with no downstream targets).`,
         };
       }
@@ -95,6 +141,7 @@ export function validateBranchConnections(nodes: unknown[], connections: unknown
           return {
             ok: false,
             node: name,
+            code: 'malformed_branch_connections',
             reason: `Conditional node "${name}" (${type}) has a malformed connection target at main[${portIndex}] -- every entry needs a valid "node" name.`,
           };
         }

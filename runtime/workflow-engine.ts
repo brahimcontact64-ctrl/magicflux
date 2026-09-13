@@ -9,6 +9,7 @@ import type {
   RunExecutionOptions,
 } from '@/lib/workflow-runtime/types';
 import { getUserIntegrations, resolveWorkflowIntegrations } from '@/lib/user-integrations';
+import { isConditionalNodeType } from '@/lib/workflow-runtime/node-capabilities';
 import { RuntimeStateStore } from './runtime-state';
 import { NodeRunner } from './node-runner';
 import {
@@ -725,6 +726,50 @@ export class WorkflowEngine {
       const outputPorts = edgeMap.get(nodeName) ?? [];
       const outputData = asRecord(runResult.outputData);
       const conditionBranch = typeof outputData._conditionBranch === 'number' ? outputData._conditionBranch : null;
+
+      // Phase 9.9.3.1 -- defensive invariant, generation validation
+      // (lib/agent/branch-connection-guard.ts) is the primary prevention
+      // layer, but a workflow could in principle reach this runtime via
+      // another path (a future import feature, a hand-edited row, a
+      // generation-guard regression). A node that never decided a branch
+      // (conditionBranch === null) but is wired with more than one
+      // output-port array is exactly the Phase 9.9.4 defect shape: the
+      // "fire every port" fallback below is only correct for a genuine
+      // single-port fan-out. Fail closed rather than silently running every
+      // port for a node that was never supposed to have more than one.
+      if (conditionBranch === null && outputPorts.length > 1 && !isConditionalNodeType(String(node.type ?? ''))) {
+        const error = `RUNTIME_NON_BRANCHING_PORT_INTEGRITY: node "${nodeName}" (${String(node.type ?? 'unknown')}) never decided a branch but is wired with ${outputPorts.length} output ports.`;
+        await this.state.setExecutionState({
+          executionId,
+          userId: opts.userId,
+          state: 'failed',
+          currentNodeId,
+          outputData: finalOutput,
+          errorMessage: error,
+          retryCount,
+        });
+
+        await persistCheckpoint({
+          checkpointType: 'failed',
+          currentNodeId,
+          stateSnapshot: { output: asRecord(finalOutput) },
+          pendingQueue: queue,
+        });
+
+        lockStatus = 'failed';
+
+        return {
+          executionId,
+          status: 'failed',
+          currentNodeId,
+          steps,
+          finalOutput,
+          error,
+          simulated: opts.mode === 'test',
+          warnings: [],
+          previews: handlerContext.previews,
+        };
+      }
 
       const enqueueTarget = (target: string) => {
         if (pendingInQueue.has(target)) return; // fan-in guard — see pendingInQueue declaration above

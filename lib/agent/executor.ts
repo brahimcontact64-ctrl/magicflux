@@ -37,6 +37,7 @@ import {
 import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
 import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-guard';
 import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
+import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 
 // ---------------------------------------------------------------------------
@@ -302,13 +303,20 @@ AI CLASSIFICATION CONTRACT -- MANDATORY whenever this automation needs to classi
   - "instruction": a clear natural-language description of exactly what to classify/decide and on what basis, copied from the request's own criteria.
   - "allowedLabels": an array of the exact allowed output label strings (e.g. ["Hot","Warm","Cold"]).
   - "outputField": the field name downstream IF nodes will read (defaults to "classification" if omitted -- prefer the default unless the request names a different field).
-  - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing; if the request mentions flagging uncertain/low-confidence cases for human review, route that case to a real magicflux-nodes.humanReview node (see HUMAN REVIEW CONTRACT below) -- NEVER a plain IF node checking needs_review, which only inspects a value, it never actually creates anything a human can act on.
+  - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing.
 Every downstream IF node that reads the classification MUST branch on exactly "={{$json[\"<outputField>\"]}}" -- the literal field the aiClassifier node writes. Do NOT use this node type for a deterministic threshold/exact-match branch (e.g. "if amount > 100") -- that stays n8n-nodes-base.if directly on the real input field, no AI step needed.
+
+CRITICAL -- the aiClassifier node itself is ALWAYS LINEAR, exactly like n8n-nodes-base.set: it computes fields, it never decides a branch. Its "connections" entry MUST have exactly ONE entry in "main" (a single output-port array), regardless of how many downstream nodes it feeds -- list every one of them inside that one main[0] array. NEVER give an aiClassifier node a second port array (main[1], main[2], ...) to represent "the low-confidence case" or "the review case" -- the runtime has no way to know which port an aiClassifier node "chose" because it never chooses one; a graph shaped that way will run every port on every single execution and will be rejected before it can be saved.
+
+NEEDS-REVIEW ROUTING CONTRACT -- MANDATORY whenever this automation should flag uncertain/low-confidence classifications for human review (e.g. "if the AI isn't confident, send it to a person instead of guessing"): the aiClassifier node's single output MUST feed a real n8n-nodes-base.if node that branches on exactly "={{$json[\"needs_review\"]}}" (the literal boolean field aiClassifierHandler always computes -- true when confidence is below confidenceThreshold). That IF node's TRUE branch (main[0]) goes to a real magicflux-nodes.humanReview node (see HUMAN REVIEW CONTRACT below); its FALSE branch (main[1]) continues into whatever routing the confident case needs (e.g. further classification-based IF nodes, or the normal action path). NEVER wire magicflux-nodes.humanReview directly from the aiClassifier node, as a second port or otherwise -- Human Review must always be reached through this explicit needs_review gate, never straight from the classifier. The required shape is exactly:
+"nodes": [ ..., { "name": "AI Classifier", "type": "magicflux-nodes.aiClassifier", ... }, { "name": "Needs Review?", "type": "n8n-nodes-base.if", "parameters": { "conditions": { "boolean": [ { "value1": "={{$json[\"needs_review\"]}}", "operation": "equal", "value2": true } ] } } }, { "name": "Human Review", "type": "magicflux-nodes.humanReview", ... }, ... ]
+"connections": { "AI Classifier": { "main": [ [ { "node": "Needs Review?", "type": "main", "index": 0 } ] ] }, "Needs Review?": { "main": [ [ { "node": "Human Review", "type": "main", "index": 0 } ], [ /* false branch -- continue into normal routing, e.g. the next classification IF */ ] ] } }
+If the request also needs further routing among CONFIDENT cases (e.g. Hot/Warm/Cold), chain that routing off the needs_review IF's FALSE branch (main[1]), not off the aiClassifier node directly -- e.g. "Needs Review?" false -> "If Hot" -> ... -> "If Warm" -> .... Unless the request explicitly asks for persistence/notification to happen BEFORE a human decides (which is rare and must be explicitly stated), no Airtable/Slack/email/notification side effect should be reachable from the needs_review TRUE branch before Human Review -- only the review node itself.
 
 HUMAN REVIEW CONTRACT -- MANDATORY whenever this automation needs to pause for a real person to approve, reject, or otherwise decide an outcome (e.g. "flag for human review instead of guessing", "require approval before proceeding", "escalate risky/uncertain cases to a human", refund/order/content approval): you MUST insert a real node with type EXACTLY "magicflux-nodes.humanReview". This is a genuinely new, real, supported node type in this product (like magicflux-nodes.aiClassifier) -- NEVER represent "human review"/"approval" using n8n-nodes-base.set (it is a data no-op, not a pause) or n8n-nodes-base.if alone (it only reads a value, it creates no durable record a human can act on and does not actually pause anything). The humanReview node's "parameters" must include:
   - "instruction": a clear natural-language description of what the reviewer needs to decide.
   - "allowedOutcomes": an array of the exact decision outcome strings (defaults to ["approve","reject"] if omitted -- prefer the default two-outcome shape unless the request names specific custom outcomes).
-Like an IF node, its connections MUST use separate output-port arrays in the SAME order as "allowedOutcomes" (main[0] for the first outcome, main[1] for the second, etc.), each present as its own array even if empty -- never collapsed into one port. Place it wherever the pause should happen (e.g. immediately after an aiClassifier node's low-confidence/needs_review case, or directly after the trigger for an approval-gated action).
+Like an IF node, its connections MUST use separate output-port arrays in the SAME order as "allowedOutcomes" (main[0] for the first outcome, main[1] for the second, etc.), each present as its own array even if empty -- never collapsed into one port. When it exists to handle an aiClassifier node's low-confidence/needs_review case, it MUST be reached only via the needs_review IF node's true branch -- see NEEDS-REVIEW ROUTING CONTRACT above, which is the only correct way to place it after a classifier. It may also be placed directly after the trigger for a plain approval-gated action with no AI classification involved at all.
 
 AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable node: you have NO knowledge of the founder's real Airtable base/table/field schema, so you MUST NOT invent a base id (e.g. "appXXXXXXXXXXXXXX"), a table id (e.g. "tblXXXXXXXXXXXXXX"), or guess that a made-up id is real. Parameters must be exactly:
   - "baseId": leave this an EMPTY STRING "" -- real base selection happens in a separate, real schema-picker step in the Builder after Airtable is connected, never here.
@@ -725,12 +733,14 @@ export async function executeTool(
             success: false,
             output: {
               error: branchCheck.reason,
-              malformed_branch_connections: true,
+              [branchCheck.code]: true,
               node: branchCheck.node,
             },
             event: {
               type: 'error',
-              label: 'Generated workflow has malformed branch connections',
+              label: branchCheck.code === 'malformed_non_branching_connections'
+                ? 'Generated workflow wires a non-branching node with more than one output port'
+                : 'Generated workflow has malformed branch connections',
               detail: branchCheck.reason,
               agent: 'planner',
             },
@@ -781,6 +791,33 @@ export async function executeTool(
               type: 'error',
               label: 'Human review requires a real review node',
               detail: humanReviewClaimCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.3.1 -- product-truth backstop: the exact Phase 9.9.4
+        // acceptance finding. A generated graph containing both an
+        // aiClassifier and a humanReview node must route between them
+        // through a real IF node reading "needs_review" -- never a direct
+        // classifier->review edge (single OR multi-port; the multi-port
+        // shape is also caught structurally by validateBranchConnections
+        // above, but a single-port direct edge is structurally "valid" and
+        // still product-false).
+        const aiReviewRoutingCheck = validateAiReviewRoutingContract(result.nodes, result.connections);
+        if (!aiReviewRoutingCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: aiReviewRoutingCheck.reason,
+              missing_confidence_gate: true,
+              node: aiReviewRoutingCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'AI Classifier must route to Human Review through a real confidence gate',
+              detail: aiReviewRoutingCheck.reason,
               agent: 'planner',
             },
           };
