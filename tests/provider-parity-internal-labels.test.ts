@@ -203,3 +203,49 @@ describe('6: the prior webhook -> if -> set conditional-classification scenario 
     expect(computeRawGraphProviders(graph)).toEqual([]);
   });
 });
+
+describe('7 (Phase 9.9.1): AI Classifier node (provider null, integration "ai_provider") never surfaces as an invalid provider', () => {
+  it('a graph combining the AI Classifier with real external providers (Airtable/Slack/Gmail) yields only those, never "ai"/"ai_provider"', () => {
+    // The exact production regression: generating the lead-routing workflow
+    // failed with "Invalid: ai" because classifyNode() bucketed the AI
+    // Classifier node under integration:'ai' -- a string
+    // isInternalProviderLabel() does not recognize (only the pre-existing
+    // 'ai_provider' is in that set). Fixed to use 'ai_provider' consistently.
+    const graph = makeGraph([
+      makeNode({ id: '1', name: 'Webhook Trigger', type: 'n8n-nodes-base.webhook', kind: 'trigger', provider: null, integration: 'core' }),
+      makeNode({ id: '2', name: 'Classify Lead', type: 'magicflux-nodes.aiClassifier', kind: 'ai', provider: null, integration: 'ai_provider' }),
+      makeNode({ id: '3', name: 'Save to Airtable', type: 'n8n-nodes-base.airtable', kind: 'action', provider: 'airtable', integration: 'airtable' }),
+      makeNode({ id: '4', name: 'Notify Slack', type: 'n8n-nodes-base.slack', kind: 'action', provider: 'slack', integration: 'slack' }),
+      makeNode({ id: '5', name: 'Send Email', type: 'n8n-nodes-base.gmail', kind: 'action', provider: 'gmail', integration: 'gmail' }),
+    ]);
+
+    const rawGraphProviders = computeRawGraphProviders(graph);
+    expect(rawGraphProviders.sort()).toEqual(['airtable', 'gmail', 'slack']);
+    expect(rawGraphProviders).not.toContain('ai');
+    expect(rawGraphProviders).not.toContain('ai_provider');
+
+    const invalidProviders = rawGraphProviders.filter(
+      (p) => !hasForbiddenProviderPattern(p) && !isCanonicalProvider(p)
+    );
+    expect(invalidProviders).toEqual([]);
+  });
+
+  it('classifyNode() itself (lib/agent/workflow-graph.ts) buckets the AI Classifier under "ai_provider", not bare "ai"', async () => {
+    const { buildWorkflowGraphSummary } = await import('../lib/agent/workflow-graph');
+    const graph = buildWorkflowGraphSummary({
+      nodes: [{ id: '1', name: 'Classify Lead', type: 'magicflux-nodes.aiClassifier', parameters: {} }],
+      connections: {},
+    });
+    expect(graph.nodes[0].integration).toBe('ai_provider');
+    expect(isInternalProviderLabel(graph.nodes[0].integration)).toBe(true);
+  });
+
+  it('a genuine OpenAI/Anthropic node is also bucketed under "ai_provider" (the pre-existing rule shared the same bug)', async () => {
+    const { buildWorkflowGraphSummary } = await import('../lib/agent/workflow-graph');
+    const graph = buildWorkflowGraphSummary({
+      nodes: [{ id: '1', name: 'Summarize', type: 'n8n-nodes-base.openAi', parameters: {} }],
+      connections: {},
+    });
+    expect(graph.nodes[0].integration).toBe('ai_provider');
+  });
+});

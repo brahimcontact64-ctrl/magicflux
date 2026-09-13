@@ -88,7 +88,15 @@ const AI_NODE_TYPE_MATCH = /openai|anthropic|claude|gemini|groq|llm/i;
 
 const COST_BY_NODE_TYPE: Array<{ match: RegExp; latencyMs: number; costUsd: number; kind: WorkflowGraphNode['kind']; integration: string }> = [
   { match: /trigger|webhook|schedule|cron/i, latencyMs: 30, costUsd: 0, kind: 'trigger', integration: 'core' },
-  { match: AI_NODE_TYPE_MATCH, latencyMs: 2200, costUsd: 0.01, kind: 'ai', integration: 'ai' },
+  // 'ai_provider' (not bare 'ai') -- this is the exact internal-category
+  // label lib/agent/provider-allowlist.ts's isInternalProviderLabel()
+  // already recognizes (Phase 9.8.4's "core"/"scheduler"/etc. fix). A bare
+  // 'ai' bucket is NOT in that recognized set, so it would leak through
+  // executor.ts's provider-parity check as if it were a real requested
+  // provider -- confirmed live in Phase 9.9.1: a workflow combining a
+  // provider:null AI node with real external providers (Airtable/Slack/
+  // Gmail) failed generation with "Invalid: ai".
+  { match: AI_NODE_TYPE_MATCH, latencyMs: 2200, costUsd: 0.01, kind: 'ai', integration: 'ai_provider' },
   { match: /if|switch|merge|wait/i, latencyMs: 120, costUsd: 0, kind: 'condition', integration: 'core' },
   { match: /gmail|email|slack|shopify|airtable|notion|hubspot|twilio/i, latencyMs: 500, costUsd: 0.001, kind: 'action', integration: 'integration' },
   { match: /.*/, latencyMs: 150, costUsd: 0, kind: 'utility', integration: 'core' },
@@ -103,7 +111,9 @@ function classifyNode(node: N8nNode): Pick<WorkflowGraphNode, 'kind' | 'integrat
   // below -- the same substring-collision class of bug fixed for the
   // Airtable/Gmail case in Phase 9.9.0.
   if (type.toLowerCase() === AI_CLASSIFIER_NODE_TYPE.toLowerCase()) {
-    return { kind: 'ai', integration: 'ai', estimatedLatencyMs: 2200, estimatedCostUsd: 0.01 };
+    // 'ai_provider', not bare 'ai' -- see the comment on AI_NODE_TYPE_MATCH's
+    // rule below for why this exact string matters (isInternalProviderLabel()).
+    return { kind: 'ai', integration: 'ai_provider', estimatedLatencyMs: 2200, estimatedCostUsd: 0.01 };
   }
 
   for (const rule of COST_BY_NODE_TYPE) {
