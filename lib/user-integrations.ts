@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase-server';
-import { requiredProvidersFromWorkflow, type IntegrationProvider } from '@/lib/integrations';
+import { requiredProvidersFromWorkflow, canonicalizeProviderId, type IntegrationProvider } from '@/lib/integrations';
 import { decryptIntegrationCredentials } from '@/lib/security/encryption';
 import {
   getAllConnectedProviders,
@@ -103,9 +103,14 @@ export async function getUserIntegrations(
     throw new Error(error.message);
   }
 
+  // Phase 9.8.5 -- canonicalize at load time so every consumer of this
+  // function (resolveWorkflowIntegrations(), getWorkflowIntegrationStatus())
+  // sees a legacy 'email' row as 'gmail' -- the one identifier
+  // requiredProvidersFromWorkflow() ever asks for. Storage and stored
+  // credentials are untouched; only the in-memory provider label changes.
   const rows = (data ?? []).map((row) => ({
     id: row.id as string | undefined,
-    provider: row.provider as IntegrationProvider,
+    provider: canonicalizeProviderId(row.provider as string) as IntegrationProvider,
     name: (row.name as string | null | undefined) ?? null,
     credentials: decryptIntegrationCredentials((row.credentials ?? {}) as Record<string, unknown>),
     status: (row.status ?? 'not_connected') as IntegrationStatus,

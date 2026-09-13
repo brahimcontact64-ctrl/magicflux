@@ -116,6 +116,47 @@ export function requiredProvidersFromWorkflow(workflow: unknown): IntegrationPro
   return Array.from(required);
 }
 
+// ─── Phase 9.8.5: canonical provider identity for storage lookups ───────────
+//
+// 'gmail' is the one canonical id used everywhere a workflow REQUESTS this
+// capability (generation, classification, requiredProvidersFromWorkflow()
+// above). But a real, working, previously-connected credential can exist in
+// storage under the older 'email' identifier (the SMTP-only Settings UI has
+// always written user_integrations.provider = 'email'). Without a shared
+// rule, two independent lookups -- Builder readiness
+// (lib/credentials/storage.ts's verifyProviderConnection) and runtime
+// integration resolution (lib/user-integrations.ts's getUserIntegrations) --
+// each had to know about this equivalence separately, and only one of them
+// (neither, in fact) actually did: a genuinely connected 'email' credential
+// satisfied neither a Builder readiness check for 'gmail' nor a live
+// execution's SETUP_REQUIRED gate for 'gmail'.
+//
+// This is intentionally narrow -- a fixed pairing for one real-world
+// identifier split, not general fuzzy provider matching. Every other
+// provider maps only to itself.
+const PROVIDER_STORAGE_ALIAS_GROUPS: ReadonlyArray<readonly string[]> = [
+  ['gmail', 'email'],
+];
+
+/**
+ * All storage identifiers that satisfy a request for `provider`, including
+ * itself. For 'gmail' or 'email', returns ['gmail', 'email'] (order not
+ * significant) -- a stored row under either identifier counts. For any
+ * other provider, returns just [provider]. Single source of truth, shared
+ * by Builder readiness and runtime integration resolution so they cannot
+ * disagree about this equivalence again.
+ */
+export function getProviderStorageAliases(provider: string): string[] {
+  const group = PROVIDER_STORAGE_ALIAS_GROUPS.find((g) => g.includes(provider));
+  return group ? [...group] : [provider];
+}
+
+/** Canonical form of a provider identifier for anything requesting/requiring it. 'email' -> 'gmail'; every other provider (including 'gmail') maps to itself. */
+export function canonicalizeProviderId(provider: string): string {
+  const group = PROVIDER_STORAGE_ALIAS_GROUPS.find((g) => g.includes(provider));
+  return group ? group[0] : provider;
+}
+
 function replaceEnvTokens(raw: string, integrations: Record<IntegrationProvider, Record<string, string> | undefined>): string {
   const shopify = integrations.shopify;
   const slack = integrations.slack;

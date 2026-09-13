@@ -389,6 +389,31 @@ describe('emailHandler', () => {
     expect(result.status).toBe('success');
     expect((result.outputData as Record<string, unknown>).messageId).toBe('smtp-1');
   });
+
+  // Phase 9.8.5 -- lib/user-integrations.ts's getUserIntegrations() now
+  // canonicalizes a stored 'email' row to provider 'gmail' at load time (so
+  // Builder readiness and runtime resolution both recognize it as
+  // satisfying a required 'gmail'), so this same legacy SMTP credential can
+  // arrive here labeled 'gmail' instead of 'email'. The handler must still
+  // use it via SMTP -- distinguishing by credential shape (smtp_host vs
+  // access_token), not by provider label alone.
+  it('sends via legacy SMTP delivery even when that same credential is labeled "gmail" (post-canonicalization)', async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: 'smtp-2' });
+    const nodemailer = (await import('nodemailer')).default;
+    vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+    const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+    const ctx = baseContext({
+      integrations: [integration('gmail', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })],
+    });
+
+    const result = await emailHandler(node, {}, ctx);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sendMail).toHaveBeenCalledOnce();
+    expect(result.status).toBe('success');
+    expect((result.outputData as Record<string, unknown>).messageId).toBe('smtp-2');
+  });
 });
 
 // ─── Shopify ───────────────────────────────────────────────────────────────────

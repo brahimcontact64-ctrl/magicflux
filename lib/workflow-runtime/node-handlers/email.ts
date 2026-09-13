@@ -84,14 +84,23 @@ export async function emailHandler(
   // Gmail (OAuth) is the current credential type — see lib/credentials/provider-registry.ts.
   // Legacy SMTP integrations (provider 'email') are kept as a fallback for accounts
   // connected before the OAuth flow existed.
+  //
+  // Phase 9.8.5 -- lib/user-integrations.ts's getUserIntegrations() now
+  // canonicalizes a stored 'email' row to provider 'gmail' at load time (so
+  // Builder readiness and runtime resolution agree it satisfies a required
+  // 'gmail'), so the SAME legacy SMTP integration can arrive here labeled
+  // 'gmail' instead of 'email'. Distinguish by credential shape, not label:
+  // an access_token means real OAuth; smtp_host means this is the legacy
+  // SMTP credential regardless of which provider label it carries. The
+  // 'email' label lookup is kept as defense in depth for any context that
+  // still passes it unlabeled.
   const gmailIntegration = context.integrations.find((i) => i.provider === 'gmail');
-  const gmailAccessToken = (gmailIntegration?.credentials as Record<string, unknown> | undefined)?.access_token as
-    | string
-    | undefined;
+  const gmailCredentials = (gmailIntegration?.credentials as Record<string, unknown> | undefined) ?? {};
+  const gmailAccessToken = gmailCredentials.access_token as string | undefined;
 
   if (gmailAccessToken) {
     try {
-      const from = (gmailIntegration?.credentials as Record<string, unknown> | undefined)?.email as string | undefined;
+      const from = gmailCredentials.email as string | undefined;
       const info = await sendViaGmailApi(gmailAccessToken, { to, from, subject, body });
       logs.push(`Email sent to ${to} via Gmail API. messageId=${info.id}`);
       return { status: 'success', outputData: { ...data, sent_to: to, messageId: info.id }, logs };
@@ -102,7 +111,9 @@ export async function emailHandler(
     }
   }
 
-  const smtpIntegration = context.integrations.find((i) => i.provider === 'email');
+  const smtpIntegration =
+    context.integrations.find((i) => i.provider === 'email') ??
+    (gmailCredentials.smtp_host ? gmailIntegration : undefined);
 
   if (!smtpIntegration?.credentials) {
     logs.push('Email integration not configured. Connect Gmail in Settings → Credentials.');

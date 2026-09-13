@@ -7,6 +7,7 @@ import {
   getProviderDisplayName,
   providerHasCredentials,
 } from './provider-registry';
+import { getProviderStorageAliases } from '@/lib/integrations';
 
 // ── UUID validation guard ─────────────────────────────────────────────────────
 
@@ -252,13 +253,19 @@ export async function verifyProviderConnection(
     return { connected: true, missing: [] };
   }
 
-  // Fallback: check legacy user_integrations for backward compatibility
+  // Fallback: check legacy user_integrations for backward compatibility.
+  // Phase 9.8.5 -- checks every storage alias for this provider (e.g. a
+  // request for 'gmail' also accepts a row stored under the older 'email'
+  // identifier), via the one shared rule in lib/integrations.ts, so a
+  // genuinely connected legacy credential is recognized here exactly the
+  // same way runtime integration resolution recognizes it.
   const { data: legacyRow } = await db
     .from('user_integrations')
     .select('status')
     .eq('user_id', userId)
-    .eq('provider', provider)
+    .in('provider', getProviderStorageAliases(provider))
     .eq('status', 'connected')
+    .limit(1)
     .maybeSingle();
 
   if (legacyRow) {
