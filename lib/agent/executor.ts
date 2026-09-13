@@ -37,6 +37,7 @@ import {
 import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
 import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-guard';
 import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
+import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -308,6 +309,13 @@ HUMAN REVIEW CONTRACT -- MANDATORY whenever this automation needs to pause for a
   - "instruction": a clear natural-language description of what the reviewer needs to decide.
   - "allowedOutcomes": an array of the exact decision outcome strings (defaults to ["approve","reject"] if omitted -- prefer the default two-outcome shape unless the request names specific custom outcomes).
 Like an IF node, its connections MUST use separate output-port arrays in the SAME order as "allowedOutcomes" (main[0] for the first outcome, main[1] for the second, etc.), each present as its own array even if empty -- never collapsed into one port. Place it wherever the pause should happen (e.g. immediately after an aiClassifier node's low-confidence/needs_review case, or directly after the trigger for an approval-gated action).
+
+AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable node: you have NO knowledge of the founder's real Airtable base/table/field schema, so you MUST NOT invent a base id (e.g. "appXXXXXXXXXXXXXX"), a table id (e.g. "tblXXXXXXXXXXXXXX"), or guess that a made-up id is real. Parameters must be exactly:
+  - "baseId": leave this an EMPTY STRING "" -- real base selection happens in a separate, real schema-picker step in the Builder after Airtable is connected, never here.
+  - "tableId": leave this an EMPTY STRING "" for the same reason.
+  - "operation": one of create/update/list/get/delete (default "create" if the request just says "save"/"log"/"add" to Airtable).
+  - "fields": an object whose KEYS are descriptive/semantic names for what each value represents (e.g. "Name", "Email", "Classification") based on the request -- these are a proposed mapping the founder will reconcile against their table's REAL field names in that same configuration step, not real field identifiers themselves. VALUES follow the same concrete-value-preservation rule as every other node (verbatim literals/expressions, never placeholders).
+Never use "application"/"applicationId"/"base"/"table"/"tableName" as parameter keys -- they are not read by anything and only existed in workflows generated before this contract.
 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
 
@@ -773,6 +781,33 @@ export async function executeTool(
               type: 'error',
               label: 'Human review requires a real review node',
               detail: humanReviewClaimCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.3 -- deterministic backstop: an Airtable node's
+        // baseId/tableId must be empty (needs configuration) or a
+        // real-shaped id (already verified/surviving a regeneration) --
+        // never an invented value like "app123456", the exact production
+        // regression. Real verification happens later, in the Builder's
+        // own configuration-save endpoint and the pre-activation gate --
+        // this only stops the generator from ever persisting a fake id in
+        // the first place.
+        const airtableIdCheck = validateNoInventedAirtableIds(result.nodes);
+        if (!airtableIdCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: airtableIdCheck.reason,
+              invented_airtable_id: true,
+              node: airtableIdCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Airtable configuration cannot be invented',
+              detail: airtableIdCheck.reason,
               agent: 'planner',
             },
           };

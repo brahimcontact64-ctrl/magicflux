@@ -312,6 +312,93 @@ describe('airtableHandler', () => {
     expect(result.status).toBe('failed');
     expect(result.error).toContain('422');
   });
+
+  // ─── Phase 9.9.3: canonical baseId/tableId, alias normalization, no
+  //     account-wide override, cross-tenant credential isolation ─────────
+
+  it('canonical node parameter generation: reads baseId/tableId directly (no credential fallback needed)', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat-test', base_id: 'appACCOUNTWIDE00' })] });
+    const result = await airtableHandler(
+      { id: 'n2', name: 'Save', type: 'n8n-nodes-base.airtable', parameters: { operation: 'create', baseId: 'appPERWORKFLOW00', tableId: 'tblREAL0000000000' } },
+      { name: 'Ada' },
+      ctx,
+    );
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/appPERWORKFLOW00/tblREAL0000000000');
+    expect(result.status).toBe('success');
+  });
+
+  it('no account-wide single-base fallback overrides an explicitly configured per-workflow base', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    // The connected account has its own base_id, but this node explicitly
+    // configured a DIFFERENT one -- the explicit per-workflow value must win.
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat-test', base_id: 'appACCOUNTWIDE00' })] });
+    await airtableHandler(
+      { id: 'n3', name: 'Save', type: 'n8n-nodes-base.airtable', parameters: { operation: 'create', baseId: 'appEXPLICIT000000', tableId: 'tblREAL0000000000' } },
+      { name: 'Ada' },
+      ctx,
+    );
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/appEXPLICIT000000/');
+    expect(String(url)).not.toContain('appACCOUNTWIDE00');
+  });
+
+  it('account-wide base_id is still used as a fallback when no per-workflow baseId is configured at all', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat-test', base_id: 'appACCOUNTWIDE00' })] });
+    await airtableHandler(
+      { id: 'n4', name: 'Save', type: 'n8n-nodes-base.airtable', parameters: { operation: 'create', tableId: 'tblREAL0000000000' } },
+      { name: 'Ada' },
+      ctx,
+    );
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/appACCOUNTWIDE00/');
+  });
+
+  it('no invented placeholder ids: a dead "application"/"applicationId" key from a pre-Phase-9.9.3 workflow is still read as a base id alias', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat-test' })] });
+    await airtableHandler(
+      { id: 'n5', name: 'Save', type: 'n8n-nodes-base.airtable', parameters: { operation: 'create', application: 'appLEGACYALIAS00', tableId: 'tblREAL0000000000' } },
+      { name: 'Ada' },
+      ctx,
+    );
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/appLEGACYALIAS00/');
+  });
+
+  it('cross-tenant credential isolation: one user\'s airtableHandler call only ever uses THEIR OWN connected integration, never another tenant\'s', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    // context.integrations is already scoped, per-request, to the calling
+    // user (resolved upstream by resolveWorkflowIntegrations/getUserIntegrations)
+    // -- this test locks in that the handler itself never reaches outside
+    // the integrations array it was given, e.g. via a shared/global cache.
+    const tenantAContext = baseContext({ integrations: [integration('airtable', { personal_access_token: 'tenant-a-token', base_id: 'appTENANTA000000' })] });
+    const tenantBContext = baseContext({ integrations: [integration('airtable', { personal_access_token: 'tenant-b-token', base_id: 'appTENANTB000000' })] });
+
+    await airtableHandler(node('create'), { name: 'A' }, tenantAContext);
+    await airtableHandler(node('create'), { name: 'B' }, tenantBContext);
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer tenant-a-token');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('appTENANTA000000');
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer tenant-b-token');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('appTENANTB000000');
+  });
 });
 
 // ─── Gmail (email.ts) ────────────────────────────────────────────────────────

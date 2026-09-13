@@ -1,5 +1,6 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { redactText } from '@/lib/security/redact';
+import { extractAirtableNodeConfig } from '@/lib/airtable/node-params';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -32,8 +33,20 @@ export async function airtableHandler(
   const data = asRecord(inputData);
   const operation = getOperation(node);
 
-  const table = getParam(node, ['tableId', 'table', 'tableName']) || String(data.table_name ?? 'Table 1');
-  const baseId = getParam(node, ['baseId', 'base']) || String(data.base_id ?? '');
+  // Phase 9.9.3 -- canonical parameters are baseId/tableId (what
+  // generation now emits and what the Builder's Airtable configuration
+  // step verifies and writes), read via the one shared helper
+  // (lib/airtable/node-params.ts) so this handler and the pre-activation
+  // gate can never disagree about which alias keys count.
+  // 'base'/'table'/'tableName' and 'application'/'applicationId' are
+  // READ-ONLY aliases kept for backward compatibility with
+  // already-persisted workflows generated before this phase (which
+  // emitted the dead, never-canonical 'application'/'applicationId' keys
+  // this handler never used to read at all) -- generation no longer
+  // produces any of these going forward.
+  const nodeConfig = extractAirtableNodeConfig(node);
+  const table = nodeConfig.tableId || String(data.table_name ?? 'Table 1');
+  const baseId = nodeConfig.baseId || String(data.base_id ?? '');
   const recordId = getParam(node, ['recordId']) || String(data.record_id ?? data.airtable_id ?? '');
   const record = { ...data, _source: 'magicflux' };
 

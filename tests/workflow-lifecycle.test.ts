@@ -11,6 +11,21 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Phase 9.9.3 -- getDecryptedProviderCredentials is mocked (per-test
+// controllable), everything else in this module (assertTrustedUserId, a
+// lightweight synchronous UUID-v4 check) stays real.
+let decryptedAirtableCreds: Record<string, string> = {};
+vi.mock('@/lib/credentials/storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/credentials/storage')>();
+  return {
+    ...actual,
+    getDecryptedProviderCredentials: vi.fn(async () => decryptedAirtableCreds),
+  };
+});
+
+const airtableFetchMock = vi.fn();
+vi.stubGlobal('fetch', airtableFetchMock);
+
 const USER_A = '00000000-0000-4000-8000-0000000000f1';
 
 type Row = Record<string, unknown>;
@@ -130,7 +145,11 @@ function seedWorkflow(id: string, workflowJson: unknown, status = 'draft'): void
   ]);
 }
 
-beforeEach(() => { fakeDb.tables.clear(); });
+beforeEach(() => {
+  fakeDb.tables.clear();
+  decryptedAirtableCreds = {};
+  airtableFetchMock.mockReset();
+});
 
 describe('activateWorkflow', () => {
   // Phase 9.8.1 -- tenant isolation regression, required by the Builder
@@ -304,6 +323,91 @@ describe('activateWorkflow', () => {
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
     const result = await activateWorkflow(USER_A, 'does-not-exist');
     expect(result.success).toBe(false);
+  });
+
+  // ─── Phase 9.9.3: Airtable schema-aware activation gate ──────────────────
+
+  function airtableWorkflow(parameters: Record<string, unknown>) {
+    return {
+      name: 'Save leads',
+      nodes: [
+        { id: 't1', name: 'Trigger', type: 'n8n-nodes-base.webhook', parameters: { path: '/x' } },
+        { id: 'n1', name: 'Save to Airtable', type: 'n8n-nodes-base.airtable', parameters: { operation: 'create', fields: { Name: '={{$json["name"]}}' }, ...parameters } },
+      ],
+      connections: { Trigger: { main: [[{ node: 'Save to Airtable' }]] } },
+    };
+  }
+
+  const TABLES_RESPONSE = {
+    tables: [{ id: 'tblAAAAAAAAAAAAAA', name: 'Leads', fields: [{ id: 'fldName', name: 'Name', type: 'singleLineText' }] }],
+  };
+  function jsonResponse(body: unknown, ok = true, status = 200) {
+    return { ok, status, json: async () => body, text: async () => JSON.stringify(body) };
+  }
+
+  it('Builder must never claim deploy-ready: refuses activation when the Airtable node has no base/table configured', async () => {
+    seedWorkflow('wf-1', airtableWorkflow({ baseId: '', tableId: '' }));
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.join(' ')).toMatch(/no Airtable base\/table configured/);
+    expect(airtableFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses activation when Airtable is not connected at all (cannot verify)', async () => {
+    seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA' }));
+    decryptedAirtableCreds = {};
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.join(' ')).toMatch(/requires a connected Airtable account/);
+  });
+
+  it('refuses activation when the configured base/table no longer exists in Airtable', async () => {
+    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    airtableFetchMock.mockResolvedValueOnce(jsonResponse('not found', false, 404));
+    seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appDELETED0000000', tableId: 'tblAAAAAAAAAAAAAA' }));
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.join(' ')).toMatch(/Could not verify Airtable base/);
+  });
+
+  it('refuses activation when a mapped field no longer exists in the real table', async () => {
+    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    airtableFetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
+    seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA', fields: { RenamedField: '={{$json["name"]}}' } }));
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.join(' ')).toMatch(/Unknown Airtable field/);
+  });
+
+  it('activates cleanly when the Airtable base/table/fields are fully configured and verified', async () => {
+    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    airtableFetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
+    seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA' }));
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(true);
+  });
+
+  it('a workflow with no Airtable node at all is never subject to this gate (no network call)', async () => {
+    seedWorkflow('wf-1', validWorkflow());
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(true);
+    expect(airtableFetchMock).not.toHaveBeenCalled();
   });
 });
 

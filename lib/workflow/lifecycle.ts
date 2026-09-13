@@ -5,8 +5,10 @@ import { createServiceClient } from '@/lib/supabase-server';
 import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { validateWorkflow } from '@/lib/workflow-validator';
 import { validateScheduleTriggers, syncWorkflowSchedules, disableWorkflowSchedules, enableWorkflowSchedules } from '@/lib/runtime/scheduler';
-import { assertTrustedUserId } from '@/lib/credentials/storage';
+import { assertTrustedUserId, getDecryptedProviderCredentials } from '@/lib/credentials/storage';
 import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
+import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
+import { validateAirtableMapping } from '@/lib/airtable/schema';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -58,6 +60,60 @@ function stableJson(value: unknown): string {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
+}
+
+/**
+ * Phase 9.9.3 -- pre-activation Airtable schema gate. "Save to Airtable"
+ * must never be claimed deploy-ready with an unverified/invented/missing
+ * base, table, or field mapping. For every Airtable node in the workflow:
+ *   - baseId/tableId must be non-empty (a founder must have completed the
+ *     Builder's real schema-picker configuration step -- see
+ *     app/api/workflows/[id]/airtable-config) -- an empty value here means
+ *     "never configured," which is exactly generation's own leftover state
+ *     when a real base/table was never invented in the first place.
+ *   - the configured base/table/fields are re-verified against Airtable's
+ *     REAL live schema right now, not trusted from whenever they were last
+ *     saved -- a founder could have renamed/deleted a field or table in
+ *     Airtable itself since configuring it.
+ * Returns a list of human-readable errors (empty = fully configured and verified).
+ */
+async function validateAirtableConfiguration(userId: string, workflowJson: unknown): Promise<string[]> {
+  const nodes = Array.isArray((workflowJson as { nodes?: unknown })?.nodes)
+    ? ((workflowJson as { nodes: unknown[] }).nodes as Array<{ id?: string; name?: string; type?: string; parameters?: unknown }>)
+    : [];
+  const airtableNodes = nodes.filter((n) => isAirtableNodeType(n.type));
+  if (airtableNodes.length === 0) return [];
+
+  let token: string | undefined;
+  try {
+    const creds = await getDecryptedProviderCredentials(userId, 'airtable');
+    token = creds.personal_access_token;
+  } catch {
+    token = undefined;
+  }
+
+  const errors: string[] = [];
+  for (const node of airtableNodes) {
+    const label = String(node.name ?? node.id ?? 'Airtable step');
+    const config = extractAirtableNodeConfig(node);
+
+    if (!config.baseId || !config.tableId) {
+      errors.push(`"${label}" has no Airtable base/table configured yet -- open this workflow's Airtable configuration step and select a real base and table before activating.`);
+      continue;
+    }
+
+    if (!token) {
+      errors.push(`"${label}" requires a connected Airtable account to verify its base/table/fields before activation.`);
+      continue;
+    }
+
+    const validation = await validateAirtableMapping(token, config.baseId, config.tableId, config.fieldKeys);
+    if (!validation.ok) {
+      errors.push(`"${label}": ${validation.reason}`);
+    }
+  }
+
+  return errors;
 }
 
 /**
@@ -139,9 +195,11 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
 
   const structuralResult = validateWorkflow(workflow.workflow_json);
   const scheduleErrors = validateScheduleTriggers(workflow.workflow_json);
+  const airtableErrors = await validateAirtableConfiguration(userId, workflow.workflow_json);
   const errors = [
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
+    ...airtableErrors,
   ];
 
   if (errors.length > 0) {

@@ -39,6 +39,8 @@ import { SetupRequiredAlert } from '@/components/app/setup-required-alert';
 import { WorkflowEditor } from '@/components/workflow-editor/WorkflowEditor';
 import type { WorkflowJson } from '@/lib/workflow-editor/types';
 import { validateWorkflow } from '@/lib/workflow-validator';
+import { AirtableConfigPanel, type AirtableNodeNeedingConfig } from '@/components/workflows/AirtableConfigPanel';
+import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -454,6 +456,24 @@ export default function WorkflowDetailsPage() {
       method,
       url: workflow ? `${origin}/api/workflows/${workflow.id}/webhook` : '',
     };
+  }, [workflow]);
+
+  // Phase 9.9.3 -- Airtable nodes with no real base/table configured yet
+  // (generation deliberately leaves these empty rather than inventing an
+  // id -- see lib/agent/airtable-config-guard.ts) need a real schema-picker
+  // step before this workflow can be considered deploy-ready.
+  const airtableNodesNeedingConfig = useMemo<AirtableNodeNeedingConfig[]>(() => {
+    const nodes = workflow?.workflow_json?.nodes;
+    const list = Array.isArray(nodes) ? (nodes as Array<Record<string, unknown>>) : [];
+    return list
+      .filter((n) => isAirtableNodeType(n.type))
+      .map((n) => ({ node: n, config: extractAirtableNodeConfig(n as { parameters?: unknown }) }))
+      .filter(({ config }) => !config.baseId || !config.tableId)
+      .map(({ node, config }) => ({
+        nodeId: String(node.id ?? node.name ?? ''),
+        nodeName: String(node.name ?? 'Save to Airtable'),
+        fieldKeys: config.fieldKeys,
+      }));
   }, [workflow]);
 
   const handleCopyWebhookUrl = useCallback(() => {
@@ -1236,6 +1256,14 @@ export default function WorkflowDetailsPage() {
                 </div>
               </details>
             </div>
+          )}
+
+          {workflow && airtableNodesNeedingConfig.length > 0 && (
+            <AirtableConfigPanel
+              workflowId={workflow.id}
+              nodes={airtableNodesNeedingConfig}
+              onConfigured={loadWorkflow}
+            />
           )}
 
           {schedules.length > 0 && (
