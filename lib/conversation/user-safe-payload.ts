@@ -307,6 +307,74 @@ function sanitizeDeploymentSummary(input: unknown):
   };
 }
 
+/**
+ * Phase 9.8.6B -- one non-secret credential-field descriptor (schema
+ * metadata: which field a provider needs, and whether that field's VALUE
+ * would be a secret -- never the value itself). Shape matches
+ * lib/credentials/provider-registry.ts's CredentialRequirement, which is
+ * where this data originates server-side.
+ */
+function sanitizeCredentialFieldItem(input: unknown): { key: string; label: string; secret: boolean; source: string; description: string; required: boolean } | null {
+  if (!input || typeof input !== 'object') return null;
+  const item = input as Record<string, unknown>;
+  const key = sanitizeText(item.key, '').slice(0, 80);
+  if (!key) return null;
+  return {
+    key,
+    label: sanitizeText(item.label, '').slice(0, 120),
+    secret: item.secret === true,
+    source: sanitizeText(item.source, 'manual').toLowerCase().slice(0, 24),
+    description: sanitizeText(item.description, '').slice(0, 220),
+    required: item.required !== false,
+  };
+}
+
+/**
+ * Phase 9.8.6B -- root-cause fix for the "Configure X -> Connect now"
+ * incident: this allowlist reconstruction never forwarded
+ * credentialIntelligence at all, so the Builder's integration-readiness
+ * cards (deriveIntegrationCards(), lib/builder/runtime-state.ts) always
+ * received an empty readiness array and failed every credentialed provider
+ * closed regardless of real connection state. Only readiness METADATA is
+ * preserved here -- provider id, display name, which fields are
+ * missing/optional (schema descriptors, not values), a ready boolean, and a
+ * confidence score. No credential value, token, password, or raw
+ * integration row ever passes through this shape.
+ */
+function sanitizeCredentialIntelligence(input: unknown): Array<{
+  provider: string;
+  displayName: string;
+  missing: Array<{ key: string; label: string; secret: boolean; source: string; description: string; required: boolean }>;
+  optional: Array<{ key: string; label: string; secret: boolean; source: string; description: string; required: boolean }>;
+  ready: boolean;
+  confidence: number;
+}> {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const item = row as Record<string, unknown>;
+      const provider = sanitizeText(item.provider, '').toLowerCase().slice(0, 80);
+      if (!provider) return null;
+
+      return {
+        provider,
+        displayName: sanitizeText(item.displayName, provider).slice(0, 120),
+        missing: Array.isArray(item.missing)
+          ? item.missing.map(sanitizeCredentialFieldItem).filter((f): f is NonNullable<typeof f> => Boolean(f)).slice(0, 12)
+          : [],
+        optional: Array.isArray(item.optional)
+          ? item.optional.map(sanitizeCredentialFieldItem).filter((f): f is NonNullable<typeof f> => Boolean(f)).slice(0, 12)
+          : [],
+        ready: item.ready === true,
+        confidence: typeof item.confidence === 'number' ? Math.max(0, Math.min(100, item.confidence)) : 0,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .slice(0, 24);
+}
+
 function sanitizeAutomationBrain(input: unknown):
   | {
       inferredIntent: string;
@@ -323,6 +391,7 @@ function sanitizeAutomationBrain(input: unknown):
         latencyEstimateMs: number;
         risks: string[];
       };
+      credentialIntelligence: ReturnType<typeof sanitizeCredentialIntelligence>;
     }
   | null {
   if (!input || typeof input !== 'object') return null;
@@ -418,7 +487,14 @@ function sanitizeAutomationBrain(input: unknown):
       : [],
   };
 
-  if (capabilities.length === 0 && matchedPatterns.length === 0 && providerResolutions.length === 0) {
+  const credentialIntelligence = sanitizeCredentialIntelligence(raw.credentialIntelligence);
+
+  // Phase 9.8.6B: a turn carrying only credential-readiness data (e.g. no
+  // new capabilities/patterns/providers were re-inferred this turn, but
+  // readiness state is still present) must not be discarded either --
+  // extends this guard's existing "nothing meaningful here" rule rather
+  // than replacing it.
+  if (capabilities.length === 0 && matchedPatterns.length === 0 && providerResolutions.length === 0 && credentialIntelligence.length === 0) {
     return null;
   }
 
@@ -429,6 +505,7 @@ function sanitizeAutomationBrain(input: unknown):
     matchedPatterns,
     providerResolutions,
     composition,
+    credentialIntelligence,
   };
 }
 
