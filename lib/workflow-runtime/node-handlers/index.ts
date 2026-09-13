@@ -11,7 +11,8 @@ import { googleDriveHandler } from './googledrive';
 import { openaiHandler } from './openai';
 import { httpHandler } from './http';
 import { setHandler } from './set';
-import { checkNodeCapability, isConditionalNodeType } from '../node-capabilities';
+import { aiClassifierHandler } from './ai-classifier';
+import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -64,6 +65,10 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   ['n8n-nodes-base.httprequest',        httpHandler],
   // Deterministic, credential-free field transformation (Phase 9.1.6).
   ['n8n-nodes-base.set',                 setHandler],
+  // AI Structured Classifier -- MagicFlux-native capability, platform AI key
+  // (no user credential/PROVIDER_NODE_ALLOWLIST entry -- see
+  // CREDENTIAL_FREE_HANDLER_EXCEPTIONS in allowlist-consistency.security.test.ts).
+  [AI_CLASSIFIER_NODE_TYPE.toLowerCase(), aiClassifierHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
@@ -152,4 +157,5 @@ export {
   openaiHandler,
   httpHandler,
   setHandler,
+  aiClassifierHandler,
 };

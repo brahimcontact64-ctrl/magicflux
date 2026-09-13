@@ -140,8 +140,13 @@ export const AGENT_TOOLS: AgentTool[] = [
             description:
               'Ordered workflow block hints from block composer. External-side-effect examples: ' +
               'trigger_schedule, scraper, ai_reasoner, messaging_send. Internal/deterministic ' +
-              'examples (no platform involved): condition, set_field -- use these for branch-and-' +
-              'assign automations like "if X then mark/classify/tag as Y".',
+              'examples (no platform involved): condition, set_field -- use these for a branch-and-' +
+              'assign automation whose condition is a deterministic formula already in the data ' +
+              '(e.g. "if amount > 100 then mark as VIP"). Phase 9.9.1: when the decision requires ' +
+              'genuine AI judgment over unstructured criteria (e.g. "classify this lead as Hot/Warm/' +
+              'Cold based on budget, urgency, and purchase intent", intent/sentiment detection), use ' +
+              'ai_classifier BEFORE any condition block that reads its result -- never condition ' +
+              'alone branching on a field nothing computes.',
           },
           nodes_description: {
             type: 'string',

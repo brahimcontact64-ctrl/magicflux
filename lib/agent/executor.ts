@@ -35,6 +35,7 @@ import {
   MISSING_TIMEZONE_MESSAGE,
 } from '@/lib/agent/schedule-guard';
 import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
+import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -293,7 +294,14 @@ async function generateWorkflowJson(params: {
 
   const prompt = `You are an expert n8n workflow engineer. Generate a complete, valid n8n workflow JSON for this automation.
 
-CRITICAL RULE -- read this before anything else: many automations only need to branch on a condition and derive/assign a field value (e.g. "mark as VIP/Standard", "classify as high/low priority", "set status to approved/rejected", "tag as qualified/unqualified"). For these, use ONLY n8n-nodes-base.if (branching) and n8n-nodes-base.set (field assignment) -- do NOT invent a messaging step (Telegram, WhatsApp, Slack, email, etc.), a notification, or a CRM/"order management"-style external action unless the request explicitly names a real external platform or asks to send/post/notify something to a named destination. "Mark", "tag", "classify", and "flag" describe a FIELD VALUE CHANGE, not a message to send. When in doubt and no real platform was requested below, prefer if + set over any external action.
+CRITICAL RULE -- read this before anything else: many automations only need to branch on a condition and derive/assign a field value that is ALREADY DETERMINISTICALLY COMPUTABLE from the input (e.g. "mark as VIP if amount > 100", "set status to approved/rejected based on a numeric threshold", "tag as qualified/unqualified based on an exact match"). For these, use ONLY n8n-nodes-base.if (branching) and n8n-nodes-base.set (field assignment) -- do NOT invent a messaging step (Telegram, WhatsApp, Slack, email, etc.), a notification, or a CRM/"order management"-style external action unless the request explicitly names a real external platform or asks to send/post/notify something to a named destination. When in doubt and no real platform was requested below, prefer if + set over any external action. This does NOT apply to genuine AI-based classification/judgment (see the AI CLASSIFICATION CONTRACT below) -- see that section instead when the decision requires interpreting unstructured criteria, not a deterministic formula already present in the data.
+
+AI CLASSIFICATION CONTRACT -- MANDATORY whenever this automation needs to classify, score, detect intent/sentiment, or otherwise make an AI-based judgment call about incoming data that is NOT a deterministic formula already present in the input (e.g. "classify this lead as Hot/Warm/Cold based on budget, urgency, and purchase intent", "detect the customer's intent", "route by sentiment", "extract structured fields from free text"): you MUST insert a real AI classification node with type EXACTLY "magicflux-nodes.aiClassifier" immediately after the trigger (or after any deterministic pre-processing) and BEFORE any n8n-nodes-base.if node that branches on its result. Never branch on a field (e.g. $json["classification"]) that no upstream node in this same graph actually computes -- an IF node reading a field nothing produces is a placeholder, not real AI classification, and will be rejected. The aiClassifier node's "parameters" must include:
+  - "instruction": a clear natural-language description of exactly what to classify/decide and on what basis, copied from the request's own criteria.
+  - "allowedLabels": an array of the exact allowed output label strings (e.g. ["Hot","Warm","Cold"]).
+  - "outputField": the field name downstream IF nodes will read (defaults to "classification" if omitted -- prefer the default unless the request names a different field).
+  - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing; if the request mentions flagging uncertain/low-confidence cases for human review, branch a downstream IF node on "={{$json[\"needs_review\"]}}" rather than inventing your own uncertainty logic.
+Every downstream IF node that reads the classification MUST branch on exactly "={{$json[\"<outputField>\"]}}" -- the literal field the aiClassifier node writes. Do NOT use this node type for a deterministic threshold/exact-match branch (e.g. "if amount > 100") -- that stays n8n-nodes-base.if directly on the real input field, no AI step needed.
 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
 
@@ -324,9 +332,9 @@ Return a JSON object with this exact structure:
   "explanation": "Clear 4-6 step numbered explanation of how this workflow operates"
 }
 
-Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.).
+Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.), EXCEPT for the one MagicFlux-native capability: "magicflux-nodes.aiClassifier" (see AI CLASSIFICATION CONTRACT above) -- this is a genuine, real, supported node type in this product, not an n8n node, and must be spelled EXACTLY that way when used.
 Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider.
-For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase. n8n-nodes-base.if and n8n-nodes-base.set need NO provider at all (leave provider null) -- they are internal, deterministic nodes, never an external system.
+For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase. n8n-nodes-base.if, n8n-nodes-base.set, and magicflux-nodes.aiClassifier need NO provider at all (leave provider null) -- they are internal/platform-native nodes, never an external system.
 Forbidden provider names: notification, notification_action, send_message, email, storage, upload, file_upload, team_chat, ai, utility, action, document_extraction, payment_action, order_management, monitoring.
 Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
@@ -710,6 +718,33 @@ export async function executeTool(
               type: 'error',
               label: 'Generated workflow has malformed branch connections',
               detail: branchCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.1 -- product-truth backstop: a request that plausibly
+        // claims AI-based classification/decision-making (see
+        // ai-classification-guard.ts's vocabulary) must be backed by a real
+        // magicflux-nodes.aiClassifier node in the generated graph.
+        // Confirmed live in production: the Builder narrated "AI analyzes
+        // the lead based on budget, urgency, and purchase intent" while the
+        // generated graph contained zero AI-inference nodes -- just an IF
+        // node branching on a field nothing computed. Reject rather than
+        // silently persist an unsupported-capability claim.
+        const aiClaimCheck = validateAiClassificationClaim(ctx.rawUserIntent ?? '', String(args.nodes_description ?? ''), result.nodes);
+        if (!aiClaimCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: aiClaimCheck.reason,
+              missing_ai_classifier: true,
+            },
+            event: {
+              type: 'error',
+              label: 'AI classification requires a real AI classifier node',
+              detail: aiClaimCheck.reason,
               agent: 'planner',
             },
           };

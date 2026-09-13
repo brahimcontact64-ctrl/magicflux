@@ -89,11 +89,15 @@ function buildHandlerContext(params: {
   mode: 'test' | 'live';
   integrations: Awaited<ReturnType<typeof getUserIntegrations>>;
   inputData: Record<string, unknown>;
+  userId?: string | null;
+  workflowId?: string;
 }) {
   return {
     mode: params.mode,
     integrations: params.integrations,
     sampleData: params.inputData,
+    userId: params.userId,
+    workflowId: params.workflowId,
     previews: {
       emails: [] as Array<Record<string, unknown>>,
       slackMessages: [] as Array<Record<string, unknown>>,
@@ -197,6 +201,8 @@ export class WorkflowEngine {
       mode: opts.mode,
       integrations,
       inputData: opts.inputData,
+      userId: opts.userId,
+      workflowId: opts.workflowId,
     });
 
     const executionId = await this.state.initializeExecution({

@@ -41,6 +41,15 @@ export type NodeHandlerContext = {
     slackMessages: Array<Record<string, unknown>>;
     airtableRecords: Array<Record<string, unknown>>;
   };
+  /**
+   * Phase 9.9.1 -- optional identity for handlers that need to record their
+   * own usage/cost (e.g. ai-classifier.ts's recordAiUsage() call). Not
+   * needed by credential-based handlers (their cost is attributed to the
+   * connected integration, not the execution), so this stays optional
+   * rather than becoming a required field every handler must thread.
+   */
+  userId?: string | null;
+  workflowId?: string;
 };
 
 export type NodeHandlerResult = {

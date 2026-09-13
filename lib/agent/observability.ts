@@ -1,6 +1,10 @@
 import { createServiceClient } from '@/lib/supabase-server';
 
-export type AgentName = 'planner' | 'integration' | 'deploy' | 'monitoring' | 'recovery';
+// Phase 9.9.1 -- 'runtime' is AI usage incurred by a DEPLOYED workflow's own
+// AI-capability node (e.g. ai-classifier.ts) while actually executing, as
+// opposed to every other value here, which is the builder/agent-loop's own
+// meta-level generation cost.
+export type AgentName = 'planner' | 'integration' | 'deploy' | 'monitoring' | 'recovery' | 'runtime';
 
 export function agentForTool(toolName: string): AgentName {
   if (['validate_credential', 'request_credential'].includes(toolName)) return 'integration';

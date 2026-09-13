@@ -91,6 +91,23 @@ export const DETERMINISTIC_EXACT_TYPES: ReadonlySet<string> = new Set([
   'n8n-nodes-base.set',
 ]);
 
+/**
+ * Phase 9.9.1 -- canonical type string for the AI Structured Classifier, a
+ * genuinely new MagicFlux-native capability (not an n8n node this platform
+ * is impersonating). A real, single, dedicated handler
+ * (lib/workflow-runtime/node-handlers/ai-classifier.ts) -- listed here
+ * rather than relying on a generic substring match, both because it's
+ * exact-match dispatch like DETERMINISTIC_EXACT_TYPES and because its own
+ * type string ("aiclassifier") would otherwise collide with the generic
+ * 'if' substring below (see isConditionalNodeType()'s word-boundary note).
+ */
+export const AI_CLASSIFIER_NODE_TYPE = 'magicflux-nodes.aiClassifier';
+
+/** Exact lowercase type strings for MagicFlux-native (non-n8n) capability nodes. */
+export const MAGICFLUX_NATIVE_EXACT_TYPES: ReadonlySet<string> = new Set([
+  AI_CLASSIFIER_NODE_TYPE.toLowerCase(),
+]);
+
 /** Lowercase substrings that route a type to a generic (credential-free) handler. */
 export const GENERIC_HANDLER_SUBSTRINGS: ReadonlyArray<string> = [
   'webhook', 'trigger', 'manualtrigger',
@@ -108,11 +125,23 @@ export const GENERIC_HANDLER_SUBSTRINGS: ReadonlyArray<string> = [
  * connections-shape validator) so "what counts as a conditional node" can
  * never drift between the two.
  */
-export const CONDITIONAL_NODE_SUBSTRINGS: ReadonlyArray<string> = ['if', 'condition', 'switch', 'filter'];
+export const CONDITIONAL_NODE_SUBSTRINGS: ReadonlyArray<string> = ['condition', 'switch', 'filter'];
 
-/** True for any node type this runtime dispatches to the branch-deciding conditionHandler. */
+/**
+ * True for any node type this runtime dispatches to the branch-deciding
+ * conditionHandler. 'if' is matched only as the exact final type segment
+ * (e.g. "n8n-nodes-base.if"), NOT as a bare substring -- Phase 9.9.1 found
+ * that a plain `.includes('if')` check false-positives on any type merely
+ * CONTAINING those two letters in sequence, e.g.
+ * "magicflux-nodes.aiClassifier" ("class-IF-ier"), which would have wrongly
+ * forced a linear AI-classification node through the branch-connections
+ * validator as if it were an IF node. 'condition'/'switch'/'filter' stay as
+ * substring matches -- no real or planned type name collides with those.
+ */
 export function isConditionalNodeType(type: string): boolean {
   const lc = type.toLowerCase();
+  const segment = lc.split('.').pop() ?? lc;
+  if (segment === 'if') return true;
   return CONDITIONAL_NODE_SUBSTRINGS.some((s) => lc.includes(s));
 }
 
@@ -126,6 +155,7 @@ export function isKnownNodeType(type: string): boolean {
   const lc = type.toLowerCase();
   if (PROVIDER_EXACT_TYPES.has(lc)) return true;
   if (DETERMINISTIC_EXACT_TYPES.has(lc)) return true;
+  if (MAGICFLUX_NATIVE_EXACT_TYPES.has(lc)) return true;
   return GENERIC_HANDLER_SUBSTRINGS.some((s) => lc.includes(s));
 }
 

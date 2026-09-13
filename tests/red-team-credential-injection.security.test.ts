@@ -387,17 +387,25 @@ describe('S2-A: System 2 — FIXED: crafted node types do NOT reach provider han
     expect(result.logs.some(l => l.toLowerCase().includes('airtable insert'))).toBe(false);
   });
 
-  it('shopifyFakeHttp → NOT in allowlist → conditionHandler (shopify contains "if") → success', async () => {
+  it('shopifyFakeHttp → NOT in allowlist → falls through to the unsupported-type handler (test mode)', async () => {
     // shopifyFakeHttp is not in HANDLER_NODE_ALLOWLIST.
-    // Falls through to generic routing: 'shopifyfakehttp'.includes('if') → conditionHandler.
-    // conditionHandler has no credentials and returns 'success'.
+    // Phase 9.9.1: the conditional-routing check used to be a bare
+    // '...'.includes('if') over the WHOLE type string, which accidentally
+    // matched here too ('shopify' itself contains "if" -- "shop-IF-y") --
+    // routing this fake type to conditionHandler as if it were a real
+    // branching node. Fixed to match 'if' only as the exact final
+    // dot-segment (isConditionalNodeType() in node-capabilities.ts), so
+    // this now falls through to the same UNSUPPORTED_NODE_TYPE path as
+    // every other crafted fake type in this file (airtableProxy,
+    // emailFakeHttp) -- simulated in test mode, never routed anywhere
+    // that could reach a credential.
     const result = await dispatchNode(
       { type: 'n8n-nodes-base.shopifyFakeHttp', name: 'Fake', parameters: {} },
       {},
       TEST_CTX
     );
-    expect(result.status).toBe('success');
-    expect(result.logs.some(l => l.toLowerCase().includes('condition') || l.toLowerCase().includes('passing through'))).toBe(true);
+    expect(result.status).toBe('simulated_success');
+    expect(result.logs.some(l => l.includes('SIMULATED'))).toBe(true);
   });
 
   it('gmailWebhook → NOT in allowlist → webhookHandler (contains "webhook") → simulated_success', async () => {
@@ -446,7 +454,11 @@ describe('S2-A: System 2 — FIXED: crafted node types do NOT reach provider han
 // Fix: HANDLER_NODE_ALLOWLIST is checked FIRST (exact match), before any substring
 // checks. n8n-nodes-base.shopify and n8n-nodes-base.shopifytrigger are in the map,
 // so they now correctly route to shopifyHandler.
-// shopifyFakeHttp is NOT in the map, falls through to conditionHandler as before.
+// shopifyFakeHttp is NOT in the map. Phase 9.9.1: it used to also fall through to
+// conditionHandler (the old broad 'if' substring check matched "shop-IF-y"); the
+// tightened isConditionalNodeType() (exact-segment 'if' match) no longer matches
+// it, so it now falls through to the unsupported-type handler instead, exactly
+// like every other crafted fake type in this file.
 
 describe('S2-A2: System 2 — FIXED: shopifyHandler is reachable via exact allowlist', () => {
 
@@ -478,17 +490,20 @@ describe('S2-A2: System 2 — FIXED: shopifyHandler is reachable via exact allow
     expect(result.logs.some(l => l.toLowerCase().includes('shopify'))).toBe(true);
   });
 
-  it('shopifyFakeHttp → NOT in allowlist → conditionHandler (contains "if") → success', async () => {
-    // Fake type is correctly blocked — does not reach shopifyHandler
+  it('shopifyFakeHttp → NOT in allowlist → falls through to the unsupported-type handler (test mode)', async () => {
+    // Fake type is correctly blocked — does not reach shopifyHandler, and
+    // (Phase 9.9.1) no longer accidentally reaches conditionHandler either.
     const result = await dispatchNode(
       { type: 'n8n-nodes-base.shopifyFakeHttp', parameters: {} },
       {},
       TEST_CTX
     );
-    expect(result.status).toBe('success');
-    // conditionHandler log, not shopify log
-    expect(result.logs.some(l => l.toLowerCase().includes('condition') || l.toLowerCase().includes('passing through'))).toBe(true);
-    expect(result.logs.some(l => l.toLowerCase().includes('shopify'))).toBe(false);
+    expect(result.status).toBe('simulated_success');
+    expect(result.logs.some(l => l.includes('SIMULATED'))).toBe(true);
+    // The unsupported-handler's own log line legitimately echoes the node
+    // type (which happens to contain "shopify") -- the real assertion is
+    // that shopifyHandler's OWN business-logic log never ran.
+    expect(result.logs.some(l => l.toLowerCase().includes('shopify order') || l.toLowerCase().includes('shopify api'))).toBe(false);
   });
 
   it('n8n-nodes-base.shopify live mode with credentials → shopifyHandler makes Shopify API call', async () => {
@@ -552,15 +567,19 @@ describe('S2-B: System 2 — FIXED: fake nodes return UNSUPPORTED_NODE_TYPE in l
     assertNoSecrets({ outputData: result.outputData, logs: result.logs }, 'airtableProxy live');
   });
 
-  it('shopifyFakeHttp live mode → conditionHandler → success (contains "if", no unsupported error)', async () => {
-    // shopifyFakeHttp still hits conditionHandler because 'shopifyfakehttp' contains 'if'
+  it('shopifyFakeHttp live mode → UNSUPPORTED_NODE_TYPE error (no Shopify API call)', async () => {
+    // Phase 9.9.1: previously fell through to conditionHandler because the
+    // old broad 'if' substring check matched "shop-IF-y". The tightened
+    // isConditionalNodeType() (exact-segment match) no longer matches it,
+    // so it now correctly fails closed exactly like every other crafted
+    // fake type in this file (airtableProxy, emailFakeHttp).
     const result = await dispatchNode(
       { type: 'n8n-nodes-base.shopifyFakeHttp', parameters: {} },
       {},
       LIVE_CTX_NO_CREDS
     );
-    // conditionHandler always returns success, ignores mode
-    expect(result.status).toBe('success');
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/UNSUPPORTED_NODE_TYPE/i);
     assertNoSecrets({ outputData: result.outputData, logs: result.logs }, 'shopifyFakeHttp live');
   });
 

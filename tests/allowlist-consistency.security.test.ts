@@ -39,8 +39,13 @@ function allHandlerNodeTypes(): Set<string> {
 // because it never needs or receives integration credentials, unlike every
 // other HANDLER_NODE_ALLOWLIST entry. openai/custom are NOT exceptions —
 // both do have real PROVIDER_NODE_ALLOWLIST entries (see lib/integrations.ts).
+// magicflux-nodes.aiClassifier (Phase 9.9.1) is the second exception: it uses
+// the platform's own server-side AI key (process.env.OPENAI_API_KEY), never
+// a user-connected integration credential, so it also legitimately has no
+// PROVIDER_NODE_ALLOWLIST entry.
 const CREDENTIAL_FREE_HANDLER_EXCEPTIONS: ReadonlySet<string> = new Set([
   'n8n-nodes-base.set',
+  'magicflux-nodes.aiclassifier',
 ]);
 
 // ─── A: Every provider node type has a handler ────────────────────────────────

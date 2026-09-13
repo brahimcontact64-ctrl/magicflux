@@ -1,5 +1,6 @@
 import { hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
+import { AI_CLASSIFIER_NODE_TYPE } from '@/lib/workflow-runtime/node-capabilities';
 
 type N8nNode = {
   id?: string;
@@ -95,6 +96,16 @@ const COST_BY_NODE_TYPE: Array<{ match: RegExp; latencyMs: number; costUsd: numb
 
 function classifyNode(node: N8nNode): Pick<WorkflowGraphNode, 'kind' | 'integration' | 'estimatedLatencyMs' | 'estimatedCostUsd'> {
   const type = String(node.type ?? 'unknown');
+
+  // Phase 9.9.1 -- exact-match FIRST, before any regex rule. The AI
+  // Classifier's own type string ("magicflux-nodes.aiClassifier") contains
+  // "if" ("class-IF-ier"), which would otherwise match the condition rule
+  // below -- the same substring-collision class of bug fixed for the
+  // Airtable/Gmail case in Phase 9.9.0.
+  if (type.toLowerCase() === AI_CLASSIFIER_NODE_TYPE.toLowerCase()) {
+    return { kind: 'ai', integration: 'ai', estimatedLatencyMs: 2200, estimatedCostUsd: 0.01 };
+  }
+
   for (const rule of COST_BY_NODE_TYPE) {
     if (rule.match.test(type)) {
       return {
