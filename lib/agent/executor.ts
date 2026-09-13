@@ -34,6 +34,7 @@ import {
   ONE_TIME_SCHEDULE_REJECTION_MESSAGE,
   MISSING_TIMEZONE_MESSAGE,
 } from '@/lib/agent/schedule-guard';
+import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -330,7 +331,10 @@ Forbidden provider names: notification, notification_action, send_message, email
 Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
 Do not emit generic provider placeholders; attach provider metadata directly on every node.
-Do NOT use n8n-nodes-base.code, n8n-nodes-base.function, or any custom-code/scripting node -- arbitrary code execution is not available in this product yet. For data shaping, field mapping, marking, classifying, or tagging, use n8n-nodes-base.set (direct field assignment only, no expressions or scripting). For branching on a condition, use n8n-nodes-base.if (two output ports: index 0 for true, index 1 for false). If the automation genuinely requires custom logic that set/if/an available action cannot express, say so plainly in the explanation rather than inventing a code node or an unrequested external platform.
+Do NOT use n8n-nodes-base.code, n8n-nodes-base.function, or any custom-code/scripting node -- arbitrary code execution is not available in this product yet. For data shaping, field mapping, marking, classifying, or tagging, use n8n-nodes-base.set (direct field assignment only, no expressions or scripting). If the automation genuinely requires custom logic that set/if/an available action cannot express, say so plainly in the explanation rather than inventing a code node or an unrequested external platform.
+
+CONDITIONAL/BRANCH CONNECTIONS CONTRACT -- MANDATORY for n8n-nodes-base.if, switch, condition, or filter nodes: the branch a downstream node belongs to is encoded ONLY by which position it occupies in the SOURCE node's own "main" array -- "connections['Node Name'].main" MUST be an array with a SEPARATE array entry per output port: main[0] = every target reached on the TRUE branch, main[1] = every target reached on the FALSE branch. Each of main[0] and main[1] MUST be present as its own array, even if a branch has no downstream target at all (use an empty array [] for that branch -- never omit the port entirely). NEVER put both branches' targets into the same main[0] array and try to distinguish them using the target object's own "index" field -- that field is the TARGET's input port (always 0 for a single-input node), not the source branch, and is silently ignored by the runtime for this purpose. Example of the ONLY correct shape for an if node with true->A and false->B:
+"connections": { "My If": { "main": [ [ { "node": "A", "type": "main", "index": 0 } ], [ { "node": "B", "type": "main", "index": 0 } ] ] } }
 Keep it production-ready and deployable.`;
 
   const response = await openai.chat.completions.create({
@@ -676,6 +680,36 @@ export async function executeTool(
               type: 'error',
               label: 'Unsupported capability requested',
               detail: reasons.join(' '),
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.0 -- deterministic backstop against a conditional node
+        // (if/switch/condition/filter) whose generated connections collapse
+        // true/false branches into a single output port instead of
+        // separate main[0]/main[1] arrays. Confirmed live in production:
+        // this produces a graph that renders correctly in the Builder but
+        // executes identical downstream nodes for every branch outcome
+        // (runtime/workflow-engine.ts's branch dispatch only ever looks at
+        // the taken branch's own port -- a real branch never falls back to
+        // "fire every port" -- so a collapsed graph must be rejected here
+        // rather than silently persisted as something the runtime cannot
+        // actually route the way it looks).
+        const branchCheck = validateBranchConnections(result.nodes, result.connections);
+        if (!branchCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: branchCheck.reason,
+              malformed_branch_connections: true,
+              node: branchCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated workflow has malformed branch connections',
+              detail: branchCheck.reason,
               agent: 'planner',
             },
           };

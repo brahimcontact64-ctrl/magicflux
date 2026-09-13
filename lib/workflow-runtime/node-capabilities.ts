@@ -100,6 +100,23 @@ export const GENERIC_HANDLER_SUBSTRINGS: ReadonlyArray<string> = [
 ];
 
 /**
+ * Phase 9.9.0 -- the subset of GENERIC_HANDLER_SUBSTRINGS that route to
+ * conditionHandler (node-handlers/condition.ts), i.e. every node type this
+ * runtime currently treats as branch-deciding rather than a plain
+ * unconditional step. Single source of truth shared by pickHandler()
+ * (routing) and lib/agent/branch-connection-guard.ts (the generation-time
+ * connections-shape validator) so "what counts as a conditional node" can
+ * never drift between the two.
+ */
+export const CONDITIONAL_NODE_SUBSTRINGS: ReadonlyArray<string> = ['if', 'condition', 'switch', 'filter'];
+
+/** True for any node type this runtime dispatches to the branch-deciding conditionHandler. */
+export function isConditionalNodeType(type: string): boolean {
+  const lc = type.toLowerCase();
+  return CONDITIONAL_NODE_SUBSTRINGS.some((s) => lc.includes(s));
+}
+
+/**
  * Returns true when pickHandler() will route this type to something other
  * than the UNSUPPORTED_NODE_TYPE fallback. Does NOT mean the node is safe
  * to generate/activate — see the blocklist below for cases where a type is

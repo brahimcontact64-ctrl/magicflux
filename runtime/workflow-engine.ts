@@ -706,8 +706,29 @@ export class WorkflowEngine {
         queue.push({ nodeName: target, input: runResult.outputData });
       };
 
-      if (conditionBranch !== null && outputPorts[conditionBranch]) {
-        for (const target of outputPorts[conditionBranch]) {
+      // Phase 9.9.0 -- branch semantics fix. A node that produced a
+      // _conditionBranch (any IF/condition/switch-style node -- see
+      // node-handlers/condition.ts) has DECIDED which single output port
+      // fires. The previous fallback ("if that exact port array is
+      // missing, fire every port instead") was meant only for ordinary
+      // unconditional nodes with no branch decision at all -- but it
+      // silently applied to a real branch decision too whenever the
+      // generated connections object omitted main[1] entirely (as opposed
+      // to an explicit empty array), making the false branch fire the same
+      // targets as the true branch. Confirmed live in production: a
+      // Hot/Warm/Cold/Uncertain IF node whose connections only populated
+      // main[0] executed identical downstream nodes for every
+      // classification, regardless of the branch actually taken.
+      //
+      // Correct semantics: once a node has decided a branch, ONLY that
+      // branch's targets ever run -- a missing/absent port for the taken
+      // branch means zero downstream targets, never "run everything
+      // instead." The "fire every port" fan-out is reserved exclusively
+      // for ordinary nodes that never decided a branch at all
+      // (conditionBranch === null).
+      if (conditionBranch !== null) {
+        const targets = outputPorts[conditionBranch] ?? [];
+        for (const target of targets) {
           enqueueTarget(target);
         }
       } else {

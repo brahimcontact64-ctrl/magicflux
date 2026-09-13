@@ -11,7 +11,7 @@ import { googleDriveHandler } from './googledrive';
 import { openaiHandler } from './openai';
 import { httpHandler } from './http';
 import { setHandler } from './set';
-import { checkNodeCapability } from '../node-capabilities';
+import { checkNodeCapability, isConditionalNodeType } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -119,7 +119,7 @@ function pickHandler(node: EngineNode): NodeHandler {
   if (type.includes('wait') || type.includes('pause') || type.includes('delay')) {
     return waitHandler;
   }
-  if (type.includes('if') || type.includes('condition') || type.includes('switch') || type.includes('filter')) {
+  if (isConditionalNodeType(type)) {
     return conditionHandler;
   }
   if (type.includes('httprequest')) {

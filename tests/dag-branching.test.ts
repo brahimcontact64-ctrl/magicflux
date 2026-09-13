@@ -182,6 +182,79 @@ describe('IF-branch routing (runtime/workflow-engine.ts)', () => {
     expect(stepNames()).toContain('On False');
     expect(stepNames()).not.toContain('On True');
   });
+
+  // Phase 9.9.0 -- production regression: a generated IF node whose
+  // connections collapsed both branches' targets into main[0] (main[1]
+  // entirely absent, not an explicit empty array) used to make the engine
+  // fall back to "fire every existing port" for the taken branch whenever
+  // that branch's OWN port was missing -- so the false branch ended up
+  // firing the true branch's targets (or vice versa), regardless of the
+  // condition's actual result. Fixed: once a node has decided a branch
+  // (_conditionBranch is a number), ONLY that exact port's targets ever
+  // run; a missing port for the taken branch means zero downstream nodes,
+  // never "run something else instead."
+  describe('Phase 9.9.0 -- a missing branch port fires ZERO targets, never a fallback to another port', () => {
+    function baseNodes(conditionsTrue: boolean) {
+      return [
+        { id: 'trigger', name: 'Trigger', type: 'n8n-nodes-base.manualTrigger', parameters: {} },
+        {
+          id: 'cond', name: 'Check', type: 'n8n-nodes-base.if',
+          parameters: { conditions: [{ field: 'ok', operator: 'equals', value: conditionsTrue ? 'yes' : 'no-match' }] },
+        },
+        { id: 'onTrue', name: 'On True', type: 'n8n-nodes-base.if', parameters: {} },
+        { id: 'onFalse', name: 'On False', type: 'n8n-nodes-base.if', parameters: {} },
+      ];
+    }
+
+    it('missing true branch: condition is TRUE but "main" has NO ports at all -> zero downstream targets run', async () => {
+      const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+      const workflow = {
+        name: 'Missing true-branch port test',
+        nodes: baseNodes(true),
+        connections: {
+          Trigger: { main: [[{ node: 'Check' }]] },
+          // "main" itself is empty -- neither the true (index 0) nor false
+          // (index 1) port exists at all.
+          Check: { main: [] },
+        },
+      };
+
+      const result = await runWorkflowExecution({
+        workflowJson: workflow, inputData: { ok: 'yes' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+      });
+
+      expect(result.status).toBe('success');
+      expect(stepNames()).not.toContain('On True');
+      expect(stepNames()).not.toContain('On False');
+    });
+
+    it('exact production regression -- missing false branch: condition is FALSE (Warm/Cold/Uncertain-equivalent) but "main" only has the true branch\'s port -> the true branch\'s targets do NOT fire as a fallback', async () => {
+      const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+      const workflow = {
+        name: 'Missing false-branch port test',
+        nodes: baseNodes(false),
+        connections: {
+          Trigger: { main: [[{ node: 'Check' }]] },
+          // The exact malformed shape found in production: only ONE entry
+          // in "main" -- the false branch's port (index 1) is entirely
+          // absent, not an explicit empty array.
+          Check: { main: [[{ node: 'On True' }]] },
+        },
+      };
+
+      const result = await runWorkflowExecution({
+        workflowJson: workflow, inputData: { ok: 'yes' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+      });
+
+      expect(result.status).toBe('success');
+      // Before the fix, this fired "On True" (the only port that happened
+      // to exist) even though the condition evaluated FALSE -- the exact
+      // production bug (every classification executed the Hot path's
+      // downstream nodes regardless of the actual branch taken).
+      expect(stepNames()).not.toContain('On True');
+      expect(stepNames()).not.toContain('On False');
+    });
+  });
 });
 
 describe('Fan-out / fan-in (runtime/workflow-engine.ts)', () => {

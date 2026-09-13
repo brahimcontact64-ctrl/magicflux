@@ -76,9 +76,18 @@ export type WorkflowGraphSummary = {
   schedule?: string;
 };
 
+// Phase 9.9.0 -- the bare `ai` alternative this regex used to end with
+// matched ANY node type merely containing the substring "ai" anywhere --
+// including n8n-nodes-base.airtable ("**ai**rtable") and n8n-nodes-base.gmail
+// ("gm**ai**l") -- silently misclassifying two genuine action nodes as AI
+// nodes, which corrupted the Builder's Actions/Branches summary count, cost
+// estimate, and latency estimate. Fixed by listing only the actual AI
+// provider/node-name fragments this product generates (no bare "ai" catch-all).
+const AI_NODE_TYPE_MATCH = /openai|anthropic|claude|gemini|groq|llm/i;
+
 const COST_BY_NODE_TYPE: Array<{ match: RegExp; latencyMs: number; costUsd: number; kind: WorkflowGraphNode['kind']; integration: string }> = [
   { match: /trigger|webhook|schedule|cron/i, latencyMs: 30, costUsd: 0, kind: 'trigger', integration: 'core' },
-  { match: /openai|anthropic|gemini|groq|llm|ai/i, latencyMs: 2200, costUsd: 0.01, kind: 'ai', integration: 'ai' },
+  { match: AI_NODE_TYPE_MATCH, latencyMs: 2200, costUsd: 0.01, kind: 'ai', integration: 'ai' },
   { match: /if|switch|merge|wait/i, latencyMs: 120, costUsd: 0, kind: 'condition', integration: 'core' },
   { match: /gmail|email|slack|shopify|airtable|notion|hubspot|twilio/i, latencyMs: 500, costUsd: 0.001, kind: 'action', integration: 'integration' },
   { match: /.*/, latencyMs: 150, costUsd: 0, kind: 'utility', integration: 'core' },
