@@ -1,6 +1,6 @@
 import { hasForbiddenProviderPattern, isCanonicalProvider, normalizeProvider as normalizeCanonicalProvider } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
-import { AI_CLASSIFIER_NODE_TYPE } from '@/lib/workflow-runtime/node-capabilities';
+import { AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE } from '@/lib/workflow-runtime/node-capabilities';
 
 type N8nNode = {
   id?: string;
@@ -114,6 +114,14 @@ function classifyNode(node: N8nNode): Pick<WorkflowGraphNode, 'kind' | 'integrat
     // 'ai_provider', not bare 'ai' -- see the comment on AI_NODE_TYPE_MATCH's
     // rule below for why this exact string matters (isInternalProviderLabel()).
     return { kind: 'ai', integration: 'ai_provider', estimatedLatencyMs: 2200, estimatedCostUsd: 0.01 };
+  }
+
+  // Phase 9.9.2 -- Human Review genuinely branches (approve/reject/custom
+  // outcome), same as an IF node, so it counts toward the Builder's
+  // "branches" summary -- exact-match so it can never accidentally fall
+  // into a regex rule below (or the reverse) regardless of future renames.
+  if (type.toLowerCase() === HUMAN_REVIEW_NODE_TYPE.toLowerCase()) {
+    return { kind: 'condition', integration: 'core', estimatedLatencyMs: 200, estimatedCostUsd: 0 };
   }
 
   for (const rule of COST_BY_NODE_TYPE) {

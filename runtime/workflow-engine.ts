@@ -98,6 +98,11 @@ function buildHandlerContext(params: {
     sampleData: params.inputData,
     userId: params.userId,
     workflowId: params.workflowId,
+    // Phase 9.9.2 -- filled in once the real executionId is known (see the
+    // initializeExecution() call below); a brand-new execution doesn't have
+    // one yet at the point this object is constructed.
+    executionId: undefined as string | undefined,
+    deploymentVersionId: undefined as string | null | undefined,
     previews: {
       emails: [] as Array<Record<string, unknown>>,
       slackMessages: [] as Array<Record<string, unknown>>,
@@ -214,6 +219,9 @@ export class WorkflowEngine {
       maxRetries,
       deploymentVersionId: opts.deploymentVersionId,
     });
+
+    handlerContext.executionId = executionId;
+    handlerContext.deploymentVersionId = opts.deploymentVersionId ?? null;
 
     const lock = await acquireExecutionLock({
       executionId,
@@ -668,7 +676,19 @@ export class WorkflowEngine {
       finalOutput = runResult.outputData;
 
       if (runResult.status === 'waiting') {
-        const nextRunAt = runResult.nextRunAt ?? new Date(Date.now() + 60_000);
+        // Phase 9.9.2 -- previously defaulted to now()+60s whenever a
+        // handler didn't supply nextRunAt. That fallback was dead code
+        // until now (wait.ts, the only prior 'waiting' producer, always
+        // supplies a real computed Date) -- but a NEW handler that
+        // deliberately omits it (human-review.ts: waiting on a human
+        // decision, not a timer) would otherwise get silently enrolled
+        // into lib/runtime/retry-dispatcher.ts's due-execution scan once
+        // that invented time passed, auto-resuming with no real decision
+        // ever made. No fallback: an explicit nextRunAt means "resume via
+        // timer when due"; none at all means "wait indefinitely for an
+        // explicit resume call" -- next_run_at stays NULL, which
+        // retry-dispatcher's `.lte(next_run_at, now)` never matches.
+        const nextRunAt = runResult.nextRunAt ?? null;
         await this.state.setExecutionState({
           executionId,
           userId: opts.userId,
@@ -676,7 +696,7 @@ export class WorkflowEngine {
           currentNodeId,
           outputData: finalOutput,
           retryCount,
-          nextRunAt: nextRunAt.toISOString(),
+          nextRunAt: nextRunAt ? nextRunAt.toISOString() : null,
         });
 
         await persistCheckpoint({
@@ -694,7 +714,7 @@ export class WorkflowEngine {
           currentNodeId,
           steps,
           finalOutput,
-          nextRunAt,
+          nextRunAt: nextRunAt ?? undefined,
           simulated: opts.mode === 'test',
           message: opts.mode === 'test' ? 'Simulated only. No real API was called.' : undefined,
           warnings: [],

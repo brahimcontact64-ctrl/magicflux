@@ -36,6 +36,7 @@ import {
 } from '@/lib/agent/schedule-guard';
 import { validateBranchConnections } from '@/lib/agent/branch-connection-guard';
 import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-guard';
+import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -300,8 +301,13 @@ AI CLASSIFICATION CONTRACT -- MANDATORY whenever this automation needs to classi
   - "instruction": a clear natural-language description of exactly what to classify/decide and on what basis, copied from the request's own criteria.
   - "allowedLabels": an array of the exact allowed output label strings (e.g. ["Hot","Warm","Cold"]).
   - "outputField": the field name downstream IF nodes will read (defaults to "classification" if omitted -- prefer the default unless the request names a different field).
-  - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing; if the request mentions flagging uncertain/low-confidence cases for human review, branch a downstream IF node on "={{$json[\"needs_review\"]}}" rather than inventing your own uncertainty logic.
+  - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing; if the request mentions flagging uncertain/low-confidence cases for human review, route that case to a real magicflux-nodes.humanReview node (see HUMAN REVIEW CONTRACT below) -- NEVER a plain IF node checking needs_review, which only inspects a value, it never actually creates anything a human can act on.
 Every downstream IF node that reads the classification MUST branch on exactly "={{$json[\"<outputField>\"]}}" -- the literal field the aiClassifier node writes. Do NOT use this node type for a deterministic threshold/exact-match branch (e.g. "if amount > 100") -- that stays n8n-nodes-base.if directly on the real input field, no AI step needed.
+
+HUMAN REVIEW CONTRACT -- MANDATORY whenever this automation needs to pause for a real person to approve, reject, or otherwise decide an outcome (e.g. "flag for human review instead of guessing", "require approval before proceeding", "escalate risky/uncertain cases to a human", refund/order/content approval): you MUST insert a real node with type EXACTLY "magicflux-nodes.humanReview". This is a genuinely new, real, supported node type in this product (like magicflux-nodes.aiClassifier) -- NEVER represent "human review"/"approval" using n8n-nodes-base.set (it is a data no-op, not a pause) or n8n-nodes-base.if alone (it only reads a value, it creates no durable record a human can act on and does not actually pause anything). The humanReview node's "parameters" must include:
+  - "instruction": a clear natural-language description of what the reviewer needs to decide.
+  - "allowedOutcomes": an array of the exact decision outcome strings (defaults to ["approve","reject"] if omitted -- prefer the default two-outcome shape unless the request names specific custom outcomes).
+Like an IF node, its connections MUST use separate output-port arrays in the SAME order as "allowedOutcomes" (main[0] for the first outcome, main[1] for the second, etc.), each present as its own array even if empty -- never collapsed into one port. Place it wherever the pause should happen (e.g. immediately after an aiClassifier node's low-confidence/needs_review case, or directly after the trigger for an approval-gated action).
 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
 
@@ -332,9 +338,9 @@ Return a JSON object with this exact structure:
   "explanation": "Clear 4-6 step numbered explanation of how this workflow operates"
 }
 
-Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.), EXCEPT for the one MagicFlux-native capability: "magicflux-nodes.aiClassifier" (see AI CLASSIFICATION CONTRACT above) -- this is a genuine, real, supported node type in this product, not an n8n node, and must be spelled EXACTLY that way when used.
+Use real n8n node types (e.g. n8n-nodes-base.gmailTrigger, n8n-nodes-base.openAi, etc.), EXCEPT for the two MagicFlux-native capabilities: "magicflux-nodes.aiClassifier" (see AI CLASSIFICATION CONTRACT above) and "magicflux-nodes.humanReview" (see HUMAN REVIEW CONTRACT above) -- both are genuine, real, supported node types in this product, not n8n nodes, and must be spelled EXACTLY that way when used.
 Each node must have: id, name, type, typeVersion, position [x,y], parameters, displayName, provider.
-For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase. n8n-nodes-base.if, n8n-nodes-base.set, and magicflux-nodes.aiClassifier need NO provider at all (leave provider null) -- they are internal/platform-native nodes, never an external system.
+For provider use ONLY these canonical ids: stripe, airtable, openai, slack, gmail, google_drive, google_sheets, telegram, shopify, hubspot, elevenlabs, claude, facebook, canva, twitter, whatsapp, cloudflare_ai, deepgram, supabase. n8n-nodes-base.if, n8n-nodes-base.set, magicflux-nodes.aiClassifier, and magicflux-nodes.humanReview need NO provider at all (leave provider null) -- they are internal/platform-native nodes, never an external system.
 Forbidden provider names: notification, notification_action, send_message, email, storage, upload, file_upload, team_chat, ai, utility, action, document_extraction, payment_action, order_management, monitoring.
 Never invent provider names. No aliases. No fallback names.
 Do not emit credentialSchema or credential defaults; provider credentialSchema is hydrated server-side from canonical providerCredentialRegistry.
@@ -745,6 +751,28 @@ export async function executeTool(
               type: 'error',
               label: 'AI classification requires a real AI classifier node',
               detail: aiClaimCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.2 -- product-truth backstop, mirroring the AI
+        // classification claim check above: a request that plausibly
+        // claims human review/approval semantics must be backed by a real
+        // magicflux-nodes.humanReview node.
+        const humanReviewClaimCheck = validateHumanReviewClaim(ctx.rawUserIntent ?? '', String(args.nodes_description ?? ''), result.nodes);
+        if (!humanReviewClaimCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: humanReviewClaimCheck.reason,
+              missing_human_review: true,
+            },
+            event: {
+              type: 'error',
+              label: 'Human review requires a real review node',
+              detail: humanReviewClaimCheck.reason,
               agent: 'planner',
             },
           };

@@ -50,6 +50,15 @@ export type NodeHandlerContext = {
    */
   userId?: string | null;
   workflowId?: string;
+  /**
+   * Phase 9.9.2 -- identifies the current execution/deployment snapshot for
+   * handlers that need durable, execution-scoped state (e.g.
+   * human-review.ts's review-item lookup, keyed by (executionId, nodeId) so
+   * a resumed re-invocation finds the SAME review record rather than
+   * creating a duplicate).
+   */
+  executionId?: string;
+  deploymentVersionId?: string | null;
 };
 
 export type NodeHandlerResult = {

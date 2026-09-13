@@ -12,7 +12,8 @@ import { openaiHandler } from './openai';
 import { httpHandler } from './http';
 import { setHandler } from './set';
 import { aiClassifierHandler } from './ai-classifier';
-import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE } from '../node-capabilities';
+import { humanReviewHandler } from './human-review';
+import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -69,6 +70,9 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   // (no user credential/PROVIDER_NODE_ALLOWLIST entry -- see
   // CREDENTIAL_FREE_HANDLER_EXCEPTIONS in allowlist-consistency.security.test.ts).
   [AI_CLASSIFIER_NODE_TYPE.toLowerCase(), aiClassifierHandler],
+  // Durable Human Review / Approval -- MagicFlux-native capability, no user
+  // credential (same CREDENTIAL_FREE_HANDLER_EXCEPTIONS pattern).
+  [HUMAN_REVIEW_NODE_TYPE.toLowerCase(), humanReviewHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
@@ -158,4 +162,5 @@ export {
   httpHandler,
   setHandler,
   aiClassifierHandler,
+  humanReviewHandler,
 };

@@ -103,9 +103,19 @@ export const DETERMINISTIC_EXACT_TYPES: ReadonlySet<string> = new Set([
  */
 export const AI_CLASSIFIER_NODE_TYPE = 'magicflux-nodes.aiClassifier';
 
+/**
+ * Phase 9.9.2 -- canonical type string for the durable Human Review /
+ * Approval capability. Genuinely branch-deciding (approve/reject/custom
+ * outcome), like an IF node, but backed by a real durable review record
+ * (lib/workflow-runtime/node-handlers/human-review.ts) rather than an
+ * in-memory condition -- must NOT be represented as Set or IF.
+ */
+export const HUMAN_REVIEW_NODE_TYPE = 'magicflux-nodes.humanReview';
+
 /** Exact lowercase type strings for MagicFlux-native (non-n8n) capability nodes. */
 export const MAGICFLUX_NATIVE_EXACT_TYPES: ReadonlySet<string> = new Set([
   AI_CLASSIFIER_NODE_TYPE.toLowerCase(),
+  HUMAN_REVIEW_NODE_TYPE.toLowerCase(),
 ]);
 
 /** Lowercase substrings that route a type to a generic (credential-free) handler. */
@@ -141,7 +151,10 @@ export const CONDITIONAL_NODE_SUBSTRINGS: ReadonlyArray<string> = ['condition', 
 export function isConditionalNodeType(type: string): boolean {
   const lc = type.toLowerCase();
   const segment = lc.split('.').pop() ?? lc;
-  if (segment === 'if') return true;
+  // Phase 9.9.2 -- humanReview is exact-segment matched too: it genuinely
+  // branches (approve/reject/custom outcome), so the branch-connections
+  // validator must apply to it exactly like an IF node.
+  if (segment === 'if' || segment === HUMAN_REVIEW_NODE_TYPE.toLowerCase().split('.').pop()) return true;
   return CONDITIONAL_NODE_SUBSTRINGS.some((s) => lc.includes(s));
 }
 

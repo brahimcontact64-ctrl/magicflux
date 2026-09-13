@@ -46,6 +46,8 @@ function allHandlerNodeTypes(): Set<string> {
 const CREDENTIAL_FREE_HANDLER_EXCEPTIONS: ReadonlySet<string> = new Set([
   'n8n-nodes-base.set',
   'magicflux-nodes.aiclassifier',
+  // Phase 9.9.2: same reasoning -- durable review state, no per-user credential.
+  'magicflux-nodes.humanreview',
 ]);
 
 // ─── A: Every provider node type has a handler ────────────────────────────────

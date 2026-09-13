@@ -146,7 +146,10 @@ export const AGENT_TOOLS: AgentTool[] = [
               'genuine AI judgment over unstructured criteria (e.g. "classify this lead as Hot/Warm/' +
               'Cold based on budget, urgency, and purchase intent", intent/sentiment detection), use ' +
               'ai_classifier BEFORE any condition block that reads its result -- never condition ' +
-              'alone branching on a field nothing computes.',
+              'alone branching on a field nothing computes. Phase 9.9.2: when the request needs a ' +
+              'real person to approve/reject/decide before continuing (e.g. "flag for human review", ' +
+              '"require approval"), use human_review -- never condition/set_field alone, which create ' +
+              'no durable, actionable review record.',
           },
           nodes_description: {
             type: 'string',
