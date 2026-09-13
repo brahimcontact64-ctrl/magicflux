@@ -9,6 +9,22 @@ import type OpenAI from 'openai';
 
 export type AgentTool = OpenAI.Chat.Completions.ChatCompletionTool;
 
+/**
+ * Phase 9.8.6 -- single source of truth for generate_workflow_json's
+ * `trigger` argument, shared with executor.ts's defense-in-depth validation
+ * so the enum below and the runtime check can't drift apart. Every value
+ * here maps to a trigger the native runtime actually supports end-to-end
+ * (see lib/workflow-runtime/node-capabilities.ts) -- no inbox-watching or
+ * other blocklisted trigger types.
+ */
+export const SUPPORTED_TRIGGER_TYPES = ['manual_trigger', 'webhook', 'schedule', 'new_order'] as const;
+export type SupportedTriggerType = (typeof SUPPORTED_TRIGGER_TYPES)[number];
+
+/** True only for a trigger value the native runtime actually supports end-to-end. Used by executor.ts as defense-in-depth against a model deviation from the schema's `enum`. */
+export function isSupportedTriggerType(value: string): value is SupportedTriggerType {
+  return (SUPPORTED_TRIGGER_TYPES as readonly string[]).includes(value);
+}
+
 export const AGENT_TOOLS: AgentTool[] = [
   {
     type: 'function',
@@ -34,7 +50,26 @@ export const AGENT_TOOLS: AgentTool[] = [
           },
           trigger: {
             type: 'string',
-            description: 'The trigger type: new_email, new_order, webhook, schedule, new_message, form_submit',
+            // Phase 9.8.6 -- constrained to exactly the trigger types the
+            // native runtime actually supports end-to-end today (see
+            // lib/workflow-runtime/node-capabilities.ts's BLOCKLIST --
+            // n8n-nodes-base.gmailTrigger and similar inbox-watching
+            // triggers are explicitly blocked as silent no-ops, so
+            // "new_email"/"new_message"/"form_submit" were never real
+            // options and are removed rather than left as invented,
+            // non-functional examples). An enum (not free-form text)
+            // because the previous open-ended description gave the model
+            // no listed option for a one-time/immediate request, so it
+            // improvised "webhook" or invented values like "new_message"
+            // that the runtime cannot support the way the model intends.
+            enum: [...SUPPORTED_TRIGGER_TYPES],
+            description:
+              'The trigger type. Use manual_trigger for a one-time/immediate "do this now" / ' +
+              '"run this once" request with no recurring schedule and no external event to wait ' +
+              'for -- never use webhook for these unless the user explicitly asked for an ' +
+              'externally callable endpoint/webhook. Use webhook only when an external system ' +
+              'should call this workflow. Use schedule for a recurring/time-based automation. Use ' +
+              'new_order for a Shopify new-order trigger.',
           },
           action: {
             type: 'string',

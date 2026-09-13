@@ -1018,7 +1018,8 @@ export function ChatInterface({
         const integrationCards = deriveIntegrationCards(
           graph,
           credentialRequests,
-          typedPayload.integrationWizard?.required ?? []
+          typedPayload.integrationWizard?.required ?? [],
+          credIntelFromPayload ?? []
         );
         const approvalRequests = (typedPayload.approvalRequests ?? []).map((approval) => ({
           actionKey: '',

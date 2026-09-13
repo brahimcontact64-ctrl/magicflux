@@ -9,6 +9,7 @@ import {
 } from '@/lib/agent/provider-allowlist';
 import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import type { PatternClassification } from '@/lib/automation/types';
+import { providerHasCredentials } from '@/lib/credentials/provider-registry';
 
 const RUNTIME_STATE_VERSION = 2;
 const RUNTIME_PERSIST_KEY = 'magicflux.builder.runtime_state';
@@ -637,13 +638,23 @@ function providerRequiredFields(provider: string): string[] {
   return [];
 }
 
+/** Minimal shape deriveIntegrationCards() needs from server-computed credential readiness (lib/credentials/intelligence.ts's CredentialResolutionResult, or the client's richer CredentialIntelligenceItem -- both satisfy this structurally). */
+export type CredentialReadinessItem = { provider: string; ready: boolean };
+
 export function deriveIntegrationCards(
   graph?: WorkflowGraphSummary,
   requests: CredentialRequest[] = [],
-  requiredProviders: string[] = []
+  requiredProviders: string[] = [],
+  readiness: CredentialReadinessItem[] = []
 ): IntegrationCardItem[] {
   const blockedProviders = new Set(['core', 'integration', 'scheduler', 'httprequest', 'http_request', 'ai_provider', 'utility', 'webhook']);
   const requestByProvider = new Map(requests.map((req) => [normalizeProviderName(req.provider), req]));
+  // Phase 9.8.6 -- authoritative, server-computed readiness (already alias-
+  // aware: a stored 'email' row satisfying a required 'gmail' is resolved
+  // upstream in lib/credentials/storage.ts before this ever runs). This
+  // fully replaces the previous hardcoded `provider === 'supabase'` stub,
+  // which never reflected any real connection state for any provider.
+  const readinessByProvider = new Map(readiness.map((r) => [normalizeProviderName(r.provider), r.ready]));
   const providerAllowList = new Set(extractProvidersFromWorkflowGraph(graph));
   const enforceAllowList = providerAllowList.size > 0;
   const byProvider = new Map<string, IntegrationCardItem>();
@@ -657,11 +668,23 @@ export function deriveIntegrationCards(
     const request = requestByProvider.get(provider);
     const requiredFields = preferredFields.length > 0 ? preferredFields : providerRequiredFields(provider);
 
+    // A provider with no registered credential requirement at all (e.g.
+    // 'supabase', the platform's own backend -- never a per-user
+    // credential the user connects) has nothing to connect and is
+    // inherently ready; no special-cased provider name needed for this.
+    // Every provider that DOES require credentials gets its connected
+    // state solely from the authoritative readiness map -- defaulting to
+    // NOT connected (fail closed) if genuinely absent, never assumed true,
+    // and completely independent of whether the model happened to call
+    // request_credential for it (a stale/model-generated claim must never
+    // override real connection state).
+    const connected = !providerHasCredentials(provider) ? true : (readinessByProvider.get(provider) ?? false);
+
     const next: IntegrationCardItem = {
       provider,
       displayName: preferredDisplayName || existing?.displayName || providerDisplayName(provider),
       reason: request?.reason || existing?.reason || 'Review this integration before deployment.',
-      connected: provider === 'supabase' && !request,
+      connected,
       requiredFields,
     };
 

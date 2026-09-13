@@ -25,6 +25,7 @@ import { liveGraphManager } from '@/lib/graph/live-graph-manager';
 import { extractAllProvidersFromWorkflowGraph, hasForbiddenProviderPattern, isCanonicalProvider, isInternalProviderLabel, normalizeProvider, toProviderToken } from '@/lib/agent/provider-allowlist';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
 import { findIncapableNodes } from '@/lib/agent/capability-filter';
+import { SUPPORTED_TRIGGER_TYPES, isSupportedTriggerType } from '@/lib/agent/tools';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -485,6 +486,31 @@ export async function executeTool(
     switch (toolName) {
       // -----------------------------------------------------------------------
       case 'generate_workflow_json': {
+        // Phase 9.8.6 -- defense in depth: the tool schema's `enum` (tools.ts)
+        // is a strong hint but not a cryptographic guarantee against every
+        // possible model deviation. Fail closed on an unrecognized trigger
+        // rather than silently forwarding it as free text into the
+        // generation prompt, where it could produce an unsupported or
+        // unintended node (e.g. an externally-callable webhook nobody asked
+        // for).
+        const rawTrigger = String(args.trigger ?? '');
+        if (!isSupportedTriggerType(rawTrigger)) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: `Unsupported trigger type: "${rawTrigger}". Supported trigger types: ${SUPPORTED_TRIGGER_TYPES.join(', ')}.`,
+              unsupported_trigger: rawTrigger,
+            },
+            event: {
+              type: 'error',
+              label: 'Unsupported trigger type requested',
+              detail: `"${rawTrigger}" is not a supported trigger type.`,
+              agent: 'planner',
+            },
+          };
+        }
+
         const requiredCapabilities = Array.isArray(args.required_capabilities)
           ? args.required_capabilities.map((value) => String(value).trim()).filter(Boolean)
           : [];
