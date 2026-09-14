@@ -205,9 +205,16 @@ export async function getConnectedAirtableToken(userId: string): Promise<string 
       throw new Error(selectionError.message);
     }
 
+    // Phase 9.9.4F -- workflow_integrations.provider stores the credential's
+    // OWN raw label (e.g. 'email'), not necessarily the canonical provider
+    // requiredProvidersFromWorkflow() reports (e.g. 'gmail') -- see
+    // app/api/workflows/[id]/integrations/route.ts's POST handler for why
+    // (a live DB CHECK constraint on this column doesn't allow 'gmail' at
+    // all). Canonicalize here so an explicit selection stored under either
+    // label is always found by its canonical key below.
     const selectedByProvider = new Map<IntegrationProvider, string>();
     (workflowSelections ?? []).forEach((row) => {
-      selectedByProvider.set(row.provider as IntegrationProvider, row.integration_id as string);
+      selectedByProvider.set(canonicalizeProviderId(String(row.provider)) as IntegrationProvider, row.integration_id as string);
     });
 
     const resolved = new Map<IntegrationProvider, UserIntegration>();

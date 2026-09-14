@@ -73,6 +73,27 @@ class FakeTableHandle {
   constructor(private rows: Row[]) {}
   select(): FakeQuery { return new FakeQuery(this.rows, 'select'); }
   delete(): FakeQuery { return new FakeQuery(this.rows, 'delete'); }
+  insert(row: Row): { select: () => { maybeSingle: () => Promise<{ data: Row | null; error: null }> } } {
+    const saved = { id: row.id ?? `fake-${this.rows.length}-${Math.random().toString(36).slice(2)}`, ...row };
+    this.rows.push(saved);
+    return { select: () => ({ maybeSingle: async () => ({ data: { ...saved }, error: null }) }) };
+  }
+  update(patch: Row): FakeQuery & { select: () => FakeQuery & { maybeSingle: () => Promise<{ data: Row | null; error: null }> } } {
+    const q = new FakeQuery(this.rows, 'select') as FakeQuery & { select: () => FakeQuery & { maybeSingle: () => Promise<{ data: Row | null; error: null }> } };
+    const rows = this.rows;
+    q.select = () => {
+      const q2 = new FakeQuery(rows, 'select') as FakeQuery & { maybeSingle: () => Promise<{ data: Row | null; error: null }> };
+      q2.maybeSingle = async () => {
+        const filters = (q as unknown as { filters: Array<[string, unknown]> }).filters;
+        const target = rows.find((r) => filters.every(([c, v]) => r[c] === v));
+        if (!target) return { data: null, error: null };
+        Object.assign(target, patch);
+        return { data: { ...target }, error: null };
+      };
+      return q2;
+    };
+    return q;
+  }
   upsert(row: Row, opts?: { onConflict?: string }): FakeQuery & { select: () => FakeQuery & { maybeSingle: () => Promise<{ data: Row | null; error: null }> } } {
     const conflictCols = (opts?.onConflict ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const idx = conflictCols.length ? this.rows.findIndex((r) => conflictCols.every((c) => r[c] === row[c])) : -1;
@@ -211,12 +232,18 @@ describe('POST /api/workflows/[id]/integrations -- attach, canonical storage', (
 
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
-    // Persisted under the CANONICAL provider, not the raw "email" the request implied.
+    // The API response is always canonical, regardless of storage shape.
     expect(body.attached.provider).toBe('gmail');
 
+    // Phase 9.9.4F -- stored under the credential's OWN raw label ("email"),
+    // NOT the canonical "gmail" -- the live DB CHECK constraint on this
+    // column does not allow "gmail" at all (see the route's own comment).
+    // Storing "email" here is the deliberate, schema-safe fix; every reader
+    // (this route's GET, resolveWorkflowIntegrations()) canonicalizes at
+    // comparison/response time instead.
     const rows = fakeDb.tables.get('workflow_integrations') ?? [];
     expect(rows).toHaveLength(1);
-    expect(rows[0].provider).toBe('gmail');
+    expect(rows[0].provider).toBe('email');
     expect(rows[0].integration_id).toBe('int-email-1');
   });
 
@@ -340,7 +367,7 @@ describe('DELETE /api/workflows/[id]/integrations -- detach, canonical', () => {
 });
 
 describe('resolveWorkflowIntegrations -- runtime resolves the SAME credential attach/discovery found', () => {
-  it('resolves the legacy "email" credential for a workflow requiring "gmail", using the explicit workflow_integrations selection', async () => {
+  it('resolves a workflow_integrations row stored under the canonical label too (defensive/back-compat)', async () => {
     seedUserIntegrations([
       { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', name: null, credentials: { smtp_host: 'smtp.test.com' }, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
     ]);
@@ -351,5 +378,96 @@ describe('resolveWorkflowIntegrations -- runtime resolves the SAME credential at
     const { resolveWorkflowIntegrations } = await import('../lib/user-integrations');
     const { resolved } = await resolveWorkflowIntegrations(OWNER_ID, WORKFLOW_ID, { nodes: [{ type: 'n8n-nodes-base.gmail' }] });
     expect(resolved.get('gmail' as never)?.id).toBe('int-email-1');
+  });
+
+  it('Phase 9.9.4F: resolves a row stored under the credential\'s OWN raw label "email" -- the actual production storage shape', async () => {
+    seedUserIntegrations([
+      { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', name: null, credentials: { smtp_host: 'smtp.test.com' }, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
+    ]);
+    fakeDb.tables.set('workflow_integrations', [
+      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'email', integration_id: 'int-email-1' },
+    ]);
+
+    const { resolveWorkflowIntegrations } = await import('../lib/user-integrations');
+    const { resolved } = await resolveWorkflowIntegrations(OWNER_ID, WORKFLOW_ID, { nodes: [{ type: 'n8n-nodes-base.gmail' }] });
+    expect(resolved.get('gmail' as never)?.id).toBe('int-email-1');
+  });
+});
+
+describe('Phase 9.9.4F -- exact production regression: the DB CHECK constraint on workflow_integrations.provider does not allow "gmail"', () => {
+  it('the exact reported case end-to-end: discover -> attach -> reload shows Attached -> runtime resolves the same credential, with no DB constraint violation', async () => {
+    // 1. A connected credential stored as provider "email" (the founder's
+    // real, already-certified SMTP connection).
+    seedWorkflow(WORKFLOW_ID, OWNER_ID, ['gmail']);
+    seedUserIntegrations([
+      { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', name: null, credentials: { smtp_host: 'smtp.test.com' }, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
+    ]);
+
+    const { GET, POST } = await import('../app/api/workflows/[id]/integrations/route');
+
+    // 2. GET exposes it for the required provider "gmail".
+    const discoverRes = await GET(makeReq('GET'), { params: { id: WORKFLOW_ID } });
+    const discoverBody = await discoverRes.json();
+    expect(discoverBody.availableByProvider.gmail).toHaveLength(1);
+    const discoveredIntegrationId = discoverBody.availableByProvider.gmail[0].integrationId;
+    expect(discoveredIntegrationId).toBe('int-email-1');
+
+    // 3. POST attaches that exact discovered integration id as "gmail" --
+    // this is the exact call that used to 500 with "temporary_system_problem"
+    // (Postgres check_violation on workflow_integrations_provider_check,
+    // since 'gmail' is not in its allowed value list).
+    const attachRes = await POST(makeReq('POST', { provider: 'gmail', integrationId: discoveredIntegrationId }), { params: { id: WORKFLOW_ID } });
+    const attachBody = await attachRes.json();
+    expect(attachRes.status).toBe(200);
+    expect(attachBody.error).toBeUndefined();
+    expect(attachBody.success).toBe(true);
+
+    // 4. Reload (a fresh GET) reports Gmail Attached.
+    const reloadRes = await GET(makeReq('GET'), { params: { id: WORKFLOW_ID } });
+    const reloadBody = await reloadRes.json();
+    expect(reloadBody.attached).toEqual([{ provider: 'gmail', integrationId: 'int-email-1' }]);
+    expect(reloadBody.availableByProvider.gmail[0].attached).toBe(true);
+
+    // 5. Runtime resolves that attachment back to the SAME connected SMTP credential.
+    const { resolveWorkflowIntegrations } = await import('../lib/user-integrations');
+    const { resolved } = await resolveWorkflowIntegrations(OWNER_ID, WORKFLOW_ID, { nodes: [{ type: 'n8n-nodes-base.gmail' }] });
+    expect(resolved.get('gmail' as never)?.id).toBe('int-email-1');
+    expect(resolved.get('gmail' as never)?.credentials.smtp_host).toBe('smtp.test.com');
+
+    // The underlying user_integrations credential was never duplicated or migrated.
+    expect(fakeDb.tables.get('user_integrations')).toHaveLength(1);
+  });
+
+  it('duplicate/idempotent attach: clicking Attach twice for the same provider does not create a second row and both calls succeed', async () => {
+    seedWorkflow(WORKFLOW_ID, OWNER_ID, ['gmail']);
+    seedUserIntegrations([
+      { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', name: null, credentials: {}, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
+    ]);
+
+    const { POST } = await import('../app/api/workflows/[id]/integrations/route');
+    const first = await POST(makeReq('POST', { provider: 'gmail', integrationId: 'int-email-1' }), { params: { id: WORKFLOW_ID } });
+    const second = await POST(makeReq('POST', { provider: 'gmail', integrationId: 'int-email-1' }), { params: { id: WORKFLOW_ID } });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const rows = fakeDb.tables.get('workflow_integrations') ?? [];
+    expect(rows).toHaveLength(1);
+  });
+
+  it('re-attaching with a different (but still valid, same-tenant) credential updates the existing row in place rather than creating a duplicate', async () => {
+    seedWorkflow(WORKFLOW_ID, OWNER_ID, ['gmail']);
+    seedUserIntegrations([
+      { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', name: null, credentials: {}, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
+      { id: 'int-email-2', user_id: OWNER_ID, provider: 'email', name: 'Second inbox', credentials: {}, status: 'connected', last_verified_at: null, created_at: '2026-01-02' },
+    ]);
+
+    const { POST } = await import('../app/api/workflows/[id]/integrations/route');
+    await POST(makeReq('POST', { provider: 'gmail', integrationId: 'int-email-1' }), { params: { id: WORKFLOW_ID } });
+    const second = await POST(makeReq('POST', { provider: 'gmail', integrationId: 'int-email-2' }), { params: { id: WORKFLOW_ID } });
+
+    expect(second.status).toBe(200);
+    const rows = fakeDb.tables.get('workflow_integrations') ?? [];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].integration_id).toBe('int-email-2');
   });
 });

@@ -173,25 +173,82 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Integration provider mismatch' }, { status: 400 });
   }
 
-  // Upsert workflow_integration (one per provider) -- always stored under
-  // the CANONICAL provider identity, so resolveWorkflowIntegrations()'s own
-  // canonical lookup (lib/user-integrations.ts) and this table can never
-  // disagree about which provider a row represents.
-  const { data: attached, error: upsertError } = await db
+  // Phase 9.9.4F -- root cause of the production "temporary_system_problem"
+  // failure: workflow_integrations.provider has a live, un-migrated DB
+  // CHECK constraint (workflow_integrations_provider_check) whose allowed
+  // value list is ['email','shopify','slack','airtable','twilio','webhook']
+  // -- it does NOT include 'gmail' at all. Phase 9.9.4E's fix stored the
+  // CANONICAL requested provider ('gmail'), which the database itself then
+  // rejected with a check_violation (Postgres SQLSTATE 23514) --
+  // classifyError() maps any raw Postgres SQLSTATE to the generic
+  // 'temporary_system_problem' code, which is exactly the message that
+  // reached the UI. Storing 'gmail' would need a schema migration to add it
+  // to the constraint; per this project's standing rule, no migration is
+  // applied without stopping first to get it approved -- so this stores the
+  // credential's own ALREADY-ALLOWED raw provider instead ('email' for a
+  // legacy SMTP-connected credential), and every reader below canonicalizes
+  // at comparison time instead of assuming the stored value is already
+  // canonical. Functionally identical to storing 'gmail' from every
+  // caller's perspective (GET already canonicalizes on the way out;
+  // resolveWorkflowIntegrations() now does too, see lib/user-integrations.ts),
+  // with zero schema risk.
+  //
+  // "One row per canonical provider per workflow" is enforced at the
+  // application level here (rather than via the table's own
+  // (workflow_id, provider) unique constraint, which only ever sees the raw
+  // string) -- find any existing row for this workflow under ANY alias of
+  // the requested canonical provider and update it in place; only insert a
+  // new row when none exists.
+  const { data: existingRows, error: existingError } = await db
     .from('workflow_integrations')
-    .upsert({
-      workflow_id: workflowId,
-      user_id: user.id,
-      integration_id: integrationId,
-      provider: canonicalRequested,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'workflow_id,provider' })
-    .select('id, provider, integration_id')
-    .maybeSingle();
+    .select('id, provider')
+    .eq('workflow_id', workflowId)
+    .eq('user_id', user.id);
 
-  if (upsertError) {
-    const safe = classifyError(upsertError);
+  if (existingError) {
+    const safe = classifyError(existingError);
+    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
+
+  const existingRow = (existingRows ?? []).find((row) => canonicalizeProviderId(String(row.provider)) === canonicalRequested);
+
+  const rawProviderToStore = integration.provider; // Always the credential's OWN, already-constraint-valid raw label.
+  type AttachedRow = { id: string; provider: string; integration_id: string };
+  let attached: AttachedRow | null = null;
+  let mutationError: unknown = null;
+
+  if (existingRow) {
+    const { data, error } = await db
+      .from('workflow_integrations')
+      .update({
+        integration_id: integrationId,
+        provider: rawProviderToStore,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingRow.id)
+      .select('id, provider, integration_id')
+      .maybeSingle();
+    attached = data as AttachedRow | null;
+    mutationError = error;
+  } else {
+    const { data, error } = await db
+      .from('workflow_integrations')
+      .insert({
+        workflow_id: workflowId,
+        user_id: user.id,
+        integration_id: integrationId,
+        provider: rawProviderToStore,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('id, provider, integration_id')
+      .maybeSingle();
+    attached = data as AttachedRow | null;
+    mutationError = error;
+  }
+
+  if (mutationError) {
+    const safe = classifyError(mutationError);
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
@@ -199,7 +256,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     success: true,
     attached: {
       id: attached?.id,
-      provider: attached?.provider,
+      provider: canonicalizeProviderId(String(attached?.provider ?? canonicalRequested)),
       integrationId: attached?.integration_id,
     },
   });
@@ -237,20 +294,38 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
-  // Phase 9.9.4E -- delete by CANONICAL provider identity, matching how
-  // POST now always stores it, and defensively covering any pre-existing
-  // non-canonical row from before this fix.
+  // Phase 9.9.4F -- workflow_integrations.provider stores the credential's
+  // OWN raw label (e.g. 'email'), not necessarily the canonical requested
+  // provider (e.g. 'gmail') -- see the POST handler's comment for why. Match
+  // by canonical equivalence in application code rather than filtering the
+  // literal column value, so detaching "gmail" also removes a row stored as
+  // "email", and vice versa.
   const canonicalProvider = canonicalizeProviderId(provider);
-  const { error: deleteError } = await db
+  const { data: candidateRows, error: candidateError } = await db
     .from('workflow_integrations')
-    .delete()
+    .select('id, provider')
     .eq('workflow_id', workflowId)
-    .in('provider', Array.from(new Set([provider, canonicalProvider])))
     .eq('user_id', user.id);
 
-  if (deleteError) {
-    const safe = classifyError(deleteError);
+  if (candidateError) {
+    const safe = classifyError(candidateError);
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  }
+
+  const idsToDelete = (candidateRows ?? [])
+    .filter((row) => canonicalizeProviderId(String(row.provider)) === canonicalProvider)
+    .map((row) => row.id);
+
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await db
+      .from('workflow_integrations')
+      .delete()
+      .in('id', idsToDelete);
+
+    if (deleteError) {
+      const safe = classifyError(deleteError);
+      return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+    }
   }
 
   return NextResponse.json({ success: true, provider });
