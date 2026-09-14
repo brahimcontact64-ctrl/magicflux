@@ -98,7 +98,12 @@ type TestStep = {
 
 type TestResult = {
   success: boolean;
-  status: 'success' | 'failed' | 'simulated_success';
+  // Phase 9.9.4I -- 'waiting' is a canonical, non-failure runtime outcome
+  // (a durable Human Review/wait pause with zero downstream side effects),
+  // exactly like ExecutionV2.status and ExecutionStatusBadge already treat
+  // it. This type previously omitted it, which is why the only way to fit
+  // a real 'waiting' response into it was to coerce it into 'failed'.
+  status: 'success' | 'failed' | 'simulated_success' | 'waiting';
   steps: TestStep[];
   finalOutput: unknown;
   previews: {
@@ -828,7 +833,10 @@ export default function WorkflowDetailsPage() {
 
       setTestResult({
         success: payload?.success === true,
-        status: (payload?.status === 'waiting' ? 'failed' : payload?.status) ?? 'failed',
+        // Phase 9.9.4I -- a durable Human Review/wait pause is not a
+        // failure; previously coerced to 'failed' here purely because
+        // TestResult['status'] didn't include 'waiting' yet.
+        status: payload?.status ?? 'failed',
         steps: payload?.steps ?? [],
         finalOutput: payload?.finalOutput ?? null,
         previews: payload?.previews ?? { emails: [], slackMessages: [], airtableRecords: [] },
@@ -904,7 +912,7 @@ export default function WorkflowDetailsPage() {
 
       setTestResult({
         success: payload?.status === 'success',
-        status: (payload?.status as TestResult['status']) ?? 'failed',
+        status: payload?.status ?? 'failed',
         steps: payload?.steps ?? [],
         finalOutput: payload?.finalOutput ?? null,
         previews: { emails: [], slackMessages: [], airtableRecords: [] },
@@ -1482,7 +1490,12 @@ export default function WorkflowDetailsPage() {
           {testResult && (
             <div className="rounded-lg border border-border p-3 space-y-3">
               <div className="flex items-center gap-2 text-sm">
-                <ExecutionStatusBadge status={testResult.status === 'simulated_success' ? 'simulated_success' : testResult.status === 'success' ? 'success' : 'failed'} />
+                {/* Phase 9.9.4I -- pass the canonical status straight through
+                    (ExecutionStatusBadge already renders 'waiting' as its
+                    own distinct WAITING state, same as the executions list
+                    below) instead of collapsing every non-success status
+                    into 'failed'. */}
+                <ExecutionStatusBadge status={testResult.status} />
                 {testResult.runId && <span className="text-xs text-muted-foreground">Run: {testResult.runId}</span>}
               </div>
 
