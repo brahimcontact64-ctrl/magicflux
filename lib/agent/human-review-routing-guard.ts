@@ -1,29 +1,39 @@
 /**
- * Phase 9.9.3.2 -- Human Review decision-authority routing guard.
+ * Phase 9.9.3.2 / 9.9.4C -- Human Review decision-authority routing guard.
  *
- * Root cause this exists to prevent: a generated graph correctly routes
- * Human Review's own output ports by the human's chosen outcome
- * (_conditionBranch, dispatched deterministically by runtime/workflow-engine.ts
- * regardless of any data field), but then wires those ports into a node that
- * RE-EVALUATES the field the upstream magicflux-nodes.aiClassifier node
- * originally wrote (e.g. an "If Hot"/"If Warm"/"If Cold" style node reading
- * ={{$json["classification"]}}). Since Human Review never overwrites that
- * field by default, a human overriding the AI's "Hot" call to "Warm" reaches
- * the right port structurally, then immediately fails the re-check node's own
- * condition (classification is still "Hot", not "Warm") and falls into that
- * node's typically-empty false branch -- the human's decision silently
- * produces ZERO downstream actions, agree or disagree.
+ * Two related but distinct defects this guards against:
  *
- * This is a deterministic, fail-closed backstop: reject generation whenever a
- * Human Review node's own output ports feed a conditional node that reads the
- * same field an upstream aiClassifier wrote, UNLESS the Human Review node
- * explicitly declares "overwriteField" set to that exact field name (the
- * HUMAN DECISION AUTHORITY CONTRACT's documented "ALTERNATIVE" shape in
- * lib/agent/executor.ts, backed by a real, tested runtime overwrite in
- * lib/workflow-runtime/node-handlers/human-review.ts). Generic by
- * construction -- it traces whatever field name the classifier's own
- * "outputField" parameter names, never a hardcoded "classification" string,
- * and never assumes Hot/Warm/Cold-shaped outcomes.
+ * 1. (9.9.3.2) A generated graph correctly routes Human Review's own output
+ *    ports by the human's chosen outcome (_conditionBranch, dispatched
+ *    deterministically by runtime/workflow-engine.ts regardless of any data
+ *    field), but then wires those ports into a node that RE-EVALUATES the
+ *    field the upstream magicflux-nodes.aiClassifier node originally wrote
+ *    (e.g. an "If Hot"/"If Warm"/"If Cold" style node reading
+ *    ={{$json["classification"]}}). Since Human Review never overwrites
+ *    that field by default, a human overriding the AI's "Hot" call to
+ *    "Warm" reaches the right port structurally, then immediately fails the
+ *    re-check node's own condition and produces zero downstream actions.
+ *
+ * 2. (9.9.4C) Even when routing is structurally correct (Human Review's
+ *    ports go DIRECTLY to each outcome's terminal actions -- the preferred
+ *    shape, no re-check node at all), the execution's DATA can still carry
+ *    the AI classifier's stale, superseded classification/confidence in
+ *    fields nothing re-checks for routing but that downstream record-
+ *    keeping (an Airtable "Classification"/"Confidence" mapping, a message
+ *    template) may still read. Whenever a Human Review node's own
+ *    allowedOutcomes are exactly the set of labels an upstream aiClassifier
+ *    can produce -- i.e. it is genuinely reviewing that classification, not
+ *    an unrelated approve/reject decision -- its own "outputField" MUST be
+ *    configured to match the classifier's "outputField", so resume
+ *    deterministically makes the human's choice canonical.
+ *
+ * Both cases share one escape valve: an explicitly configured "outputField"
+ * on the Human Review node (mirroring aiClassifier's own parameter of the
+ * same name -- lib/workflow-runtime/node-handlers/human-review.ts's real,
+ * tested runtime overwrite). Generic by construction -- traces whatever
+ * field name the classifier's own "outputField" parameter names and whatever
+ * labels/outcomes the two nodes actually declare, never a hardcoded
+ * "classification" string or Hot/Warm/Cold-shaped assumption.
  */
 
 import {
@@ -36,6 +46,16 @@ export type HumanReviewRoutingValidation = { ok: true } | { ok: false; reason: s
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function stringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  if (a.length === 0 || a.length !== b.length) return false;
+  const setA = new Set(a);
+  return b.every((x) => setA.has(x)) && new Set(b).size === setA.size;
 }
 
 type PortsShape = { main?: unknown };
@@ -68,12 +88,18 @@ function referencesJsonField(parameters: unknown, fieldName: string): boolean {
 }
 
 /**
- * Validates that no magicflux-nodes.humanReview node's output ports feed a
- * conditional node re-checking the same field an upstream aiClassifier wrote,
- * unless that Human Review node explicitly declares a matching
- * "overwriteField". A graph with no humanReview node, or one with no
- * upstream aiClassifier at all, always passes -- this only fires for the
- * exact stale-reevaluation shape it exists to catch.
+ * Validates two things for every magicflux-nodes.humanReview node fed by an
+ * upstream magicflux-nodes.aiClassifier:
+ *   (1) its output ports never feed a conditional node re-checking the
+ *       classifier's original field, unless outputField overwrites that
+ *       exact field on resume;
+ *   (2) when its allowedOutcomes are exactly the classifier's allowedLabels
+ *       (a genuine classification review, not an unrelated approve/reject
+ *       decision), outputField MUST be configured to match the classifier's
+ *       outputField, so the human's choice becomes the canonical value any
+ *       downstream reader (Airtable mapping, message template) sees.
+ * A graph with no humanReview node, or one with no upstream aiClassifier at
+ * all, always passes.
  */
 export function validateHumanReviewOutcomeRouting(nodes: unknown[], connections: unknown): HumanReviewRoutingValidation {
   const nodeArray = Array.isArray(nodes) ? nodes : [];
@@ -107,47 +133,72 @@ export function validateHumanReviewOutcomeRouting(nodes: unknown[], connections:
 
   for (const review of reviewNodes) {
     // Trace backward for the nearest upstream aiClassifier feeding this
-    // review node, to learn the exact field name it wrote (its own
-    // "outputField" parameter, defaulting to "classification" -- see
-    // ai-classifier.ts). No classifier upstream -> nothing to protect here.
-    let outputField: string | null = null;
+    // review node, to learn the exact field name and labels it produces.
+    // No classifier upstream -> nothing to protect here.
+    let classifierOutputField: string | null = null;
+    let classifierLabels: string[] = [];
     const seen = new Set<string>();
     const stack = [...(predecessors.get(review.name) ?? [])];
-    while (stack.length > 0 && !outputField) {
+    while (stack.length > 0 && !classifierOutputField) {
       const cur = stack.pop()!;
       if (seen.has(cur)) continue;
       seen.add(cur);
       const curNode = byName.get(cur);
       if (curNode && curNode.type.toLowerCase() === AI_CLASSIFIER_NODE_TYPE.toLowerCase()) {
-        const rawOutputField = asRecord(curNode.parameters).outputField;
-        outputField = typeof rawOutputField === 'string' && rawOutputField.trim() ? rawOutputField.trim() : 'classification';
+        const curParams = asRecord(curNode.parameters);
+        const rawOutputField = curParams.outputField;
+        classifierOutputField = typeof rawOutputField === 'string' && rawOutputField.trim() ? rawOutputField.trim() : 'classification';
+        classifierLabels = stringArray(curParams.allowedLabels);
         break;
       }
       stack.push(...(predecessors.get(cur) ?? []));
     }
 
-    if (!outputField) continue;
+    if (!classifierOutputField) continue;
 
-    const overwriteFieldRaw = asRecord(review.parameters).overwriteField;
-    const overwriteField = typeof overwriteFieldRaw === 'string' ? overwriteFieldRaw.trim() : '';
-    if (overwriteField === outputField) continue; // explicit ALTERNATIVE shape -- Human Review overwrites this exact field on resume.
+    const reviewParams = asRecord(review.parameters);
+    const reviewOutputFieldRaw = reviewParams.outputField;
+    const reviewOutputField = typeof reviewOutputFieldRaw === 'string' ? reviewOutputFieldRaw.trim() : '';
+    const reviewOutcomes = stringArray(reviewParams.allowedOutcomes);
 
+    // Check 2 (Phase 9.9.4C): a genuine classification review -- this
+    // review's own outcomes are exactly the classifier's labels -- must
+    // configure outputField so the human's choice becomes canonical,
+    // regardless of which routing topology (direct-port or rejoined) is used.
+    if (sameSet(reviewOutcomes, classifierLabels) && reviewOutputField !== classifierOutputField) {
+      return {
+        ok: false,
+        node: review.name,
+        reason:
+          `Human Review node "${review.name}" reviews the same labels (${classifierLabels.join('/')}) the upstream ` +
+          `AI Classifier produces in "${classifierOutputField}", but does not configure "outputField": ` +
+          `"${classifierOutputField}". Without it, downstream data (e.g. an Airtable mapping, a message template) ` +
+          `would keep showing the AI's original, possibly-overridden value instead of the human's decision. Set ` +
+          `"outputField": "${classifierOutputField}" on the Human Review node so its resume makes the human's ` +
+          'choice canonical.',
+      };
+    }
+
+    if (reviewOutputField === classifierOutputField) continue; // outputField already covers both checks.
+
+    // Check 1 (Phase 9.9.3.2): stale re-evaluation via a downstream
+    // conditional node re-checking the classifier's original field.
     const directTargets = flattenTargets(connRecord[review.name]?.main);
     for (const targetName of directTargets) {
       const targetNode = byName.get(targetName);
       if (!targetNode) continue;
-      if (isConditionalNodeType(targetNode.type) && referencesJsonField(targetNode.parameters, outputField)) {
+      if (isConditionalNodeType(targetNode.type) && referencesJsonField(targetNode.parameters, classifierOutputField)) {
         return {
           ok: false,
           node: review.name,
           reason:
             `Human Review node "${review.name}" routes into "${targetName}", which re-checks the AI classifier's ` +
-            `original "${outputField}" field. Human Review never overwrites that field by default, so a human ` +
-            `decision that disagrees with the AI's original classification would reach the correct outcome port ` +
-            `but then fail "${targetName}"'s own condition and produce zero downstream actions. Either wire Human ` +
-            `Review's outcome ports DIRECTLY to each outcome's terminal action nodes (preferred), or set ` +
-            `"overwriteField": "${outputField}" on the Human Review node so its resume deterministically overwrites ` +
-            'that field with the human\'s chosen outcome before rejoining this chain.',
+            `original "${classifierOutputField}" field. Human Review never overwrites that field by default, so a ` +
+            `human decision that disagrees with the AI's original classification would reach the correct outcome ` +
+            `port but then fail "${targetName}"'s own condition and produce zero downstream actions. Either wire ` +
+            `Human Review's outcome ports DIRECTLY to each outcome's terminal action nodes (preferred), or set ` +
+            `"outputField": "${classifierOutputField}" on the Human Review node so its resume deterministically ` +
+            'overwrites that field with the human\'s chosen outcome before rejoining this chain.',
         };
       }
     }
