@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Activity, ArrowLeft, Loader2, Plus, RefreshCw, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, ClipboardCheck, Loader2, Plus, RefreshCw, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -37,6 +37,13 @@ type IntegrationRow = {
   status: 'connected' | 'invalid' | 'not_connected';
 };
 
+// Phase 9.9.5 -- only the fields the Dashboard's Pending Reviews indicator
+// needs; the full review item shape (decision context, allowed outcomes,
+// etc.) belongs to /reviews and ReviewsPanel, not duplicated here.
+type PendingReviewSummary = {
+  id: string;
+};
+
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '-';
   const d = new Date(iso);
@@ -50,6 +57,11 @@ export default function DashboardPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
+  // Phase 9.9.5 -- null means "not loaded yet", distinct from 0 ("loaded,
+  // genuinely none pending") -- never render a count until the owner-scoped
+  // fetch actually resolves, so a slow network never looks like "zero
+  // pending reviews" when the truth just hasn't arrived yet.
+  const [pendingReviews, setPendingReviews] = useState<PendingReviewSummary[] | null>(null);
 
   // Phase 9.5 Step E — this page previously had no auth guard at all: an
   // anonymous visitor (expired session, shared/bookmarked link) saw a
@@ -64,7 +76,7 @@ export default function DashboardPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [workflowRes, executionRes, integrationRes] = await Promise.all([
+      const [workflowRes, executionRes, integrationRes, reviewsRes] = await Promise.all([
         supabase
           .from('workflows')
           .select('id, name, description, integrations, status, updated_at')
@@ -75,6 +87,13 @@ export default function DashboardPage() {
           .order('started_at', { ascending: false })
           .limit(200),
         fetch('/api/integrations', { cache: 'no-store' }),
+        // Phase 9.9.5 -- the SAME owner-scoped /api/reviews endpoint
+        // ReviewsPanel (/reviews) already uses; never a service-role query
+        // or a second, admin-wide code path. That route filters by the
+        // authenticated caller's own user_id server-side (see its own
+        // comment) -- Founder/admin status grants no cross-tenant
+        // visibility here or there.
+        fetch('/api/reviews?status=pending', { cache: 'no-store' }),
       ]);
 
       setWorkflows((workflowRes.data ?? []) as Workflow[]);
@@ -85,6 +104,16 @@ export default function DashboardPage() {
         setIntegrations(payload.integrations ?? []);
       } else {
         setIntegrations([]);
+      }
+
+      if (reviewsRes.ok) {
+        const payload = (await reviewsRes.json().catch(() => ({}))) as { items?: PendingReviewSummary[] };
+        setPendingReviews(payload.items ?? []);
+      } else {
+        // A failed fetch is "unknown", not "zero" -- leave pendingReviews
+        // as-is (null on first load) rather than claiming there's nothing
+        // pending when the request itself never actually succeeded.
+        setPendingReviews((prev) => prev);
       }
     } finally {
       setLoading(false);
@@ -150,6 +179,17 @@ export default function DashboardPage() {
         </Button>
         <FeedbackWidget />
         <ThemeToggle />
+        <Link href='/reviews' className='relative'>
+          <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
+            <ClipboardCheck className='h-3.5 w-3.5' />
+            Reviews
+          </Button>
+          {pendingReviews !== null && pendingReviews.length > 0 && (
+            <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
+              {pendingReviews.length}
+            </span>
+          )}
+        </Link>
         <Link href='/runtime'>
           <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
             <Activity className='h-3.5 w-3.5' />
@@ -171,6 +211,44 @@ export default function DashboardPage() {
       </header>
 
       <main className='mx-auto max-w-6xl space-y-6 px-6 py-8'>
+        {/* Phase 9.9.5 -- Human Review Discoverability. This is a distinct
+            product concept from a failed execution (stats.failed below) and
+            from an execution merely waiting (its own WAITING badge on the
+            workflow row below): a pending review is a workflow durably
+            parked at a human-decision node, needing a person to act. Sourced
+            from the same owner-scoped /api/reviews the /reviews page itself
+            uses -- never a fabricated or client-guessed count. */}
+        <div className={pendingReviews !== null && pendingReviews.length > 0
+          ? 'rounded-xl border border-amber-500/40 bg-amber-500/10 p-4'
+          : 'rounded-xl border border-border bg-card p-4'}
+        >
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <div className='flex items-center gap-2'>
+              <ClipboardCheck className={pendingReviews !== null && pendingReviews.length > 0 ? 'h-4 w-4 text-amber-300' : 'h-4 w-4 text-muted-foreground'} />
+              <div>
+                <p className='text-xs text-muted-foreground'>Pending Reviews</p>
+                {pendingReviews === null ? (
+                  <p className='text-sm text-muted-foreground'>Checking for pending reviews...</p>
+                ) : pendingReviews.length > 0 ? (
+                  <p className='text-sm font-semibold text-amber-300'>
+                    {pendingReviews.length} workflow{pendingReviews.length === 1 ? '' : 's'} waiting on your decision
+                  </p>
+                ) : (
+                  <p className='text-sm text-muted-foreground'>No workflows are waiting on a human decision right now.</p>
+                )}
+              </div>
+            </div>
+            {pendingReviews !== null && pendingReviews.length > 0 && (
+              <Link href='/reviews'>
+                <Button size='sm' className='gap-1.5 text-xs'>
+                  <ClipboardCheck className='h-3.5 w-3.5' />
+                  Review now
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+
         <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
           <div className='rounded-xl border border-border bg-card p-4'>
             <p className='text-xs text-muted-foreground'>Total Workflows</p>
