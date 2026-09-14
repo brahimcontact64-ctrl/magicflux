@@ -144,6 +144,35 @@ export async function getWorkflowIntegrationStatus(userId: string, workflowJson:
   };
 }
 
+/**
+ * Phase 9.9.4B -- the ONE canonical way to get a user's connected Airtable
+ * Personal Access Token for server-side use (schema discovery, the Builder's
+ * base/table/field pickers, pre-activation mapping verification).
+ *
+ * Root cause this exists to fix: those callers previously called
+ * lib/credentials/storage.ts's getDecryptedProviderCredentials(userId,
+ * 'airtable') directly, expecting a 'personal_access_token' key -- but that
+ * reads the newer `integration_credentials` table (the dynamic-provider/
+ * OAuth credential store), while Settings' actual Airtable connect flow
+ * (app/api/integrations/shared.ts's saveIntegration()) writes the legacy
+ * `user_integrations` table under the key 'airtable_token'. A real,
+ * verified Settings connection was therefore invisible to Builder discovery
+ * and to activation's own schema check, which both reported "Airtable is
+ * not connected" despite Settings showing Connected. getUserIntegrations()
+ * above is already the correct, single source of truth every other runtime
+ * consumer uses -- it merges both storage systems with the right key
+ * fallbacks and precedence. This just extracts the one thing schema
+ * discovery needs from it. The token is never returned to the browser by
+ * any caller of this function.
+ */
+export async function getConnectedAirtableToken(userId: string): Promise<string | null> {
+  const integrations = await getUserIntegrations(userId, { connectedOnly: true });
+  const airtable = integrations.find((row) => row.provider === 'airtable');
+  if (!airtable) return null;
+  const creds = airtable.credentials;
+  return creds.personal_access_token || creds.airtable_token || creds.api_key || null;
+}
+
   /**
    * Resolve workflow-level integration selections
    * 1. Check workflow_integrations for explicitly selected integration per provider

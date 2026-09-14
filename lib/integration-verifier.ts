@@ -189,27 +189,18 @@ export async function runIntegrationTestAction(
   }
 
   if (provider === 'airtable' && action === 'create_test_record') {
-    try {
-      const res = await fetch(
-        `https://api.airtable.com/v0/${encodeURIComponent(credentials.base_id)}/${encodeURIComponent(credentials.table_name)}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${credentials.airtable_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fields: { Name: 'MagicFlux test', Source: 'MagicFlux' } }),
-        }
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        return { ok: false, error: safeError(`Airtable test failed (${res.status}): ${body}`) };
-      }
-      const created = await res.json() as Record<string, unknown>;
-      return { ok: true, details: { recordId: created.id } };
-    } catch (error) {
-      return { ok: false, error: safeError(error instanceof Error ? error.message : 'Airtable test failed') };
-    }
+    // Phase 9.9.4B -- the exact production regression: this used to POST a
+    // record with hardcoded field names ("Name", "Source") this code has no
+    // way of knowing exist in the user's real, arbitrary table schema,
+    // producing a real 422 UNKNOWN_FIELD_NAME against a genuinely connected,
+    // working integration. A connectivity test must never guess at real
+    // column names or leave a stray record behind in the user's real table.
+    // verifyAirtable() below already proves the token/base/table
+    // combination is genuinely reachable and authorized via Airtable's
+    // read-only list endpoint -- sufficient proof of a working connection
+    // without writing anything.
+    const result = await verifyAirtable(credentials);
+    return { ok: result.ok, error: result.error, details: result.ok ? { verified: true } : undefined };
   }
 
   if (provider === 'shopify' && action === 'verify_shop') {

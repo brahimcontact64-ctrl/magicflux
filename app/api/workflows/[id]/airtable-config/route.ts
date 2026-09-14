@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
-import { getDecryptedProviderCredentials } from '@/lib/credentials/storage';
+import { getConnectedAirtableToken } from '@/lib/user-integrations';
 import { validateAirtableMapping } from '@/lib/airtable/schema';
 import { loadWorkflow } from '@/lib/workflow/lifecycle';
 import { classifyError } from '@/lib/security/safe-error';
@@ -59,8 +59,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: `Node "${nodeId}" is not an Airtable node.` }, { status: 400 });
   }
 
-  const creds = await getDecryptedProviderCredentials(user.id, 'airtable');
-  const token = creds.personal_access_token;
+  const token = await getConnectedAirtableToken(user.id);
   if (!token) return NextResponse.json({ error: 'Airtable is not connected for this account.' }, { status: 409 });
 
   const realFieldNames = Object.values(fieldMapping).map((v) => String(v));

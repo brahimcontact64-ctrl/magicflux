@@ -11,15 +11,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Phase 9.9.3 -- getDecryptedProviderCredentials is mocked (per-test
-// controllable), everything else in this module (assertTrustedUserId, a
-// lightweight synchronous UUID-v4 check) stays real.
-let decryptedAirtableCreds: Record<string, string> = {};
-vi.mock('@/lib/credentials/storage', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/credentials/storage')>();
+// Phase 9.9.4B -- getConnectedAirtableToken (the canonical Settings/runtime
+// lookup lifecycle.ts's Airtable pre-activation gate now uses) is mocked
+// (per-test controllable); everything else in @/lib/user-integrations stays
+// real. assertTrustedUserId (a lightweight synchronous UUID-v4 check) also
+// stays real via the unmocked @/lib/credentials/storage module.
+let connectedAirtableToken: string | null = null;
+vi.mock('@/lib/user-integrations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/user-integrations')>();
   return {
     ...actual,
-    getDecryptedProviderCredentials: vi.fn(async () => decryptedAirtableCreds),
+    getConnectedAirtableToken: vi.fn(async () => connectedAirtableToken),
   };
 });
 
@@ -147,7 +149,7 @@ function seedWorkflow(id: string, workflowJson: unknown, status = 'draft'): void
 
 beforeEach(() => {
   fakeDb.tables.clear();
-  decryptedAirtableCreds = {};
+  connectedAirtableToken = null;
   airtableFetchMock.mockReset();
 });
 
@@ -358,7 +360,7 @@ describe('activateWorkflow', () => {
 
   it('refuses activation when Airtable is not connected at all (cannot verify)', async () => {
     seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA' }));
-    decryptedAirtableCreds = {};
+    connectedAirtableToken = null;
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
     const result = await activateWorkflow(USER_A, 'wf-1');
 
@@ -368,7 +370,7 @@ describe('activateWorkflow', () => {
   });
 
   it('refuses activation when the configured base/table no longer exists in Airtable', async () => {
-    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    connectedAirtableToken = 'pat-fake';
     airtableFetchMock.mockResolvedValueOnce(jsonResponse('not found', false, 404));
     seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appDELETED0000000', tableId: 'tblAAAAAAAAAAAAAA' }));
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
@@ -380,7 +382,7 @@ describe('activateWorkflow', () => {
   });
 
   it('refuses activation when a mapped field no longer exists in the real table', async () => {
-    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    connectedAirtableToken = 'pat-fake';
     airtableFetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
     seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA', fields: { RenamedField: '={{$json["name"]}}' } }));
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');
@@ -392,7 +394,7 @@ describe('activateWorkflow', () => {
   });
 
   it('activates cleanly when the Airtable base/table/fields are fully configured and verified', async () => {
-    decryptedAirtableCreds = { personal_access_token: 'pat-fake' };
+    connectedAirtableToken = 'pat-fake';
     airtableFetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
     seedWorkflow('wf-1', airtableWorkflow({ baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA' }));
     const { activateWorkflow } = await import('../lib/workflow/lifecycle');

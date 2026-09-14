@@ -5,7 +5,8 @@ import { createServiceClient } from '@/lib/supabase-server';
 import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { validateWorkflow } from '@/lib/workflow-validator';
 import { validateScheduleTriggers, syncWorkflowSchedules, disableWorkflowSchedules, enableWorkflowSchedules } from '@/lib/runtime/scheduler';
-import { assertTrustedUserId, getDecryptedProviderCredentials } from '@/lib/credentials/storage';
+import { assertTrustedUserId } from '@/lib/credentials/storage';
+import { getConnectedAirtableToken } from '@/lib/user-integrations';
 import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import { validateAirtableMapping } from '@/lib/airtable/schema';
@@ -85,12 +86,15 @@ async function validateAirtableConfiguration(userId: string, workflowJson: unkno
   const airtableNodes = nodes.filter((n) => isAirtableNodeType(n.type));
   if (airtableNodes.length === 0) return [];
 
-  let token: string | undefined;
+  // Phase 9.9.4B -- unified with the same canonical lookup Settings/runtime
+  // use (getUserIntegrations()'s legacy+bridged merge), not the unrelated
+  // dynamic-provider credential store this previously (and incorrectly)
+  // queried directly.
+  let token: string | null;
   try {
-    const creds = await getDecryptedProviderCredentials(userId, 'airtable');
-    token = creds.personal_access_token;
+    token = await getConnectedAirtableToken(userId);
   } catch {
-    token = undefined;
+    token = null;
   }
 
   const errors: string[] = [];

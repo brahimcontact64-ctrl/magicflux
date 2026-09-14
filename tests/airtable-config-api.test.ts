@@ -56,15 +56,19 @@ function freshTables(): Record<string, Row[]> {
 }
 
 let tables: Record<string, Row[]>;
-let decryptedCreds: Record<string, string>;
+let connectedAirtableToken: string | null;
 
 vi.mock('@/lib/supabase-server', () => ({
   createServiceClient: vi.fn(() => ({ from: (name: string) => new FakeQuery(tables[name] ?? (tables[name] = [])) })),
   getUserFromRequest: vi.fn(),
 }));
 
-vi.mock('@/lib/credentials/storage', () => ({
-  getDecryptedProviderCredentials: vi.fn(async () => decryptedCreds),
+// Phase 9.9.4B -- these routes now use getConnectedAirtableToken (the same
+// canonical Settings/runtime lookup), not getDecryptedProviderCredentials
+// directly (the root cause of the "Airtable is not connected" defect --
+// see lib/user-integrations.ts's doc comment).
+vi.mock('@/lib/user-integrations', () => ({
+  getConnectedAirtableToken: vi.fn(async () => connectedAirtableToken),
 }));
 
 const fetchMock = vi.fn();
@@ -88,7 +92,7 @@ const TABLES_RESPONSE = {
 
 beforeEach(async () => {
   tables = freshTables();
-  decryptedCreds = { personal_access_token: 'pat-fake-token' };
+  connectedAirtableToken = 'pat-fake-token';
   fetchMock.mockReset();
   const { getUserFromRequest } = await import('@/lib/supabase-server');
   vi.mocked(getUserFromRequest).mockReset();
@@ -104,7 +108,7 @@ describe('GET /api/integrations/airtable/bases', () => {
   });
 
   it('409 when Airtable is not connected', async () => {
-    decryptedCreds = {};
+    connectedAirtableToken = null;
     const { getUserFromRequest } = await import('@/lib/supabase-server');
     vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
     const { GET } = await import('../app/api/integrations/airtable/bases/route');
