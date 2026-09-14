@@ -180,6 +180,28 @@ export function hasUnsupportedTemplateSyntax(raw: unknown): boolean {
 }
 
 /**
+ * True when `value` (any JSON-serializable value -- a node's whole
+ * "parameters" object, or just one "fields" map) contains a
+ * `={{$json["<field>"]}}` / `{{$json["<field>"]}}` / `.field` reference to
+ * exactly this field name, embedded or whole-value. Narrow and
+ * deterministic (string-matches the exact grammar this module resolves),
+ * shared by generation-time guards that need to know "does this node
+ * already reference field X anywhere" without duplicating the regex.
+ */
+export function referencesJsonField(value: unknown, fieldName: string): boolean {
+  if (!fieldName) return false;
+  let text: string;
+  try {
+    text = JSON.stringify(value ?? {});
+  } catch {
+    return false;
+  }
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`\\$json\\s*(?:\\[\\\\?["']${escaped}\\\\?["']\\]|\\.${escaped}\\b)`);
+  return pattern.test(text);
+}
+
+/**
  * Resolves an object of destination-field -> template-value pairs (e.g. an
  * Airtable node's "fields" parameter) against the current execution data.
  * Strictly additive from the mapping alone -- the result contains ONLY the

@@ -41,6 +41,7 @@ import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-g
 import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
+import { validateAirtablePersistenceCompleteness } from '@/lib/agent/airtable-persistence-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -252,6 +253,15 @@ async function generateWorkflowJson(params: {
   skill_packs?: string[];
   block_blueprint?: string[];
   requested_providers?: string[];
+  /**
+   * Phase 9.9.4D -- the identity/contact fields of the real-world entity
+   * this automation processes (e.g. ["name","email"] for a lead-intake
+   * webhook), when there is one. Deterministically enforced on every
+   * Airtable persistence node by validateAirtablePersistenceCompleteness()
+   * after generation -- included in the prompt too so the model satisfies
+   * it on the first attempt rather than relying on a rejection/retry.
+   */
+  record_identity_fields?: string[];
   nodes_description: string;
   /**
    * Phase 9.8.7 -- the user's own raw request text (never a credential),
@@ -332,7 +342,8 @@ AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable n
   - "baseId": leave this an EMPTY STRING "" -- real base selection happens in a separate, real schema-picker step in the Builder after Airtable is connected, never here.
   - "tableId": leave this an EMPTY STRING "" for the same reason.
   - "operation": one of create/update/list/get/delete (default "create" if the request just says "save"/"log"/"add" to Airtable).
-  - "fields": an object whose KEYS are descriptive/semantic names for what each value represents based on the request -- these are a proposed mapping the founder will reconcile against their table's REAL field names in that same configuration step, not real field identifiers themselves. VALUES follow the same concrete-value-preservation rule as every other node (verbatim literals/expressions, never placeholders). Include a key for EVERY value this record-keeping step should actually persist, not just the obvious identity fields (e.g. name/email) -- when this data comes from an upstream magicflux-nodes.aiClassifier node, that includes its classification/decision label AND, whenever the request implies the AI's judgment quality should also be recorded ("track confidence", "log how sure the AI was", "save the score", or similar), a separate key mapped to "={{$json[\"confidence\"]}}" (that field is always present alongside the classification once an aiClassifier runs) -- never invent a fixed field list; derive it from what the upstream node in THIS graph actually computes and what the request asks to keep.
+  - "fields": an object whose KEYS are descriptive/semantic names for what each value represents based on the request -- these are a proposed mapping the founder will reconcile against their table's REAL field names in that same configuration step, not real field identifiers themselves. VALUES follow the same concrete-value-preservation rule as every other node (verbatim literals/expressions, never placeholders).
+  DETERMINISTIC COMPLETENESS REQUIREMENT (Phase 9.9.4D) -- this is checked and enforced by code after generation, not left to your own judgment each time: this "fields" object MUST include a mapping for every field named in the top-level "record_identity_fields" argument you provided for this request (if any), AND, whenever this data flows from an upstream magicflux-nodes.aiClassifier node, that classifier's own "outputField" value AND the literal field "confidence" (always present alongside it). A generation that drops any of these -- for any reason, including "simplifying" the mapping or replacing one field with another -- is rejected before it can be saved. Populate "record_identity_fields" thoughtfully up front (the identity/contact fields of whatever entity this automation processes, e.g. ["name","email"] for a lead) precisely so this list is fixed and complete from the start, not something to reconstruct from an example on every regeneration.
 Never use "application"/"applicationId"/"base"/"table"/"tableName" as parameter keys -- they are not read by anything and only existed in workflows generated before this contract.
 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
@@ -357,6 +368,7 @@ ${params.required_capabilities && params.required_capabilities.length > 0 ? `Req
 ${params.skill_packs && params.skill_packs.length > 0 ? `Activated Skill Packs: ${params.skill_packs.join(', ')}` : ''}
 ${params.block_blueprint && params.block_blueprint.length > 0 ? `Block Blueprint: ${params.block_blueprint.join(' -> ')}` : ''}
 ${params.requested_providers && params.requested_providers.length > 0 ? `Requested Providers (STRICT): ${params.requested_providers.join(', ')}` : ''}
+${params.record_identity_fields && params.record_identity_fields.length > 0 ? `record_identity_fields (STRICT, deterministically enforced on every Airtable "fields" mapping -- see AIRTABLE CONFIGURATION CONTRACT): ${params.record_identity_fields.join(', ')}` : ''}
 Description: ${params.nodes_description}
 
 Return a JSON object with this exact structure:
@@ -652,6 +664,9 @@ export async function executeTool(
         const blockBlueprint = Array.isArray(args.block_blueprint)
           ? args.block_blueprint.map((value) => String(value).trim()).filter(Boolean)
           : [];
+        const recordIdentityFields = Array.isArray(args.record_identity_fields)
+          ? args.record_identity_fields.map((value) => String(value).trim()).filter(Boolean)
+          : [];
 
         const result = await generateWorkflowJson({
           userId: ctx.userId,
@@ -674,6 +689,7 @@ export async function executeTool(
             : undefined,
           nodes_description: String(args.nodes_description ?? ''),
           raw_user_intent: ctx.rawUserIntent,
+          record_identity_fields: recordIdentityFields,
         });
 
         await recordAiUsage({
@@ -882,6 +898,33 @@ export async function executeTool(
               type: 'error',
               label: 'Airtable configuration cannot be invented',
               detail: airtableIdCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.4D -- deterministic backstop: an Airtable persistence
+        // node's "fields" mapping must cover every declared
+        // record_identity_field plus (when fed by an aiClassifier) that
+        // classifier's own outputField and "confidence" -- regardless of
+        // what else the model chose to add/drop this time. Replaces
+        // prompt-example anchoring (Phase 9.9.4/9.9.4C), which let a field
+        // like "Email" silently vanish across regenerations the moment
+        // "Confidence" was added.
+        const airtablePersistenceCheck = validateAirtablePersistenceCompleteness(result.nodes, result.connections, recordIdentityFields);
+        if (!airtablePersistenceCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: airtablePersistenceCheck.reason,
+              missing_required_airtable_field: true,
+              node: airtablePersistenceCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Airtable mapping is missing a required field',
+              detail: airtablePersistenceCheck.reason,
               agent: 'planner',
             },
           };

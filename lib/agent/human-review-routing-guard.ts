@@ -41,6 +41,7 @@ import {
   HUMAN_REVIEW_NODE_TYPE,
   isConditionalNodeType,
 } from '@/lib/workflow-runtime/node-capabilities';
+import { referencesJsonField } from '@/lib/workflow-runtime/node-handlers/json-field-reference';
 
 export type HumanReviewRoutingValidation = { ok: true } | { ok: false; reason: string; node?: string };
 
@@ -71,20 +72,6 @@ function flattenTargets(main: unknown): string[] {
     }
   }
   return targets;
-}
-
-/** True when `parameters` contains a `={{$json["<field>"]}}` (or `.field`) reference to exactly this field name -- narrow, deterministic, matches the shape condition.ts/executor.ts actually generate. */
-function referencesJsonField(parameters: unknown, fieldName: string): boolean {
-  if (!fieldName) return false;
-  let text: string;
-  try {
-    text = JSON.stringify(parameters ?? {});
-  } catch {
-    return false;
-  }
-  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`\\$json\\s*(?:\\[\\\\?["']${escaped}\\\\?["']\\]|\\.${escaped}\\b)`);
-  return pattern.test(text);
 }
 
 /**

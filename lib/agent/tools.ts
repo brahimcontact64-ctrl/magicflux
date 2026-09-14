@@ -164,6 +164,22 @@ export const AGENT_TOOLS: AgentTool[] = [
               'forbidden whenever the user supplied a real value for that field -- only use them ' +
               'when the user genuinely left that field unspecified.',
           },
+          record_identity_fields: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Phase 9.9.4D: ONLY when this automation processes a real-world entity (a lead, order, ' +
+              'ticket, contact, etc.) whose data gets saved somewhere (Airtable, a database, a ' +
+              'spreadsheet) -- list the identity/contact fields that IDENTIFY that entity, using the ' +
+              'exact same field names the trigger payload/rest of the graph uses, e.g. ["name","email"] ' +
+              'for a lead-intake webhook. This is a SEPARATE, narrower decision from what an Airtable ' +
+              'node\'s own "fields" mapping ends up looking like: this list is enforced by deterministic ' +
+              'code on every save-to-Airtable node in the graph, so declaring it here (once, per request) ' +
+              'guarantees those fields can never silently disappear from the mapping across regenerations, ' +
+              'no matter what else (e.g. an AI classifier\'s confidence score) also gets added. Omit ' +
+              'entirely for automations with no such entity/no persistence step -- never invent fields ' +
+              'here that were not actually part of the request.',
+          },
         },
       },
     },
