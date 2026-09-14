@@ -181,6 +181,43 @@ describe('slackHandler', () => {
     expect(result.status).toBe('failed');
     expect(result.error).toContain('500');
   });
+
+  describe('Phase 9.9.4A -- embedded template interpolation', () => {
+    it('interpolates an embedded {{$json["field"]}} reference in "text" before sending', async () => {
+      const { slackHandler } = await import('../lib/workflow-runtime/node-handlers/slack');
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true, ts: '1' }));
+      const templated: EngineNode = { id: 'n2', name: 'Notify', type: 'n8n-nodes-base.slack', parameters: { channel: '#leads', text: 'New Hot lead: {{$json["name"]}}' } };
+
+      const ctx = baseContext({ integrations: [integration('slack', { bot_token: 'xoxb-test' })] });
+      const result = await slackHandler(templated, { name: 'Brahim' }, ctx);
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe('New Hot lead: Brahim');
+      expect(result.status).toBe('success');
+    });
+
+    it('fails closed when the embedded reference names a field missing from the input -- never sends literal "undefined" text', async () => {
+      const { slackHandler } = await import('../lib/workflow-runtime/node-handlers/slack');
+      const templated: EngineNode = { id: 'n3', name: 'Notify', type: 'n8n-nodes-base.slack', parameters: { channel: '#leads', text: 'Hello {{$json["missing"]}}' } };
+
+      const ctx = baseContext({ integrations: [integration('slack', { bot_token: 'xoxb-test' })] });
+      const result = await slackHandler(templated, { name: 'Brahim' }, ctx);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.status).toBe('failed');
+      expect(result.error).toMatch(/missing/i);
+    });
+
+    it('a plain literal "text" with no template syntax still works unchanged', async () => {
+      const { slackHandler } = await import('../lib/workflow-runtime/node-handlers/slack');
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+
+      const ctx = baseContext({ integrations: [integration('slack', { bot_token: 'xoxb-test' })] });
+      const result = await slackHandler(node, {}, ctx);
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe('hello');
+      expect(result.status).toBe('success');
+    });
+  });
 });
 
 // ─── Airtable ──────────────────────────────────────────────────────────────────
@@ -244,18 +281,33 @@ describe('airtableHandler', () => {
     expect(result.error).toBe('Airtable record ID missing');
   });
 
-  it('create: POSTs the input data as fields and returns the new record id', async () => {
+  it('create: POSTs strictly the configured "fields" mapping (Phase 9.9.4A), not raw upstream data', async () => {
     const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
     fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
 
     const ctx = baseContext({ integrations: [integration('airtable', creds)] });
-    const result = await airtableHandler(node('create'), { name: 'Ada' }, ctx);
+    const result = await airtableHandler(
+      node('create', { fields: { Name: '={{$json["name"]}}' } }),
+      { name: 'Ada', budget: 5000, internal_secret: 'nope' },
+      ctx,
+    );
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.airtable.com/v0/appXYZ/tblABC');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body).fields.name).toBe('Ada');
+    expect(JSON.parse(init.body).fields).toEqual({ Name: 'Ada' });
     expect((result.outputData as Record<string, unknown>).airtable_id).toBe('recNEW');
+  });
+
+  it('create with no "fields" configured at all sends an empty record -- never falls back to raw upstream data', async () => {
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW' }));
+
+    const ctx = baseContext({ integrations: [integration('airtable', creds)] });
+    await airtableHandler(node('create'), { name: 'Ada' }, ctx);
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body).fields).toEqual({});
   });
 
   it('update: PATCHes the given record', async () => {
@@ -588,6 +640,79 @@ describe('emailHandler', () => {
       const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
       const result = await emailHandler(staticNode, { email: 'someone-else@example.org' }, ctx);
       expect((result.outputData as Record<string, unknown>).sent_to).toBe('nssmpro@gmail.com');
+    });
+  });
+
+  describe('Phase 9.9.4A -- embedded template interpolation (subject/body)', () => {
+    function smtpCtx() {
+      return baseContext({ integrations: [integration('email', { smtp_host: 'smtp.test.com', smtp_port: '587', smtp_user: 'u', smtp_pass: 'p', from_email: 'from@test.com' })] });
+    }
+
+    it('interpolates an embedded reference in the subject', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'tpl-1' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const templated: EngineNode = { id: 'n9', name: 'Send', type: 'n8n-nodes-base.gmail', parameters: { to: 'b@example.com', subject: 'New {{$json["classification"]}} Lead', text: 'x' } };
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      await emailHandler(templated, { classification: 'Hot' }, smtpCtx());
+
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ subject: 'New Hot Lead' }));
+    });
+
+    it('interpolates one or more embedded references in the body', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'tpl-2' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const templated: EngineNode = {
+        id: 'n10', name: 'Send', type: 'n8n-nodes-base.gmail',
+        parameters: { to: 'b@example.com', subject: 'x', text: 'We have a new {{$json["classification"]}} lead: {{$json["name"]}}' },
+      };
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      await emailHandler(templated, { classification: 'Warm', name: 'Ada' }, smtpCtx());
+
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ text: 'We have a new Warm lead: Ada' }));
+    });
+
+    it('a whole-value expression subject still resolves to its native-type string form', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'tpl-3' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const templated: EngineNode = { id: 'n11', name: 'Send', type: 'n8n-nodes-base.gmail', parameters: { to: 'b@example.com', subject: '={{$json["subjectLine"]}}', text: 'x' } };
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      await emailHandler(templated, { subjectLine: 'Exact Subject' }, smtpCtx());
+
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Exact Subject' }));
+    });
+
+    it('fails closed (never sends) when a subject reference is missing from the input', async () => {
+      const sendMail = vi.fn();
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      const templated: EngineNode = { id: 'n12', name: 'Send', type: 'n8n-nodes-base.gmail', parameters: { to: 'b@example.com', subject: 'Re: {{$json["missing"]}}', text: 'x' } };
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      const result = await emailHandler(templated, {}, smtpCtx());
+
+      expect(sendMail).not.toHaveBeenCalled();
+      expect(result.status).toBe('failed');
+      expect(result.error).toMatch(/missing/i);
+    });
+
+    it('recipient ("to") resolution is unchanged -- still whole-value only, not embedded-template', async () => {
+      const sendMail = vi.fn().mockResolvedValue({ messageId: 'tpl-4' });
+      const nodemailer = (await import('nodemailer')).default;
+      vi.mocked(nodemailer.createTransport).mockReturnValue({ sendMail } as never);
+
+      // An embedded-style "to" is NOT a supported recipient shape (recipient
+      // behavior is explicitly unchanged) -- it is used as a literal string.
+      const templated: EngineNode = { id: 'n13', name: 'Send', type: 'n8n-nodes-base.gmail', parameters: { to: 'Contact: {{$json["email"]}}', subject: 'x', text: 'x' } };
+      const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+      await emailHandler(templated, { email: 'ignored@example.com' }, smtpCtx());
+
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'Contact: {{$json["email"]}}' }));
     });
   });
 });

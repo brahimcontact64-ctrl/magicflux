@@ -39,6 +39,7 @@ import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-gua
 import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
 import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-guard';
 import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
+import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 
 // ---------------------------------------------------------------------------
@@ -332,6 +333,8 @@ AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable n
 Never use "application"/"applicationId"/"base"/"table"/"tableName" as parameter keys -- they are not read by anything and only existed in workflows generated before this contract.
 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
+
+TEMPLATE EXPRESSION CONTRACT -- MANDATORY, applies to every subject/text/body/message parameter and every Airtable "fields" mapping value: only THREE shapes are ever resolved at runtime -- (1) a plain literal string with no "{{" in it at all, (2) an exact whole-value expression "={{$json[\"field\"]}}" (the entire parameter is nothing but this), or (3) one or more "{{$json[\"field\"]}}" references EMBEDDED inside a larger literal string, e.g. "New Hot lead: {{$json[\"name\"]}}" (no leading "=" on an embedded reference -- the "=" only ever marks shape 2). Every field name inside "{{$json[\"...\"]}}" MUST be a real field this same execution actually has (the trigger's raw payload, or a field an upstream node in this graph actually computes/writes -- e.g. "classification" from an aiClassifier node). NEVER use dot-path chains beyond a single field, function calls (e.g. ".toUpperCase()"), arithmetic, string concatenation operators, pipes, or any other n8n/JS expression syntax inside "{{ }}" -- none of that is executed; it would be rejected before this workflow can be saved.
 
 ${rawUserIntent ? `Raw User Request (authoritative source for exact literals -- read this for the real recipient/subject/message/channel/etc.):\n"${rawUserIntent}"\n` : ''}
 Workflow Name: ${params.workflow_name}
@@ -878,6 +881,32 @@ export async function executeTool(
               type: 'error',
               label: 'Airtable configuration cannot be invented',
               detail: airtableIdCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.4A -- deterministic backstop: reject any node whose
+        // message-style parameters or Airtable field mapping use `{{ ... }}`
+        // syntax outside the runtime's supported contract (literal / exact
+        // ={{$json["field"]}} / embedded {{$json["field"]}}). Unsupported
+        // syntax is always safely inert at runtime, never evaluated -- but
+        // silently inert is not what a generated workflow should ever
+        // produce; catch it before persistence instead.
+        const templateSyntaxCheck = validateSupportedTemplateSyntax(result.nodes);
+        if (!templateSyntaxCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: templateSyntaxCheck.reason,
+              unsupported_template_syntax: true,
+              node: templateSyntaxCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated workflow uses unsupported template expression syntax',
+              detail: templateSyntaxCheck.reason,
               agent: 'planner',
             },
           };

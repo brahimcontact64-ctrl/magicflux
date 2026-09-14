@@ -9,6 +9,7 @@ import { assertTrustedUserId, getDecryptedProviderCredentials } from '@/lib/cred
 import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import { validateAirtableMapping } from '@/lib/airtable/schema';
+import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -196,10 +197,20 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
   const structuralResult = validateWorkflow(workflow.workflow_json);
   const scheduleErrors = validateScheduleTriggers(workflow.workflow_json);
   const airtableErrors = await validateAirtableConfiguration(userId, workflow.workflow_json);
+  // Phase 9.9.4A -- reject unsupported {{ ... }} expression syntax before
+  // activation too (not only at generation time), so a hand-edited or
+  // pre-existing workflow can't reach a live run with a message/field
+  // parameter that would silently render as inert, un-interpolated text.
+  const templateSyntaxNodes = Array.isArray((workflow.workflow_json as { nodes?: unknown })?.nodes)
+    ? ((workflow.workflow_json as { nodes: unknown[] }).nodes)
+    : [];
+  const templateSyntaxResult = validateSupportedTemplateSyntax(templateSyntaxNodes);
+  const templateSyntaxErrors = templateSyntaxResult.ok ? [] : [templateSyntaxResult.reason];
   const errors = [
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
     ...airtableErrors,
+    ...templateSyntaxErrors,
   ];
 
   if (errors.length > 0) {

@@ -1,4 +1,5 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
+import { resolveTemplateParamValue } from './json-field-reference';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -23,9 +24,19 @@ export async function slackHandler(
   const data = asRecord(inputData);
 
   const channel = getParam(node, ['channel']) || '#general';
-  const text =
-    getParam(node, ['text', 'message']) ||
-    String(data.message ?? `MagicFlux notification from ${node.name ?? 'workflow'}`);
+
+  // Phase 9.9.4A -- text now goes through the shared safe template resolver
+  // (same one email.ts/airtable.ts use), so an embedded
+  // {{$json["field"]}} reference actually interpolates instead of being
+  // sent to Slack as literal, unresolved template text. Credential
+  // resolution below is untouched.
+  const textResult = resolveTemplateParamValue(getParam(node, ['text', 'message']), data);
+  if (!textResult.ok) {
+    const error = `Slack text: ${textResult.reason}`;
+    logs.push(error);
+    return { status: 'failed', outputData: null, logs, error };
+  }
+  const text = textResult.value || String(data.message ?? `MagicFlux notification from ${node.name ?? 'workflow'}`);
 
   const preview = { nodeName: node.name ?? node.id, channel, text };
 

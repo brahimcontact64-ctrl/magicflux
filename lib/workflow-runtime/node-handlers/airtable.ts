@@ -1,6 +1,7 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { redactText } from '@/lib/security/redact';
 import { extractAirtableNodeConfig } from '@/lib/airtable/node-params';
+import { resolveFieldMapping } from './json-field-reference';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -48,7 +49,25 @@ export async function airtableHandler(
   const table = nodeConfig.tableId || String(data.table_name ?? 'Table 1');
   const baseId = nodeConfig.baseId || String(data.base_id ?? '');
   const recordId = getParam(node, ['recordId']) || String(data.record_id ?? data.airtable_id ?? '');
-  const record = { ...data, _source: 'magicflux' };
+
+  // Phase 9.9.4A -- the record written to Airtable comes STRICTLY from the
+  // node's own configured "fields" mapping (destination Airtable column ->
+  // literal value or ={{$json["..."]}}/embedded {{$json["..."]}} reference),
+  // never from the raw upstream execution data. Only create/update actually
+  // write anything, so only they resolve a mapping; a mapped reference that
+  // can't be resolved fails the node closed rather than silently omitting
+  // the field or sending an unmapped, unrelated one.
+  let record: Record<string, unknown> = {};
+  if (operation === 'create' || operation === 'update') {
+    const fieldsParam = asRecord(node.parameters).fields;
+    const mappingResult = resolveFieldMapping(asRecord(fieldsParam), data);
+    if (!mappingResult.ok) {
+      const error = `Airtable ${operation}: ${mappingResult.reason}`;
+      logs.push(error);
+      return { status: 'failed', outputData: null, logs, error };
+    }
+    record = mappingResult.record;
+  }
 
   const preview = { nodeName: node.name ?? node.id, operation, table, recordId: recordId || undefined, record };
 

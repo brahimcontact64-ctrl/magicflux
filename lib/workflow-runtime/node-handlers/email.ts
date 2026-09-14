@@ -1,7 +1,7 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import nodemailer from 'nodemailer';
 import { redactText } from '@/lib/security/redact';
-import { asRecord, resolveFieldReference } from './json-field-reference';
+import { asRecord, resolveFieldReference, resolveTemplateParamValue } from './json-field-reference';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -83,9 +83,33 @@ export async function emailHandler(
   const logs: string[] = [];
   const data = asRecord(inputData);
 
+  // Recipient resolution is unchanged (Phase 9.9.4A only extends subject/body
+  // to the embedded-template resolver) -- still the narrow whole-value-only
+  // shape, falling back to data.email / a placeholder.
   const to = resolveParam(node, ['to', 'emailTo', 'recipient'], data) || String(data.email ?? 'user@example.com');
-  const subject = resolveParam(node, ['subject'], data) || `Message from ${node.name ?? 'MagicFlux'}`;
-  const body = resolveParam(node, ['text', 'html', 'message'], data) || 'Automated message from MagicFlux.';
+
+  // Phase 9.9.4A -- subject/body now go through the shared safe template
+  // resolver, which additionally supports one or more {{$json["field"]}}
+  // references EMBEDDED inside a larger string (e.g.
+  // "We have a new Hot lead: {{$json[\"name\"]}}"), not just a whole-value
+  // expression. A reference to a field genuinely missing from this
+  // execution's data fails the node rather than sending literal
+  // "undefined"/unresolved template text to a real recipient.
+  const subjectResult = resolveTemplateParamValue(getParam(node, ['subject']), data);
+  if (!subjectResult.ok) {
+    const error = `Email subject: ${subjectResult.reason}`;
+    logs.push(error);
+    return { status: 'failed', outputData: null, logs, error };
+  }
+  const subject = subjectResult.value || `Message from ${node.name ?? 'MagicFlux'}`;
+
+  const bodyResult = resolveTemplateParamValue(getParam(node, ['text', 'html', 'message']), data);
+  if (!bodyResult.ok) {
+    const error = `Email body: ${bodyResult.reason}`;
+    logs.push(error);
+    return { status: 'failed', outputData: null, logs, error };
+  }
+  const body = bodyResult.value || 'Automated message from MagicFlux.';
 
   const preview = { nodeName: node.name ?? node.id, to, subject, body };
 
