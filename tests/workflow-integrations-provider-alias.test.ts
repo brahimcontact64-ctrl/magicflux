@@ -471,3 +471,38 @@ describe('Phase 9.9.4F -- exact production regression: the DB CHECK constraint o
     expect(rows[0].integration_id).toBe('int-email-2');
   });
 });
+
+/**
+ * Phase 9.9.4H — stale/cross-request cached "Attached" status.
+ *
+ * Root cause: getUserFromRequest() (lib/supabase-server.ts) reads the auth
+ * token off `req.headers` directly rather than through next/headers'
+ * cookies()/headers() functions. On this app's Next.js 13 App Router, a GET
+ * Route Handler with no dynamic-API call and no `dynamic` export is treated
+ * as static/cacheable -- Vercel's Full Route Cache can then serve the exact
+ * same cached JSON body (captured for whichever request populated the
+ * cache first) to every subsequent request against that URL, for any user,
+ * regardless of later attach/detach writes. That fully explains the
+ * observed symptom: the Builder kept showing Gmail as "Attached" while
+ * direct, repeated production reads confirmed workflow_integrations had no
+ * such row at all -- the UI was rendering a stale cached snapshot, not a
+ * fresh server read.
+ *
+ * This can't be exercised as a real Vercel-cache integration test under
+ * vitest, so this pins the fix at the source level: the route module must
+ * declare `export const dynamic = 'force-dynamic'` so Next.js never
+ * statically caches this per-user, mutable-state GET response. Regresses
+ * loudly (a failing assertion, not a silent behavior change) if anyone
+ * ever removes the directive.
+ */
+describe('Phase 9.9.4H -- GET /api/workflows/[id]/integrations must never be statically cached', () => {
+  it('declares force-dynamic so every request re-reads server truth instead of serving a cached snapshot', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const source = fs.readFileSync(
+      path.join(__dirname, '..', 'app', 'api', 'workflows', '[id]', 'integrations', 'route.ts'),
+      'utf8'
+    );
+    expect(source).toMatch(/export const dynamic\s*=\s*['"]force-dynamic['"]/);
+  });
+});

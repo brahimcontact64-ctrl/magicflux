@@ -19,6 +19,24 @@ import { classifyError } from '@/lib/security/safe-error';
 import { getUserIntegrations } from '@/lib/user-integrations';
 import { canonicalizeProviderId } from '@/lib/integrations';
 
+// Phase 9.9.4H -- root cause of "Builder shows Gmail as Attached with no
+// workflow_integrations row": getUserFromRequest() reads the auth token off
+// req.headers directly (a plain Request property access), never through
+// next/headers' cookies()/headers() functions. On Next.js 13's App Router, a
+// GET Route Handler is treated as static/cacheable UNLESS it calls one of
+// those dynamic APIs or opts out explicitly -- this GET had neither, so
+// Vercel's Full Route Cache could serve the SAME cached JSON body (captured
+// from whichever request happened to populate the cache first, for ANY
+// user) for every subsequent request to this exact URL, regardless of the
+// caller's identity or any later attach/detach writes to the DB. That is
+// exactly consistent with the reported symptom: the UI kept showing a prior
+// "attached" snapshot while direct, repeated production reads confirmed no
+// such row exists. This is the same directive already used by 8 other
+// authenticated GET routes in this codebase for the same reason (e.g.
+// app/api/conversation/route.ts, app/api/onboarding/status/route.ts) -- this
+// route was simply missed. Forces per-request, per-user evaluation.
+export const dynamic = 'force-dynamic';
+
 type Ctx = { params: { id: string } };
 
 export async function GET(req: NextRequest, { params }: Ctx) {
