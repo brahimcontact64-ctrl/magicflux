@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { classifyError } from '@/lib/security/safe-error';
+import { getUserIntegrations } from '@/lib/user-integrations';
+import { canonicalizeProviderId } from '@/lib/integrations';
 
 type Ctx = { params: { id: string } };
 
@@ -44,18 +46,20 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
-  // Get all user' integrations
-  const { data: userIntegrations, error: integrationsError } = await db
-    .from('user_integrations')
-    .select('id, provider, name, status, created_at')
-    .eq('user_id', user.id)
-    .eq('status', 'connected')
-    .order('created_at', { ascending: false });
-
-  if (integrationsError) {
-    const safe = classifyError(integrationsError);
-    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
-  }
+  // Phase 9.9.4E -- the ONE canonical, already-established provider lookup
+  // (Phase 9.8.5 / 9.9.4B), the same one runtime execution
+  // (resolveWorkflowIntegrations) and Airtable discovery
+  // (getConnectedAirtableToken) already use -- never a raw, uncanonicalized
+  // user_integrations query. Root cause this replaces: a raw query grouped
+  // by user_integrations.provider AS STORED ('email', the legacy SMTP
+  // connect flow's own literal value), while requiredProvidersFromWorkflow()
+  // always reports the canonical 'gmail' for a real n8n-nodes-base.gmail
+  // node -- so a genuinely connected 'email' credential was never listed
+  // under the 'gmail' key the Builder UI actually looks up, showing "No
+  // connected integrations" for a provider that was, in fact, connected.
+  // getUserIntegrations() already canonicalizes at load time; never exposes
+  // decrypted credentials here -- only id/name/attached are ever returned.
+  const userIntegrations = await getUserIntegrations(user.id, { connectedOnly: true });
 
   // Get workflow_integrations (currently attached)
   const { data: attached, error: attachedError } = await db
@@ -68,21 +72,25 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
 
-  // Build response: group integrations by provider
+  // Build response: group integrations by CANONICAL provider (already
+  // canonicalized by getUserIntegrations(), applied again defensively here
+  // so this route can never silently regress if that guarantee ever changes).
   const groupedByProvider = new Map<string, {
     integrationId: string;
     name: string | null;
     attached: boolean;
   }[]>();
 
-  (userIntegrations ?? []).forEach((integration) => {
-    if (!groupedByProvider.has(integration.provider)) {
-      groupedByProvider.set(integration.provider, []);
+  userIntegrations.forEach((integration) => {
+    if (!integration.id) return;
+    const canonicalProvider = canonicalizeProviderId(integration.provider);
+    if (!groupedByProvider.has(canonicalProvider)) {
+      groupedByProvider.set(canonicalProvider, []);
     }
     const isAttached = (attached ?? []).some(
-      (a) => a.integration_id === integration.id && a.provider === integration.provider
+      (a) => a.integration_id === integration.id && canonicalizeProviderId(a.provider) === canonicalProvider
     );
-    groupedByProvider.get(integration.provider)!.push({
+    groupedByProvider.get(canonicalProvider)!.push({
       integrationId: integration.id,
       name: integration.name || 'Default',
       attached: isAttached,
@@ -99,7 +107,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     workflowId,
     requiredProviders: (workflow.integrations ?? []) as string[],
     availableByProvider,
-    attached: (attached ?? []).map((a) => ({ provider: a.provider, integrationId: a.integration_id })),
+    attached: (attached ?? []).map((a) => ({ provider: canonicalizeProviderId(a.provider), integrationId: a.integration_id })),
   });
 }
 
@@ -154,18 +162,28 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (integration.status !== 'connected') {
     return NextResponse.json({ error: 'Integration is not connected' }, { status: 422 });
   }
-  if (integration.provider !== provider) {
+  // Phase 9.9.4E -- compare CANONICAL provider identity (the same
+  // canonicalizeProviderId() runtime resolution/Airtable discovery already
+  // use), not the raw stored string -- a 'gmail'-required attach request
+  // must accept a credential stored under the legacy 'email' alias, and
+  // vice versa. A genuine mismatch (e.g. attaching a Slack credential as
+  // "gmail") is still rejected.
+  const canonicalRequested = canonicalizeProviderId(provider);
+  if (canonicalizeProviderId(integration.provider) !== canonicalRequested) {
     return NextResponse.json({ error: 'Integration provider mismatch' }, { status: 400 });
   }
 
-  // Upsert workflow_integration (one per provider)
+  // Upsert workflow_integration (one per provider) -- always stored under
+  // the CANONICAL provider identity, so resolveWorkflowIntegrations()'s own
+  // canonical lookup (lib/user-integrations.ts) and this table can never
+  // disagree about which provider a row represents.
   const { data: attached, error: upsertError } = await db
     .from('workflow_integrations')
     .upsert({
       workflow_id: workflowId,
       user_id: user.id,
       integration_id: integrationId,
-      provider,
+      provider: canonicalRequested,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workflow_id,provider' })
@@ -219,12 +237,15 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
-  // Delete workflow_integration for this provider
+  // Phase 9.9.4E -- delete by CANONICAL provider identity, matching how
+  // POST now always stores it, and defensively covering any pre-existing
+  // non-canonical row from before this fix.
+  const canonicalProvider = canonicalizeProviderId(provider);
   const { error: deleteError } = await db
     .from('workflow_integrations')
     .delete()
     .eq('workflow_id', workflowId)
-    .eq('provider', provider)
+    .in('provider', Array.from(new Set([provider, canonicalProvider])))
     .eq('user_id', user.id);
 
   if (deleteError) {
