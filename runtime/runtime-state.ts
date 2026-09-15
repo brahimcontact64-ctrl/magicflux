@@ -66,6 +66,22 @@ function nowIso(): string {
 export class RuntimeStateStore {
   private db = createServiceClient();
 
+  /**
+   * Phase 9.9.6 -- returns the execution's TRUE, immutable original
+   * started_at alongside its id. Root cause this fixes: the resume branch
+   * below used to unconditionally overwrite started_at with `nowIso()` on
+   * every single resumed invocation (every retry, every Human Review
+   * resume, every scheduler/recovery resume) -- destroying the one
+   * durable timestamp the true cumulative execution deadline
+   * (RUNTIME_MAX_EXECUTION_DURATION_MS in runtime/workflow-engine.ts) must
+   * be measured from. Combined with that engine also re-deriving its own
+   * local `Date.now()` baseline fresh on every invocation, a node that
+   * kept failing and retrying (e.g. an SMTP connection repeatedly timing
+   * out) could run for many multiples of the nominal budget because no
+   * single invocation's own elapsed time ever appeared to exceed it.
+   * started_at is now written exactly once, on the very first insert, and
+   * never touched again by any resume path.
+   */
   async initializeExecution(params: {
     executionId?: string;
     workflowId: string;
@@ -75,23 +91,30 @@ export class RuntimeStateStore {
     maxRetries: number;
     /** deployment_versions.id this execution is pinned to, if the workflow is activated. */
     deploymentVersionId?: string | null;
-  }): Promise<string> {
+  }): Promise<{ executionId: string; startedAt: string }> {
     if (params.executionId) {
-      await this.db
+      const { data } = await this.db
         .from('workflow_executions_v2')
         .update({
           status: 'running',
           input_data: params.inputData,
           max_retries: params.maxRetries,
-          started_at: nowIso(),
           updated_at: nowIso(),
         })
         .eq('id', params.executionId)
-        .eq('user_id', params.userId);
+        .eq('user_id', params.userId)
+        .select('started_at')
+        .maybeSingle();
 
-      return params.executionId;
+      // A resumed execution's row must already exist with its own
+      // started_at from the original insert; the fallback to now() only
+      // guards against a genuinely missing/corrupted row, which the
+      // deadline check below would otherwise treat as -Infinity elapsed.
+      const startedAt = (data?.started_at as string | undefined) ?? nowIso();
+      return { executionId: params.executionId, startedAt };
     }
 
+    const insertedStartedAt = nowIso();
     const { data } = await this.db
       .from('workflow_executions_v2')
       .insert({
@@ -103,12 +126,13 @@ export class RuntimeStateStore {
         retry_count: 0,
         max_retries: params.maxRetries,
         deployment_version_id: params.deploymentVersionId ?? null,
-        started_at: nowIso(),
+        started_at: insertedStartedAt,
       })
-      .select('id')
+      .select('id, started_at')
       .maybeSingle();
 
     const executionId = data?.id ?? crypto.randomUUID();
+    const startedAt = (data?.started_at as string | undefined) ?? insertedStartedAt;
 
     // Only the fresh-insert branch reaches here — the async production
     // dispatch path (lib/runtime/execution-dispatch.ts) creates its own row
@@ -122,7 +146,7 @@ export class RuntimeStateStore {
       idempotencyKey: `${executionId}:execution_started`,
     }).catch(() => undefined);
 
-    return executionId;
+    return { executionId, startedAt };
   }
 
   async setExecutionState(params: {
@@ -387,10 +411,20 @@ export class RuntimeStateStore {
     currentNodeId: string | null;
     pendingQueue: Array<{ nodeName: string; input: unknown }>;
     stateSnapshot: Record<string, unknown>;
+    /**
+     * Phase 9.9.6 -- distinguishes a genuine durable wait ('waiting':
+     * Human Review or a Wait node's scheduled delay) from an ordinary
+     * node-failure retry ('retrying'), so the resumed execute() call can
+     * tell whether the active-compute deadline should reset for this
+     * segment (durable wait) or keep accumulating from the true original
+     * start (ordinary retry -- exactly the case a retry-storm must still
+     * be bounded by).
+     */
+    checkpointType: RuntimeCheckpointInput['checkpointType'] | null;
   } | null> {
     const { data } = await this.db
       .from('runtime_execution_checkpoints')
-      .select('current_node_id, pending_queue, state_snapshot')
+      .select('current_node_id, pending_queue, state_snapshot, checkpoint_type')
       .eq('execution_id', executionId)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
@@ -403,6 +437,7 @@ export class RuntimeStateStore {
       currentNodeId: data.current_node_id ?? null,
       pendingQueue: Array.isArray(data.pending_queue) ? (data.pending_queue as Array<{ nodeName: string; input: unknown }>) : [],
       stateSnapshot: (data.state_snapshot ?? {}) as Record<string, unknown>,
+      checkpointType: (data.checkpoint_type as RuntimeCheckpointInput['checkpointType'] | undefined) ?? null,
     };
   }
 

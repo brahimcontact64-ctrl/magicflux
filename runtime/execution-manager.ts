@@ -71,6 +71,12 @@ export class ExecutionManager {
       retryCount: params.retryCount ?? 0,
       maxRetries: params.maxRetries ?? 3,
       pendingQueue,
+      // Phase 9.9.6 -- only a genuine durable wait (Human Review / a Wait
+      // node's scheduled delay) resets the active-compute deadline
+      // baseline for this segment; an ordinary node-failure retry
+      // ('retrying') must keep accumulating against the execution's true
+      // original start so a repeated-failure retry storm is still bounded.
+      resumedFromDurableWait: checkpoint?.checkpointType === 'waiting',
     });
   }
 

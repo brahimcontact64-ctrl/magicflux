@@ -44,7 +44,7 @@ describe('resume does not double-count execution_started / terminal usage events
     const { RuntimeStateStore } = await import('../runtime/runtime-state');
     const store = new RuntimeStateStore();
 
-    const freshId = await store.initializeExecution({
+    const { executionId: freshId } = await store.initializeExecution({
       workflowId: 'wf-1', userId: 'user-1', mode: 'live', inputData: {}, maxRetries: 3,
     });
     expect(recordUsageEventMock).toHaveBeenCalledTimes(1);

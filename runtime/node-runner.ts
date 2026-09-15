@@ -179,7 +179,13 @@ export class NodeRunner {
       }
 
       const error = result.error ?? 'Node execution failed';
-      const canRetry = attempt <= input.maxRetries;
+      // Phase 9.9.6 -- Part E fix: a handler that marks its own failure
+      // nonRetryable (e.g. emailHandler after an SMTP connection dropped
+      // during/after the DATA command -- the receiving server may already
+      // have accepted the message) must never be retried, at any layer,
+      // regardless of how many attempts remain in this node's budget.
+      // Retrying an externally ambiguous side effect risks duplicating it.
+      const canRetry = !result.nonRetryable && attempt <= input.maxRetries;
 
       await this.stateStore.persistNodeState({
         executionId: input.executionId,

@@ -275,6 +275,48 @@ export async function acquireNodeMutex(params: {
   return { acquired: true, version: nextVersion };
 }
 
+/**
+ * Phase 9.9.6 -- Part D fix. Mirrors renewExecutionLock() above, but for
+ * the per-node mutex: extends the lease only while THIS owner still holds
+ * it (the .eq('owner_id', ...) guard means a lease already stolen by
+ * another worker after expiry is never accidentally re-extended out from
+ * under its new, legitimate owner). Call on the same cadence pattern as
+ * the execution lock's own renewal (well under the lease duration) for as
+ * long as a handler is genuinely still executing, so a slow-but-alive
+ * side-effect call (Email/Slack/Airtable) never has its ownership lapse
+ * mid-flight and open a window for a second worker to dispatch the same
+ * side effect concurrently.
+ */
+export async function renewNodeMutex(params: {
+  executionId: string;
+  nodeId: string;
+  ownerId: string;
+  leaseSeconds?: number;
+}): Promise<boolean> {
+  const db = createServiceClient();
+  const leaseSeconds = params.leaseSeconds ?? 30;
+  // .select() after the update, rather than trusting `!error`: an UPDATE
+  // whose .eq() filters match zero rows (e.g. a different worker already
+  // stole this mutex after the lease genuinely expired) returns
+  // error:null with no rows affected, not an error -- `!error` alone
+  // would silently report success for a renewal that didn't actually
+  // apply to anything, hiding exactly the "I no longer own this" case
+  // this function exists to detect.
+  const { data, error } = await db
+    .from('runtime_node_mutexes')
+    .update({
+      lease_expires_at: addSeconds(new Date(), leaseSeconds),
+      updated_at: nowIso(),
+    })
+    .eq('execution_id', params.executionId)
+    .eq('node_id', params.nodeId)
+    .eq('owner_id', params.ownerId)
+    .select('owner_id')
+    .maybeSingle();
+
+  return !error && Boolean(data);
+}
+
 export async function releaseNodeMutex(params: {
   executionId: string;
   nodeId: string;

@@ -68,6 +68,16 @@ export type NodeHandlerResult = {
   error?: string;
   /** When status=waiting, resume after this timestamp */
   nextRunAt?: Date;
+  /**
+   * Phase 9.9.6 -- true when a `status:'failed'` result must NEVER be
+   * retried, at any layer (NodeRunner's own inner loop or the engine's
+   * outer retry), because retrying could duplicate an externally
+   * ambiguous side effect (e.g. an SMTP send whose connection dropped
+   * during/after the DATA command -- the receiving server may already
+   * have accepted the message). Absent/false means the failure is a
+   * normal, safely-retryable one (nothing external was sent).
+   */
+  nonRetryable?: boolean;
 };
 
 export type NodeHandler = (
@@ -130,4 +140,17 @@ export type RunExecutionOptions = {
    * whatever workflow_json is live at resume time.
    */
   deploymentVersionId?: string | null;
+  /**
+   * Phase 9.9.6 -- true when this execute() call is resuming immediately
+   * after a genuine DURABLE wait (a Human Review decision or a Wait
+   * node's scheduled delay -- checkpointType 'waiting'), as opposed to an
+   * ordinary node-failure retry (checkpointType 'retrying') or a fresh
+   * start. The cumulative active-compute execution deadline
+   * (RUNTIME_MAX_EXECUTION_DURATION_MS) must never be consumed by durable
+   * human/scheduled wait time -- only by time actually spent running
+   * nodes -- so the deadline baseline resets to "now" for this segment
+   * when true, instead of measuring from the execution's true original
+   * started_at.
+   */
+  resumedFromDurableWait?: boolean;
 };

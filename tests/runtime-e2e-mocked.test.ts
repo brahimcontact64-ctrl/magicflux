@@ -20,7 +20,7 @@
  * runs unmodified.
  */
 
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 
 const USER_ID = '00000000-0000-4000-8000-000000000099';
 const WORKFLOW_ID = 'wf-e2e-test';
@@ -225,6 +225,47 @@ function httpWorkflow(url: string): unknown {
   };
 }
 
+// Phase 9.9.6 (Part B) fixtures -- a durable Wait node pause exercises the
+// EXACT same checkpointType:'waiting' code path Human Review uses (both
+// produce runResult.status==='waiting'), without needing Human Review's
+// separate decision-record infrastructure.
+function waitThenHttpWorkflow(waitUntilIso: string, url: string): unknown {
+  // An ABSOLUTE waitUntil (not a relative duration) so that resuming this
+  // exact node after real time has passed correctly sees "scheduled time
+  // already passed -- continuing" instead of restarting its own timer
+  // relative to the resume moment (which a relative amount:N would do,
+  // since parseWaitUntil() recomputes now()+N on every invocation).
+  return {
+    name: 'Wait Then HTTP Workflow',
+    nodes: [
+      { id: 'trigger', name: 'Manual Trigger', type: 'n8n-nodes-base.manualTrigger', parameters: {} },
+      { id: 'wait', name: 'Wait', type: 'n8n-nodes-base.wait', parameters: { waitUntil: waitUntilIso } },
+      { id: 'http', name: 'Call API', type: 'n8n-nodes-base.httpRequest', parameters: { url, method: 'GET' } },
+    ],
+    connections: {
+      'Manual Trigger': { main: [[{ node: 'Wait' }]] },
+      'Wait': { main: [[{ node: 'Call API' }]] },
+    },
+  };
+}
+
+function chainWorkflow(): unknown {
+  return {
+    name: 'Deadline Chain Workflow',
+    nodes: [
+      { id: 't', name: 'Manual Trigger', type: 'n8n-nodes-base.manualTrigger', parameters: {} },
+      { id: 'a', name: 'Step A', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://example.internal/a', method: 'GET' } },
+      { id: 'b', name: 'Step B', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://example.internal/b', method: 'GET' } },
+      { id: 'c', name: 'Step C', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://example.internal/c', method: 'GET' } },
+    ],
+    connections: {
+      'Manual Trigger': { main: [[{ node: 'Step A' }]] },
+      'Step A': { main: [[{ node: 'Step B' }]] },
+      'Step B': { main: [[{ node: 'Step C' }]] },
+    },
+  };
+}
+
 describe('Production runtime E2E (mocked infrastructure — live DB/Redis BLOCKED, see file header)', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -280,13 +321,18 @@ describe('Production runtime E2E (mocked infrastructure — live DB/Redis BLOCKE
     expect(httpStep.output_data).toBeTruthy();
   }, 20000);
 
-  it('retry state: a node that fails with retry budget remaining schedules an execution-level retry (status=waiting, nextRunAt set), with a real "retrying" node state persisted in between', async () => {
-    // Real retry architecture (runtime/workflow-engine.ts + runtime/node-runner.ts) is
-    // two-tier: node-runner retries the SAME node inline up to `maxRetries` times within
-    // one call; if still failing, the workflow-engine schedules a whole-execution retry
-    // for later (status='waiting' + nextRunAt) rather than failing the run outright,
-    // UNLESS the execution-level retry budget (retryCount vs maxRetries) is also
-    // exhausted — see the maxRetries:0 timeout test below for that terminal case.
+  it('Phase 9.9.6 (Part C) -- a node that exhausts its OWN internal retry budget goes straight to a terminal failed status, with real "retrying" node states persisted along the way', async () => {
+    // Real retry architecture is now single-tier: node-runner
+    // (runtime/node-runner.ts) retries the SAME node inline up to
+    // `maxRetries` times within one call. Once THAT budget is exhausted
+    // and node-runner returns status:'failed', the outer engine
+    // (runtime/workflow-engine.ts) no longer applies a SECOND, independent
+    // execution-level retry-with-backoff on top of it -- that redundant
+    // second budget (sharing the same nominal maxRetries value without
+    // either loop knowing about the other) was the exact Phase 9.9.6 Part
+    // C defect: a single failing node could consume maxRetries+1 SQUARED
+    // total attempts across silently-reset "generations." There is now
+    // exactly one authoritative budget per node failure.
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}), headers: { get: () => 'application/json', entries: () => Object.entries({})[Symbol.iterator]() } });
 
     const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
@@ -300,38 +346,54 @@ describe('Production runtime E2E (mocked infrastructure — live DB/Redis BLOCKE
       maxRetries: 1,
     });
 
-    expect(result.status).toBe('waiting');
-    expect(result.nextRunAt).toBeTruthy();
+    expect(result.status).toBe('failed');
 
     const executions = fakeDb.tables.get('workflow_executions_v2') ?? [];
-    expect(executions[0].status).toBe('waiting');
-    expect(executions[0].retry_count).toBe(1);
-    expect(executions[0].next_run_at).toBeTruthy();
+    expect(executions[0].status).toBe('failed');
+    expect(executions[0].error_message).toBeTruthy();
+    // Terminal, not scheduled for another automatic attempt.
+    expect(executions[0].next_run_at ?? null).toBeFalsy();
 
     const steps = (fakeDb.tables.get('workflow_execution_steps') ?? []) as Array<{ node_name: string; status: string }>;
     const httpSteps = steps.filter((s) => s.node_name === 'Call API');
-    // The real node-runner retry loop persisted at least one 'retrying' state
-    // before the node's per-attempt budget was exhausted.
+    // The real node-runner retry loop still persisted at least one
+    // 'retrying' state before its own per-node budget was exhausted --
+    // only the OUTER, redundant second budget was removed.
     expect(httpSteps.some((s) => s.status === 'retrying')).toBe(true);
-    // A retrying upstream node must not leave the downstream node marked success.
+    expect(httpSteps.some((s) => s.status === 'failed')).toBe(true);
+    // A failed upstream node must not leave the downstream node marked success.
     expect(steps.some((s) => s.node_name === 'Check Status' && s.status === 'success')).toBe(false);
   }, 20000);
 
-  it('failure state: repeated resume cycles that exhaust the execution-level retry budget end in a genuine terminal failed status', async () => {
+  it('Phase 9.9.6 (Part C) -- a terminal failed execution cannot be resurrected into a fresh retry allowance by calling the engine again with the same executionId', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}), headers: { get: () => 'application/json', entries: () => Object.entries({})[Symbol.iterator]() } });
 
     const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
     const workflowJson = httpWorkflow('https://example.internal/api/always-fails');
 
-    // Call 1: fresh execution, retryCount=0 — schedules an execution-level retry (waiting).
+    // Call 1: fresh execution exhausts its single authoritative retry
+    // budget and reaches genuine terminal failure.
     const first = await runWorkflowExecution({
       workflowJson, inputData: {}, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live', maxRetries: 1,
     });
-    expect(first.status).toBe('waiting');
+    expect(first.status).toBe('failed');
 
-    // Call 2: simulates the resume endpoint calling back in with the same executionId
-    // and the incremented retryCount the first call persisted — exactly what
-    // app/api/workflows/executions/resume/route.ts does for a real waiting execution.
+    const executionsAfterFirst = fakeDb.tables.get('workflow_executions_v2') ?? [];
+    expect(executionsAfterFirst[0].status).toBe('failed');
+    const retryCountAfterFirst = executionsAfterFirst[0].retry_count;
+
+    // Call 2: the ONLY real caller of a resumed execution() invocation
+    // (app/api/workflows/executions/resume/route.ts) filters its own query
+    // to `.eq('status', 'waiting')` before ever reaching this layer, so a
+    // 'failed' execution is structurally never selected for resume in
+    // production. This directly drives the engine layer itself with the
+    // already-terminal executionId to prove the same invariant holds even
+    // one level below that route-level guard: fetchMock is left failing,
+    // so if this call retried at all it would also end in 'failed' --
+    // the real assertion is that it does NOT get a fresh retry_count
+    // sequence or a new started_at, i.e. it is not treated as a new
+    // "generation."
+    fetchMock.mockClear();
     const second = await runWorkflowExecution({
       workflowJson,
       inputData: {},
@@ -341,13 +403,15 @@ describe('Production runtime E2E (mocked infrastructure — live DB/Redis BLOCKE
       maxRetries: 1,
       executionId: first.executionId,
       resumeFromNodeId: 'Call API',
-      retryCount: 1,
+      retryCount: Number(retryCountAfterFirst ?? 0),
     });
 
     expect(second.status).toBe('failed');
-    const executions = fakeDb.tables.get('workflow_executions_v2') ?? [];
-    expect(executions[0].status).toBe('failed');
-    expect(executions[0].error_message).toBeTruthy();
+    const executionsAfterSecond = fakeDb.tables.get('workflow_executions_v2') ?? [];
+    expect(executionsAfterSecond).toHaveLength(1); // same row, not a new execution
+    expect(executionsAfterSecond[0].status).toBe('failed');
+    // started_at must be exactly the original -- never reset by a resume.
+    expect(executionsAfterSecond[0].started_at).toBe(executionsAfterFirst[0].started_at);
   }, 20000);
 
   it('timeout state: the real HTTP handler reports a timeout, and it is persisted through the real retry/failure path', async () => {
@@ -375,4 +439,87 @@ describe('Production runtime E2E (mocked infrastructure — live DB/Redis BLOCKE
     const httpStep = steps.find((s) => s.node_name === 'Call API' && s.status === 'failed');
     expect(httpStep?.error_message).toContain('timed out');
   }, 20000);
+
+  describe('Phase 9.9.6 (Part B) -- true execution deadline', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    });
+
+    it('a durable Wait pause does not consume the active-compute deadline: resuming after real wall-clock time has passed against a tiny budget still succeeds', async () => {
+      // Deliberately smaller than the real wait time below -- if durable
+      // wait time incorrectly counted against this budget, the resumed
+      // execution would immediately fail with "exceeded runtime budget"
+      // instead of completing the workflow.
+      vi.stubEnv('RUNTIME_MAX_EXECUTION_DURATION_MS', '500');
+      vi.resetModules();
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ result: 'ok' }),
+        headers: { get: () => 'application/json', entries: () => Object.entries({})[Symbol.iterator]() },
+      });
+
+      const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+      const waitUntilIso = new Date(Date.now() + 1000).toISOString();
+      const workflowJson = waitThenHttpWorkflow(waitUntilIso, 'https://example.internal/after-wait');
+
+      const first = await runWorkflowExecution({
+        workflowJson, inputData: {}, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live', maxRetries: 1,
+      });
+      expect(first.status).toBe('waiting');
+
+      // Really wait past the 1-second Wait node AND the 500ms budget, so a
+      // baseline measured from the true original started_at would already
+      // be blown by the time we resume.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      const resumed = await resumeWorkflowExecution({
+        executionId: first.executionId,
+        userId: USER_ID,
+        workflowId: WORKFLOW_ID,
+        workflowJson,
+        mode: 'live',
+        inputData: {},
+        retryCount: 0,
+        maxRetries: 1,
+      });
+
+      expect(resumed.status).toBe('success');
+      expect(resumed.error).toBeFalsy();
+    }, 20000);
+
+    it('cumulative wall-clock across several real nodes still terminates the execution once the active-compute budget is exceeded, with a clear terminal reason', async () => {
+      vi.stubEnv('RUNTIME_MAX_EXECUTION_DURATION_MS', '150');
+      vi.resetModules();
+
+      // Each call takes ~100ms of genuine wall-clock time -- three
+      // sequential nodes cumulatively exceed the 150ms budget before the
+      // chain can complete.
+      fetchMock.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ result: 'ok' }),
+          headers: { get: () => 'application/json', entries: () => Object.entries({})[Symbol.iterator]() },
+        };
+      });
+
+      const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+
+      const result = await runWorkflowExecution({
+        workflowJson: chainWorkflow(), inputData: {}, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live', maxRetries: 0,
+      });
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('exceeded runtime budget');
+
+      const executions = fakeDb.tables.get('workflow_executions_v2') ?? [];
+      expect(executions[0].status).toBe('failed');
+      // Terminal -- not scheduled for another automatic attempt.
+      expect(executions[0].next_run_at ?? null).toBeFalsy();
+    }, 20000);
+  });
 });

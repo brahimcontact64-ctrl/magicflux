@@ -20,6 +20,7 @@ import {
   releaseExecutionLock,
   releaseNodeMutex,
   renewExecutionLock,
+  renewNodeMutex,
 } from './hardening-layer';
 
 type QueueItem = { nodeName: string; input: unknown };
@@ -117,7 +118,6 @@ export class WorkflowEngine {
   private readonly nodeRunner = new NodeRunner(this.state);
 
   async execute(opts: RunExecutionOptions & { pendingQueue?: QueueItem[] }): Promise<EngineResult> {
-    const executionStartedAt = Date.now();
     const workflow = (opts.workflowJson ?? {}) as EngineWorkflow;
     const nodes = workflow.nodes ?? [];
     const connections = workflow.connections ?? {};
@@ -211,7 +211,7 @@ export class WorkflowEngine {
       workflowId: opts.workflowId,
     });
 
-    const executionId = await this.state.initializeExecution({
+    const initResult = await this.state.initializeExecution({
       executionId: opts.executionId,
       workflowId: opts.workflowId,
       userId: opts.userId,
@@ -220,6 +220,23 @@ export class WorkflowEngine {
       maxRetries,
       deploymentVersionId: opts.deploymentVersionId,
     });
+    const executionId = initResult.executionId;
+
+    // Phase 9.9.6 -- the cumulative active-compute deadline
+    // (MAX_EXECUTION_DURATION_MS) is measured from the execution's true,
+    // durable original started_at (never reset on resume, see
+    // initializeExecution() above) -- EXCEPT when this invocation is
+    // resuming immediately after a genuine durable wait (Human Review or
+    // a Wait node's scheduled delay), in which case that wait time must
+    // not count against active-compute budget at all, so the baseline
+    // resets to "now" for this segment only. An ordinary node-failure
+    // retry resume does NOT reset it, so a repeated-failure retry storm
+    // (e.g. an SMTP connection that keeps timing out) is still correctly
+    // bounded across resumes instead of each invocation individually
+    // appearing to be well within budget.
+    const executionStartedAt = opts.resumedFromDurableWait
+      ? Date.now()
+      : new Date(initResult.startedAt).getTime();
 
     handlerContext.executionId = executionId;
     handlerContext.deploymentVersionId = opts.deploymentVersionId ?? null;
@@ -542,24 +559,46 @@ export class WorkflowEngine {
         retryCount,
       });
 
-      const runResult = await this.nodeRunner.run({
-        executionId,
-        workflowId: opts.workflowId,
-        userId: opts.userId,
-        node,
-        inputData: next.input,
-        maxRetries,
-        mode: opts.mode,
-        handlerContext,
-        correlationId,
-        traceId,
-      });
+      // Phase 9.9.6 -- Part D fix: the node mutex's 30s lease was never
+      // renewed while the handler was actually running, unlike the
+      // execution-level lock above (acquireExecutionLock/renewExecutionLock,
+      // renewed every 15s for its 45s lease). A single side-effect
+      // network operation exceeding 30s (the observed Gmail/SMTP hang did,
+      // by design in Part A it should no longer even be possible, but this
+      // must hold regardless of any one handler's own timeout behavior)
+      // let the lease expire WHILE this worker was still genuinely
+      // executing the node -- opening a window for a second worker to
+      // acquire the "free" mutex and dispatch the SAME Email/Slack/
+      // Airtable side effect concurrently. Renewing on the same cadence
+      // as the execution lock keeps this worker's ownership continuously
+      // valid for exactly as long as it is actually running the node, and
+      // stops immediately (finally) whether the handler resolves or throws.
+      const nodeMutexRenewTimer = setInterval(() => {
+        void renewNodeMutex({ executionId, nodeId, ownerId, leaseSeconds: 30 });
+      }, 10_000);
 
-      await releaseNodeMutex({
-        executionId,
-        nodeId,
-        ownerId,
-      });
+      let runResult: Awaited<ReturnType<NodeRunner['run']>>;
+      try {
+        runResult = await this.nodeRunner.run({
+          executionId,
+          workflowId: opts.workflowId,
+          userId: opts.userId,
+          node,
+          inputData: next.input,
+          maxRetries,
+          mode: opts.mode,
+          handlerContext,
+          correlationId,
+          traceId,
+        });
+      } finally {
+        clearInterval(nodeMutexRenewTimer);
+        await releaseNodeMutex({
+          executionId,
+          nodeId,
+          ownerId,
+        });
+      }
 
       const step: ExecutionStep = {
         nodeId,
@@ -603,44 +642,26 @@ export class WorkflowEngine {
       }
 
       if (runResult.status === 'failed') {
-        const nextRetry = retryCount + 1;
-        if (nextRetry <= maxRetries) {
-          const nextRunAt = new Date(Date.now() + Math.min(900_000, Math.max(1000, nextRetry * 3000)));
-          await this.state.setExecutionState({
-            executionId,
-            userId: opts.userId,
-            state: 'waiting',
-            currentNodeId,
-            outputData: finalOutput,
-            errorMessage: runResult.error ?? 'Execution failed',
-            retryCount: nextRetry,
-            nextRunAt: nextRunAt.toISOString(),
-          });
-
-          await persistCheckpoint({
-            checkpointType: 'retrying',
-            currentNodeId,
-            stateSnapshot: { output: asRecord(finalOutput) },
-            pendingQueue: [{ nodeName: nodeName, input: next.input }, ...queue],
-          });
-
-          lockStatus = 'waiting';
-
-          return {
-            executionId,
-            status: 'waiting',
-            currentNodeId,
-            steps,
-            finalOutput,
-            error: runResult.error,
-            nextRunAt,
-            simulated: opts.mode === 'test',
-            message: opts.mode === 'test' ? 'Simulated only. No real API was called.' : undefined,
-            warnings: [],
-            previews: handlerContext.previews,
-          };
-        }
-
+        // Phase 9.9.6 -- Part C fix: this branch used to apply its OWN,
+        // SECOND retry-with-backoff budget (`nextRetry <= maxRetries`,
+        // scheduling an execution-level 'waiting' resume) on top of
+        // NodeRunner.run()'s own internal bounded retry loop, which has
+        // ALREADY retried this exact node up to `maxRetries` times (see
+        // node-runner.ts) before ever returning status:'failed' here. The
+        // two loops shared the same nominal `maxRetries` value but were
+        // completely unaware of each other, so a single node failure
+        // could consume maxRetries+1 SQUARED total attempts across
+        // "generations" -- each generation resetting retry_count and (via
+        // the initializeExecution() bug fixed above) started_at, which is
+        // exactly why a Gmail/SMTP node stuck in this pattern kept
+        // retrying indefinitely without the execution deadline ever
+        // tripping. There is now exactly ONE authoritative retry budget
+        // per node failure -- NodeRunner's own -- so once it returns
+        // 'failed' the execution goes straight to terminal. A genuinely
+        // ambiguous side effect (runResult.nonRetryable, e.g. an SMTP
+        // send whose connection dropped during/after DATA) is included in
+        // this same terminal path -- it must never be retried at all, at
+        // any layer.
         await this.state.setExecutionState({
           executionId,
           userId: opts.userId,
