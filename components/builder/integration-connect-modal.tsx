@@ -119,12 +119,26 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     key: 'gmail',
     name: 'Gmail',
     logo: <Bot className="w-4 h-4" />,
-    helpText: 'Used for email-based triggers and notifications.',
-    quickSetup: ['Choose SMTP or OAuth, then provide the matching credentials.'],
+    helpText: 'Send from your own Gmail account. MagicFlux never sees your Google password.',
+    quickSetup: ['Click "Continue with Google" and approve access to send email on your behalf.'],
     helperActions: [{ label: 'Test connection', action: 'test_connection' }],
   },
 };
 
+/**
+ * Phase 9.9.7A -- Gmail no longer exposes manual client_id/client_secret/
+ * refresh_token fields at all. Google's own OAuth application credentials
+ * are a platform-level server secret (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET,
+ * read server-side only in app/api/oauth/start/route.ts) -- a normal user
+ * was never supposed to obtain or paste those themselves; the "OAuth" mode
+ * in this form previously required exactly that, which is why real users
+ * only ever saw the SMTP path. The default/preferred UI for gmail is now a
+ * single "Continue with Google" button (handled separately in the render
+ * below, not as a form field) that redirects through the existing, already
+ * fully-built /api/oauth/start -> Google consent -> /api/oauth/callback
+ * flow. Legacy SMTP remains available as an explicit "Use SMTP instead"
+ * fallback for backward compatibility, unchanged.
+ */
 function getVisibleCredentialFields(provider: string, schema: CredentialSchemaField[], providerValues: Record<string, string>): FieldDef[] {
   if (provider !== 'gmail') {
     return schema.map((field) => ({
@@ -136,36 +150,21 @@ function getVisibleCredentialFields(provider: string, schema: CredentialSchemaFi
   }
 
   const authType = (providerValues.auth_type ?? '').toLowerCase().trim();
-  const visibleKeys = new Set(['auth_type', 'from_email']);
-  if (authType === 'smtp') {
-    ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass'].forEach((key) => visibleKeys.add(key));
-  } else if (authType === 'oauth') {
-    ['client_id', 'client_secret', 'refresh_token'].forEach((key) => visibleKeys.add(key));
+  if (authType !== 'smtp') {
+    // Default (and OAuth) state: no form fields at all -- just the
+    // "Continue with Google" button rendered directly in the JSX.
+    return [];
   }
 
+  const visibleKeys = new Set(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'from_email']);
   return schema
     .filter((field) => visibleKeys.has(field.key))
-    .map((field) => {
-      if (field.key === 'auth_type') {
-        return {
-          key: field.key,
-          label: field.label,
-          placeholder: field.label,
-          type: 'select' as const,
-          options: [
-            { label: 'SMTP', value: 'smtp' },
-            { label: 'OAuth', value: 'oauth' },
-          ],
-        };
-      }
-
-      return {
-        key: field.key,
-        label: field.label,
-        placeholder: field.label,
-        type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
-      };
-    });
+    .map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.label,
+      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+    }));
 }
 
 const STATUS_LABEL: Record<IntegrationUiState, string> = {
@@ -209,6 +208,10 @@ export function IntegrationConnectModal({
     const schema = providerSchemas[currentProvider] ?? currentConfig?.credentialSchema ?? getProviderCredentialSchema(currentProvider);
     return getVisibleCredentialFields(currentProvider, schema, currentProviderValues);
   }, [currentConfig?.credentialSchema, currentProvider, currentProviderValues, providerSchemas]);
+  // Phase 9.9.7A -- gmail's default/preferred UX is the one-click Google
+  // OAuth redirect, not a credential form. "Use SMTP instead" explicitly
+  // opts into the legacy form (kept for backward compatibility).
+  const isGmailOAuthMode = currentProvider === 'gmail' && (currentProviderValues.auth_type ?? '').toLowerCase().trim() !== 'smtp';
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -317,21 +320,13 @@ export function IntegrationConnectModal({
       return;
     }
 
+    // Phase 9.9.7A -- gmail's OAuth path no longer goes through this
+    // function at all (see connectGmailOAuth() / the "Continue with
+    // Google" button below); connectProvider('gmail') is now only ever
+    // reached in explicit "Use SMTP instead" mode, so the smtp_* fields
+    // are simply the schema's own required fields at that point.
     const requiredFieldKeys = new Set(
-      schema
-        .filter((field) => field.required)
-        .filter((field) => {
-          if (provider !== 'gmail') return true;
-          const authType = (providerValues.auth_type ?? '').toLowerCase().trim();
-          if (field.key === 'client_id' || field.key === 'client_secret' || field.key === 'refresh_token') {
-            return authType === 'oauth';
-          }
-          if (field.key === 'smtp_host' || field.key === 'smtp_port' || field.key === 'smtp_user' || field.key === 'smtp_pass') {
-            return authType === 'smtp';
-          }
-          return true;
-        })
-        .map((field) => field.key)
+      schema.filter((field) => field.required).map((field) => field.key)
     );
     const missingField = fields.find(
       (field) => requiredFieldKeys.has(field.key) && !(providerValues[field.key] ?? '').trim()
@@ -395,6 +390,45 @@ export function IntegrationConnectModal({
 
   function handleHelperAction(provider: string, action: 'test_connection') {
     void connectProvider(provider);
+  }
+
+  /**
+   * Phase 9.9.7A -- one-click Gmail OAuth. Mirrors
+   * components/integrations/ConnectionModal.tsx's own handleOAuthRedirect(),
+   * the one place in this codebase that already correctly drives
+   * /api/oauth/start. Google's client_id/client_secret are read
+   * server-side ONLY (process.env.GOOGLE_CLIENT_ID/_SECRET inside that
+   * route) -- nothing here ever sees or sends them. The JWT used to
+   * authenticate this request is a Bearer header, never a URL param, so
+   * it cannot leak into browser history, logs, or the redirect chain.
+   * window.location.href is a full navigation to Google's own consent
+   * screen; no token of any kind is ever exposed in this component's
+   * state, the URL, or a log line.
+   */
+  async function connectGmailOAuth() {
+    if (!accessToken) return;
+    setProviderState((prev) => ({ ...prev, gmail: { state: 'validating', message: 'Redirecting to Google…' } }));
+    try {
+      const res = await fetch('/api/oauth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ provider: 'gmail' }),
+      });
+      const data = await res.json().catch(() => null) as { redirectUrl?: string; error?: string } | null;
+      if (!res.ok || !data?.redirectUrl) {
+        setProviderState((prev) => ({
+          ...prev,
+          gmail: { state: 'failed', message: data?.error ?? 'Could not start Google sign-in. Please try again.' },
+        }));
+        return;
+      }
+      window.location.href = data.redirectUrl;
+    } catch {
+      setProviderState((prev) => ({
+        ...prev,
+        gmail: { state: 'failed', message: 'Network error starting Google sign-in. Please try again.' },
+      }));
+    }
   }
 
   return (
@@ -480,93 +514,141 @@ export function IntegrationConnectModal({
                   ))}
                 </div>
 
-                {currentFields.length > 0 ? (
-                  <div className="space-y-3">
-                    {currentFields.map((field) => (
-                      <div key={field.key}>
-                        <label className="block text-xs font-medium mb-1">{field.label}</label>
-                        {field.type === 'select' ? (
-                          <select
-                            value={values[currentProvider]?.[field.key] ?? ''}
-                            onChange={(e) =>
-                              setValues((prev) => ({
-                                ...prev,
-                                [currentProvider]: {
-                                  ...(prev[currentProvider] ?? {}),
-                                  [field.key]: e.target.value,
-                                },
-                              }))
-                            }
-                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                          >
-                            <option value="">Select auth type</option>
-                            {(field.options ?? []).map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
+                {isGmailOAuthMode ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={() => void connectGmailOAuth()}
+                        disabled={providerState.gmail?.state === 'validating'}
+                      >
+                        {providerState.gmail?.state === 'validating' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                            Redirecting…
+                          </>
                         ) : (
-                          <input
-                            value={values[currentProvider]?.[field.key] ?? ''}
-                            type={field.type ?? 'text'}
-                            onChange={(e) =>
-                              setValues((prev) => ({
-                                ...prev,
-                                [currentProvider]: {
-                                  ...(prev[currentProvider] ?? {}),
-                                  [field.key]: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder={field.placeholder}
-                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                          />
+                          'Continue with Google'
                         )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    No credential requirements defined.
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    onClick={() => connectProvider(currentProvider)}
-                    disabled={providerState[currentProvider]?.state === 'validating'}
-                  >
-                    {providerState[currentProvider]?.state === 'validating' ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                        Validating
-                      </>
-                    ) : (
-                      'Connect'
-                    )}
-                  </Button>
-
-                  {currentConfig.helperActions?.map((helper) =>
-                    helper.href ? (
-                      <a
-                        key={helper.label}
-                        href={helper.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs px-2.5 py-1.5 rounded-md border border-border hover:bg-muted/50 inline-flex items-center gap-1"
-                      >
-                        {helper.label}
-                      </a>
-                    ) : (
+                      </Button>
                       <button
-                        key={helper.label}
-                        onClick={() => helper.action && handleHelperAction(currentProvider, helper.action)}
-                        className="text-xs px-2.5 py-1.5 rounded-md border border-border hover:bg-muted/50"
+                        type="button"
+                        onClick={() =>
+                          setValues((prev) => ({
+                            ...prev,
+                            gmail: { ...(prev.gmail ?? {}), auth_type: 'smtp' },
+                          }))
+                        }
+                        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                       >
-                        {helper.label}
+                        Use SMTP instead
                       </button>
-                    )
-                  )}
-                </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {currentProvider === 'gmail' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setValues((prev) => ({
+                            ...prev,
+                            gmail: { ...(prev.gmail ?? {}), auth_type: 'oauth' },
+                          }))
+                        }
+                        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                      >
+                        ← Use Google sign-in instead
+                      </button>
+                    )}
+                    {currentFields.length > 0 ? (
+                      <div className="space-y-3">
+                        {currentFields.map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-xs font-medium mb-1">{field.label}</label>
+                            {field.type === 'select' ? (
+                              <select
+                                value={values[currentProvider]?.[field.key] ?? ''}
+                                onChange={(e) =>
+                                  setValues((prev) => ({
+                                    ...prev,
+                                    [currentProvider]: {
+                                      ...(prev[currentProvider] ?? {}),
+                                      [field.key]: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                              >
+                                <option value="">Select auth type</option>
+                                {(field.options ?? []).map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                value={values[currentProvider]?.[field.key] ?? ''}
+                                type={field.type ?? 'text'}
+                                onChange={(e) =>
+                                  setValues((prev) => ({
+                                    ...prev,
+                                    [currentProvider]: {
+                                      ...(prev[currentProvider] ?? {}),
+                                      [field.key]: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder={field.placeholder}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                        No credential requirements defined.
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={() => connectProvider(currentProvider)}
+                        disabled={providerState[currentProvider]?.state === 'validating'}
+                      >
+                        {providerState[currentProvider]?.state === 'validating' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                            Validating
+                          </>
+                        ) : (
+                          'Connect'
+                        )}
+                      </Button>
+
+                      {currentConfig.helperActions?.map((helper) =>
+                        helper.href ? (
+                          <a
+                            key={helper.label}
+                            href={helper.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs px-2.5 py-1.5 rounded-md border border-border hover:bg-muted/50 inline-flex items-center gap-1"
+                          >
+                            {helper.label}
+                          </a>
+                        ) : (
+                          <button
+                            key={helper.label}
+                            onClick={() => helper.action && handleHelperAction(currentProvider, helper.action)}
+                            className="text-xs px-2.5 py-1.5 rounded-md border border-border hover:bg-muted/50"
+                          >
+                            {helper.label}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </>
+                )}
 
                 {providerState[currentProvider]?.message ? (
                   <div className={cn(

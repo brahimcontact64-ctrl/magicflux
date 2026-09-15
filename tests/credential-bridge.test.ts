@@ -111,7 +111,17 @@ describe('getUserIntegrations — credential system bridge', () => {
     expect(result[0].credentials.refresh_token).toBeUndefined();
   });
 
-  it('falls back to the legacy row when the new-system provider fails to resolve', async () => {
+  it('Phase 9.9.7A -- does NOT fall back to a legacy row when a new-system provider fails to resolve (fail closed, never silently switch identity/transport)', async () => {
+    // Root cause this now guards against: a provider present in
+    // getAllConnectedProviders() has a genuine, previously-completed
+    // connection in the new integration_credentials system (e.g. a real
+    // Gmail OAuth grant) -- that is the user's current, active choice for
+    // this provider. If resolving it now fails (an expired/revoked OAuth
+    // refresh token, a decrypt failure), silently falling back to an old
+    // legacy row for the SAME provider would change which credential/
+    // identity a workflow uses without the user ever being told their
+    // connection broke. This must surface as "unavailable," not a quiet
+    // substitution -- see lib/user-integrations.ts's bridgeNewCredentialSystem().
     const { createServiceClient } = await import('@/lib/supabase-server');
     const { getAllConnectedProviders, verifyProviderConnection, getDecryptedProviderCredentials } =
       await import('@/lib/credentials/storage');
@@ -126,6 +136,27 @@ describe('getUserIntegrations — credential system bridge', () => {
     vi.mocked(verifyProviderConnection).mockResolvedValue({ connected: true, missing: [] });
     vi.mocked(isOAuthProvider).mockReturnValue(false);
     vi.mocked(getDecryptedProviderCredentials).mockRejectedValue(new Error('decrypt failed'));
+
+    const { getUserIntegrations } = await import('@/lib/user-integrations');
+    const result = await getUserIntegrations(VALID_UUID);
+
+    // The old legacy 'openai' row must NOT be silently resurrected.
+    expect(result.find((row) => row.provider === 'openai')).toBeUndefined();
+    expect(result).toHaveLength(0);
+  });
+
+  it('Phase 9.9.7A -- a provider with NO attempted new-system connection still falls back to its legacy row normally (backward compatibility preserved)', async () => {
+    const { createServiceClient } = await import('@/lib/supabase-server');
+    const { getAllConnectedProviders } = await import('@/lib/credentials/storage');
+
+    vi.mocked(createServiceClient).mockReturnValue(
+      mockLegacyRows([
+        { id: '1', provider: 'openai', name: null, credentials: { api_key: 'legacy-key' }, status: 'connected', last_verified_at: null, created_at: '2026-01-01' },
+      ]) as never,
+    );
+    // 'openai' was never attempted in the new system at all -- distinct
+    // from the "attempted but broken" case above.
+    vi.mocked(getAllConnectedProviders).mockResolvedValue([]);
 
     const { getUserIntegrations } = await import('@/lib/user-integrations');
     const result = await getUserIntegrations(VALID_UUID);

@@ -81,10 +81,23 @@ async function bridgeNewCredentialSystem(
     await Promise.all(candidates.map((p) => resolveBridgedIntegration(userId, p)))
   ).filter((row): row is UserIntegration => row !== null);
 
-  if (bridged.length === 0) return legacyRows;
-
-  const bridgedProviders = new Set(bridged.map((row) => row.provider));
-  const remainingLegacy = legacyRows.filter((row) => !bridgedProviders.has(row.provider));
+  // Phase 9.9.7A -- fail-closed fix. `candidates` is exactly the set of
+  // providers with a genuine, previously-completed connection in the new
+  // integration_credentials system (e.g. a real Gmail OAuth grant,
+  // saveCredentialsWithVerification() is atomic -- a row only exists here
+  // once an exchange actually succeeded) -- that is the user's current,
+  // ACTIVE choice for this provider. If resolving it now fails (an
+  // expired/revoked OAuth refresh token, a decrypt failure), this must
+  // fail closed, never silently fall through to an old legacy SMTP row
+  // for the same provider: that would silently change which mailbox/
+  // identity a workflow sends as, with the user never told their OAuth
+  // connection broke. Previously this excluded only the SUCCESSFULLY
+  // bridged providers from the legacy fallback set, so a broken OAuth
+  // credential would silently resurrect a stale legacy credential instead
+  // of surfacing SETUP_REQUIRED. Only a provider with NO attempted
+  // new-system connection at all may fall back to legacy.
+  const attemptedProviders = new Set(candidates);
+  const remainingLegacy = legacyRows.filter((row) => !attemptedProviders.has(row.provider));
   return [...bridged, ...remainingLegacy];
 }
 

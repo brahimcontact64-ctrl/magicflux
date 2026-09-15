@@ -354,6 +354,39 @@ export default function BuilderPage() {
     if (intent) setInitialIntent(intent);
   }, [searchParams]);
 
+  // Phase 9.9.7A -- app/api/oauth/callback/route.ts always redirects here
+  // (?oauth=success&provider=<p> or ?oauth=error&reason=<r>) regardless of
+  // which UI surface started the flow, since the full-page navigation to
+  // Google and back unmounts whatever modal was open. This is the one
+  // place that can reliably show the user their Gmail (or any OAuth
+  // provider) connection actually completed -- IntegrationConnectModal's
+  // own hydrateStates() already re-reads /api/integrations fresh every
+  // time it opens, so reopening it will correctly show "Connected"; this
+  // just confirms it immediately via a toast and cleans the URL, matching
+  // the same pattern components/builder/AutomationBrain.tsx already uses.
+  useEffect(() => {
+    const oauthResult = searchParams.get('oauth');
+    if (!oauthResult) return;
+
+    const provider = searchParams.get('provider') ?? 'Integration';
+    const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+    if (oauthResult === 'success') {
+      toast.success(`${label} connected`);
+    } else if (oauthResult === 'error') {
+      const reason = searchParams.get('reason') ?? 'unknown_error';
+      toast.error(`${label} connection failed (${reason}). Please try again.`);
+    }
+
+    const cleanParams = new URLSearchParams(searchParams.toString());
+    cleanParams.delete('oauth');
+    cleanParams.delete('provider');
+    cleanParams.delete('reason');
+    const query = cleanParams.toString();
+    router.replace(query ? `/builder?${query}` : '/builder');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
