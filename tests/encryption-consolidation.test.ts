@@ -66,10 +66,16 @@ describe('encryptJson / decryptJson (legacy batch API)', () => {
     expect(decrypted).toEqual(original);
   });
 
-  it('gracefully returns the original value instead of throwing on corrupted input', async () => {
+  it('returns non-envelope colon-containing input unchanged (not a decrypt fallback -- it is never recognized as encrypted)', async () => {
+    // Phase 9.9.5C -- this value has three colon-separated parts but the
+    // third contains hyphens, which are not valid base64 characters, so
+    // isEncryptedEnvelope() correctly never classifies it as MagicFlux's
+    // own encrypted format in the first place. It is returned as-is
+    // because it was never treated as ciphertext to begin with -- not
+    // because a decrypt failure was silently swallowed (that fallback no
+    // longer exists; see the fail-closed describe block below).
     const { decryptJson } = await import('../lib/security/encryption');
     const result = decryptJson({ token: 'aXY:bXY:not-real-ciphertext-data' });
-    // tryDecryptValue swallows the decrypt failure and returns the stored value as-is
     expect(result.token).toBe('aXY:bXY:not-real-ciphertext-data');
   });
 

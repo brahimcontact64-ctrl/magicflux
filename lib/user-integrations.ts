@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/supabase-server';
 import { requiredProvidersFromWorkflow, canonicalizeProviderId, type IntegrationProvider } from '@/lib/integrations';
-import { decryptIntegrationCredentials } from '@/lib/security/encryption';
+import { decryptIntegrationCredentials, CredentialDecryptionError } from '@/lib/security/encryption';
 import {
   getAllConnectedProviders,
   verifyProviderConnection,
@@ -108,15 +108,40 @@ export async function getUserIntegrations(
   // sees a legacy 'email' row as 'gmail' -- the one identifier
   // requiredProvidersFromWorkflow() ever asks for. Storage and stored
   // credentials are untouched; only the in-memory provider label changes.
-  const rows = (data ?? []).map((row) => ({
-    id: row.id as string | undefined,
-    provider: canonicalizeProviderId(row.provider as string) as IntegrationProvider,
-    name: (row.name as string | null | undefined) ?? null,
-    credentials: decryptIntegrationCredentials((row.credentials ?? {}) as Record<string, unknown>),
-    status: (row.status ?? 'not_connected') as IntegrationStatus,
-    last_verified_at: (row.last_verified_at as string | null | undefined) ?? null,
-    created_at: row.created_at as string | undefined,
-  }));
+  //
+  // Phase 9.9.5C -- decryptIntegrationCredentials() now fails closed
+  // (throws CredentialDecryptionError) instead of silently returning raw
+  // ciphertext as if it were the plaintext credential. A decrypt failure
+  // on ONE row must not crash resolution for every OTHER integration this
+  // user has connected (e.g. a broken Airtable credential must not also
+  // take down an otherwise-working Slack/Email credential in the same
+  // call) -- caught per row and reclassified as 'invalid', the same
+  // status a credential that failed provider verification already gets,
+  // so every existing downstream consumer (SETUP_REQUIRED activation/
+  // live-test gates, the Builder's "Missing setup" indicator) already
+  // knows how to block on it correctly with no new logic needed. The
+  // credentials object is deliberately emptied, never the ciphertext.
+  const rows = (data ?? []).map((row) => {
+    const provider = canonicalizeProviderId(row.provider as string) as IntegrationProvider;
+    const base = {
+      id: row.id as string | undefined,
+      provider,
+      name: (row.name as string | null | undefined) ?? null,
+      last_verified_at: (row.last_verified_at as string | null | undefined) ?? null,
+      created_at: row.created_at as string | undefined,
+    };
+    try {
+      return {
+        ...base,
+        credentials: decryptIntegrationCredentials((row.credentials ?? {}) as Record<string, unknown>),
+        status: (row.status ?? 'not_connected') as IntegrationStatus,
+      };
+    } catch (err) {
+      if (!(err instanceof CredentialDecryptionError)) throw err;
+      console.error(`[user-integrations] credential decryption failed for integration ${base.id} (provider: ${provider}) -- treating as invalid, never using ciphertext as a credential`);
+      return { ...base, credentials: {}, status: 'invalid' as IntegrationStatus };
+    }
+  });
 
   const filtered = connectedOnly ? rows.filter((row) => row.status === 'connected') : rows;
   return bridgeNewCredentialSystem(userId, filtered);

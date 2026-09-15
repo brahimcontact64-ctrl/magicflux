@@ -5,7 +5,7 @@ import {
   getBearerToken,
   getUserFromAccessToken,
 } from '@/lib/supabase-server';
-import { decryptJson, encryptJson } from '@/lib/security/encryption';
+import { decryptJson, encryptJson, CredentialDecryptionError } from '@/lib/security/encryption';
 import { classifyError } from '@/lib/security/safe-error';
 import { verifyIntegrationCredentials, runIntegrationTestAction } from '@/lib/integration-verifier';
 import { normalizeCredentials, validateRequiredCredentials, maskIntegrationInfo } from '@/lib/integration-credentials';
@@ -201,15 +201,28 @@ export async function listIntegrations(req: NextRequest) {
   (data ?? []).forEach((row) => {
     const provider = normalizeProvider(String(row.provider ?? ''));
     if (!provider) return;
-    const decrypted = decryptJson((row.credentials ?? {}) as Record<string, unknown>);
-    const normalized = normalizeGenericCredentials(decrypted);
-    const masked = isLegacyProvider(provider)
-      ? maskIntegrationInfo(provider, normalized)
-      : maskGenericIntegrationInfo(normalized);
+
+    // Phase 9.9.5C -- a decrypt failure on ONE integration must not break
+    // this whole list for every OTHER connected provider. Reclassified as
+    // 'invalid' (same status a credential failing re-verification already
+    // gets) with a safe, non-secret placeholder -- never the ciphertext.
+    let status = (row.status ?? 'not_connected') as IntegrationStatus;
+    let masked: string;
+    try {
+      const decrypted = decryptJson((row.credentials ?? {}) as Record<string, unknown>);
+      const normalized = normalizeGenericCredentials(decrypted);
+      masked = isLegacyProvider(provider)
+        ? maskIntegrationInfo(provider, normalized)
+        : maskGenericIntegrationInfo(normalized);
+    } catch (err) {
+      if (!(err instanceof CredentialDecryptionError)) throw err;
+      status = 'invalid' as IntegrationStatus;
+      masked = 'Unable to decrypt this credential — please reconnect.';
+    }
 
     byProvider.set(provider, {
       provider,
-      status: (row.status ?? 'not_connected') as IntegrationStatus,
+      status,
       last_verified_at: (row.last_verified_at as string | null | undefined) ?? null,
       masked_info: masked,
       created_at: (row.created_at as string | null | undefined) ?? null,
@@ -389,7 +402,17 @@ export async function runIntegrationAction(req: NextRequest) {
     return NextResponse.json({ error: 'Integration must be connected first' }, { status: 422 });
   }
 
-  const credentials = decryptJson((row.credentials ?? {}) as Record<string, unknown>);
+  // Phase 9.9.5C -- decryptJson() now fails closed on a corrupted/wrong-key
+  // credential instead of silently handing back ciphertext for a Test
+  // Action to send to the real provider. Surfaced as a clear, actionable
+  // 422 rather than an uncaught 500 -- never the underlying crypto error.
+  let credentials: Record<string, string>;
+  try {
+    credentials = decryptJson((row.credentials ?? {}) as Record<string, unknown>);
+  } catch (err) {
+    if (!(err instanceof CredentialDecryptionError)) throw err;
+    return NextResponse.json({ error: 'This credential could not be decrypted. Please reconnect the integration.' }, { status: 422 });
+  }
   const normalizedCreds = normalizeGenericCredentials(credentials);
 
   const result = isLegacyProvider(provider)
