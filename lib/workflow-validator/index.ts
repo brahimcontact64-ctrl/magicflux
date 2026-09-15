@@ -7,9 +7,22 @@
  * All rules are derived directly from the engine source:
  *   - Node lookup key  : node.name (String(node.name ?? node.id ?? '').trim())
  *   - Start node rule  : type.includes('trigger'|'webhook'|'manualtrigger')
- *   - Condition rule   : type.includes('if'|'condition'|'switch'|'filter')
- *     BUT provider types from HANDLER_NODE_ALLOWLIST are NEVER condition nodes
- *     even when their name happens to contain 'if' (e.g. 'shopify' ⊃ 'if').
+ *   - Condition rule   : lib/workflow-runtime/node-capabilities.ts's
+ *     isConditionalNodeType() -- the ONE canonical predicate also used by
+ *     branch-connection-guard.ts, human-review-routing-guard.ts,
+ *     ai-review-routing-guard.ts, node-handlers/index.ts's pickHandler(),
+ *     and runtime/workflow-engine.ts. Phase 9.9.5 -- this file previously
+ *     had its own duplicate, substring-based copy
+ *     (type.includes('if'|'condition'|'switch'|'filter'), with a manual
+ *     PROVIDER_EXACT_TYPES/start-node exclusion bolted on to stop it
+ *     false-positiving on names like 'shopify' containing 'if') that
+ *     nobody had taught about 'magicflux-nodes.aiClassifier'
+ *     ('class-IF-ier') -- activateWorkflow() (lib/workflow/lifecycle.ts)
+ *     called THIS validator, not the canonical predicate, so a
+ *     live-tested workflow with a real AI Classifier node failed
+ *     activation demanding a fake second branch on a node that produces
+ *     structured data and routes linearly. Delegating here removes the
+ *     second implementation instead of patching its exclusion list again.
  *   - Condition routing: _conditionBranch=0 → port[0], =1 → port[1]
  *   - Max executions   : 400 nodes (validator is more conservative: 200)
  *   - Connections key  : source node name → ConnectionEntry[][]
@@ -20,7 +33,7 @@
  *     warning, so it can never reach activateWorkflow().
  */
 
-import { checkNodeCapability, PROVIDER_EXACT_TYPES } from '@/lib/workflow-runtime/node-capabilities';
+import { checkNodeCapability, isConditionalNodeType } from '@/lib/workflow-runtime/node-capabilities';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -77,12 +90,13 @@ const MAX_EDGES = 1000;
 
 // ─── Node type registry ───────────────────────────────────────────────────────
 //
-// PROVIDER_EXACT_TYPES (imported above) and checkNodeCapability() now live in
-// lib/workflow-runtime/node-capabilities.ts — the single source of truth this
-// validator, the planner, the editor, and node-handlers/index.ts's own
-// dispatch all read, instead of four independently hand-synced copies
-// (Phase 9.1.6). allowlist-consistency.security.test.ts still enforces
-// agreement with PROVIDER_NODE_ALLOWLIST in lib/integrations.ts.
+// checkNodeCapability() and isConditionalNodeType() (imported above) now
+// live in lib/workflow-runtime/node-capabilities.ts — the single source of
+// truth this validator, the planner, the editor, and node-handlers/index.ts's
+// own dispatch all read, instead of independently hand-synced copies
+// (Phase 9.1.6; condition detection unified in Phase 9.9.5).
+// allowlist-consistency.security.test.ts still enforces agreement with
+// PROVIDER_NODE_ALLOWLIST in lib/integrations.ts.
 
 // ─── Internal representation ──────────────────────────────────────────────────
 
@@ -124,25 +138,6 @@ function isNonEmptyString(v: unknown): v is string {
 function isStartNodeType(type: string): boolean {
   const lc = type.toLowerCase();
   return lc.includes('trigger') || lc.includes('webhook') || lc.includes('manualtrigger');
-}
-
-/**
- * Returns true when the node type should be routed to conditionHandler.
- * Mirrors pickHandler() in node-handlers/index.ts — CRITICAL: provider types
- * from HANDLER_NODE_ALLOWLIST are checked FIRST.  'n8n-nodes-base.shopify'
- * contains the substring 'if' (shop-i-f-y) so without this guard it would be
- * wrongly classified as a condition node, requiring two output ports.
- */
-function isConditionNodeType(type: string): boolean {
-  const lc = type.toLowerCase();
-  if (PROVIDER_EXACT_TYPES.has(lc)) return false;           // provider — not a condition
-  if (isStartNodeType(lc)) return false;                    // trigger — not a condition
-  return (
-    lc.includes('if')        ||
-    lc.includes('condition') ||
-    lc.includes('switch')    ||
-    lc.includes('filter')
-  );
 }
 
 // ─── Phase helpers ────────────────────────────────────────────────────────────
@@ -413,7 +408,7 @@ function checkConditionPorts(
   const errors: ValidationError[] = [];
 
   for (const node of nodes) {
-    if (!isConditionNodeType(node.type)) continue;
+    if (!isConditionalNodeType(node.type)) continue;
 
     const nodePorts = ports.get(node.name) ?? [];
     if (nodePorts.length < 2) {

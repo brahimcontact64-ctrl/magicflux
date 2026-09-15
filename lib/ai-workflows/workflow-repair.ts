@@ -10,6 +10,7 @@
  */
 
 import { validateWorkflow, ValidationCodes, type ValidationError } from '../workflow-validator';
+import { isConditionalNodeType } from '@/lib/workflow-runtime/node-capabilities';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -45,17 +46,6 @@ interface RepairedNode {
 
 type RepairedConnections = Record<string, { main: Array<Array<{ node: string }>> }>;
 
-// ─── Provider allowlist (mirrors validator — these are never condition nodes) ──
-
-const PROVIDER_EXACT_TYPES = new Set([
-  'n8n-nodes-base.shopify',       'n8n-nodes-base.shopifytrigger',
-  'n8n-nodes-base.slack',         'n8n-nodes-base.slacktrigger',
-  'n8n-nodes-base.airtable',      'n8n-nodes-base.airtabletrigger',
-  'n8n-nodes-base.emailsend',     'n8n-nodes-base.emailreadimap',
-  'n8n-nodes-base.gmail',         'n8n-nodes-base.gmailtrigger',
-  'n8n-nodes-base.googledrive',   'n8n-nodes-base.googledrivetrigger',
-]);
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -69,13 +59,6 @@ function isNonEmptyString(v: unknown): v is string {
 function isStartNodeType(type: string): boolean {
   const lc = type.toLowerCase();
   return lc.includes('trigger') || lc.includes('webhook') || lc.includes('manualtrigger');
-}
-
-function isConditionNodeType(type: string): boolean {
-  const lc = type.toLowerCase();
-  if (PROVIDER_EXACT_TYPES.has(lc)) return false;
-  if (isStartNodeType(lc)) return false;
-  return lc.includes('if') || lc.includes('condition') || lc.includes('switch') || lc.includes('filter');
 }
 
 /** Derives a human-readable node name from its type string. */
@@ -322,13 +305,23 @@ export function repairWorkflow(input: unknown): RepairResult {
   }
 
   // ── Step 9: Fix condition node port count ─────────────────────────────────
+  //
+  // Phase 9.9.5 -- uses the canonical isConditionalNodeType() (see
+  // lib/workflow-runtime/node-capabilities.ts), not this file's former
+  // local, substring-based copy. That copy's own manual provider exclusion
+  // list had no entry for 'magicflux-nodes.aiClassifier' ('class-IF-ier'),
+  // so a repair pass over a workflow containing a real AI Classifier node
+  // would have injected a fake second output port into it here -- exactly
+  // the "add fake output ports to AI Classifier" outcome this platform
+  // must never produce, since the node is a genuinely linear data-shaping
+  // step, not a branch-deciding one.
 
   {
     const currentNodes = raw.nodes as RepairedNode[];
     const conns = raw.connections as RepairedConnections;
 
     for (const node of currentNodes) {
-      if (!isConditionNodeType(node.type)) continue;
+      if (!isConditionalNodeType(node.type)) continue;
 
       const existing = conns[node.name];
       if (!existing) {
