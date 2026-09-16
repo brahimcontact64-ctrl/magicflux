@@ -20,6 +20,23 @@ type IntegrationUiState = 'not_connected' | 'validating' | 'connected' | 'failed
 type FieldDef = { key: string; label: string; placeholder: string; type?: 'text' | 'password' | 'select'; options?: Array<{ label: string; value: string }> };
 type CredentialSchemaField = { key: string; label: string; required: boolean };
 
+/**
+ * Phase 9.9.8 -- Gmail's default/canonical credential requirement
+ * (lib/agent/provider-credential-registry.ts) is now correctly just "Google
+ * OAuth", matching the real connection contract. SMTP is a legacy, opt-in
+ * fallback transport ("Use SMTP instead" below), never gmail's actual
+ * requirement -- so its field list is defined locally here instead of
+ * living inside that shared schema, where it would otherwise leak back into
+ * the default "Configure Gmail" card text as if OAuth needed these too.
+ */
+const GMAIL_SMTP_FALLBACK_SCHEMA: CredentialSchemaField[] = [
+  { key: 'smtp_host', label: 'SMTP Host', required: true },
+  { key: 'smtp_port', label: 'SMTP Port', required: false },
+  { key: 'smtp_user', label: 'SMTP User', required: true },
+  { key: 'smtp_pass', label: 'SMTP Password', required: true },
+  { key: 'from_email', label: 'From Email', required: true },
+];
+
 type ProviderConfig = {
   key: string;
   name: string;
@@ -160,15 +177,12 @@ function getVisibleCredentialFields(provider: string, schema: CredentialSchemaFi
     return [];
   }
 
-  const visibleKeys = new Set(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'from_email']);
-  return schema
-    .filter((field) => visibleKeys.has(field.key))
-    .map((field) => ({
-      key: field.key,
-      label: field.label,
-      placeholder: field.label,
-      type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
-    }));
+  return GMAIL_SMTP_FALLBACK_SCHEMA.map((field) => ({
+    key: field.key,
+    label: field.label,
+    placeholder: field.label,
+    type: /(token|secret|password|key|credential)/i.test(field.key) ? 'password' : 'text',
+  }));
 }
 
 const STATUS_LABEL: Record<IntegrationUiState, string> = {
@@ -312,8 +326,19 @@ export function IntegrationConnectModal({
     const config = PROVIDERS[provider] ?? fallbackProviderUiConfig(provider);
     if (!config || !accessToken) return;
 
-    const schema = providerSchemas[provider] ?? config.credentialSchema ?? getProviderCredentialSchema(provider);
     const providerValues = values[provider] ?? {};
+    // Phase 9.9.7A -- gmail's OAuth path no longer goes through this
+    // function at all (see connectGmailOAuth() / the "Continue with
+    // Google" button below); connectProvider('gmail') is now only ever
+    // reached in explicit "Use SMTP instead" mode.
+    // Phase 9.9.8 -- that SMTP fallback's own required-field schema is
+    // GMAIL_SMTP_FALLBACK_SCHEMA (a local, fixed list), never gmail's
+    // shared/canonical schema (which is now correctly just "Google OAuth"
+    // and would otherwise make every SMTP field look optional here).
+    const isGmailSmtpFallback = provider === 'gmail' && (providerValues.auth_type ?? '').toLowerCase().trim() === 'smtp';
+    const schema = isGmailSmtpFallback
+      ? GMAIL_SMTP_FALLBACK_SCHEMA
+      : (providerSchemas[provider] ?? config.credentialSchema ?? getProviderCredentialSchema(provider));
     const fields = getVisibleCredentialFields(provider, schema, providerValues);
 
     if (schema.length === 0) {
@@ -327,11 +352,6 @@ export function IntegrationConnectModal({
       return;
     }
 
-    // Phase 9.9.7A -- gmail's OAuth path no longer goes through this
-    // function at all (see connectGmailOAuth() / the "Continue with
-    // Google" button below); connectProvider('gmail') is now only ever
-    // reached in explicit "Use SMTP instead" mode, so the smtp_* fields
-    // are simply the schema's own required fields at that point.
     const requiredFieldKeys = new Set(
       schema.filter((field) => field.required).map((field) => field.key)
     );

@@ -32,20 +32,30 @@ const PROVIDER_CREDENTIAL_REGISTRY: Record<string, ProviderCredentialField[]> = 
     { key: 'airtable_token', label: 'Airtable Token', required: true },
     { key: 'base_id', label: 'Base ID', required: true },
   ],
+  // Phase 9.9.8 -- product-truth fix. This registry drives the Builder's
+  // node-level "Configure X" required-field text (via
+  // lib/conversation/user-safe-payload.ts's sanitizeWorkflowGraph(), which
+  // recomputes credentialSchema live from here on every turn -- never from
+  // whatever a node's own stored parameters happened to say at generation
+  // time) and the Builder connect modal's manual-field fallback schema. It
+  // had drifted from the canonical credential contract each provider's real,
+  // working connection actually uses (lib/credentials/provider-registry.ts):
+  // slack never reads/validates a signing_secret anywhere in this codebase
+  // (grep confirms zero real usage outside this now-corrected stale entry),
+  // and gmail's real, current connection path (Phase 9.9.7A/B) is a single
+  // Google OAuth grant -- a normal user is never meant to obtain or paste a
+  // client_id/client_secret/refresh_token themselves (those are platform-
+  // level server secrets). SMTP remains an available fallback transport
+  // (components/builder/integration-connect-modal.tsx's "Use SMTP instead"),
+  // but is a UI-only alternate path, not part of gmail's default credential
+  // requirement -- its fixed field list now lives locally in that modal
+  // (GMAIL_SMTP_FALLBACK_SCHEMA) rather than here, so it can never leak back
+  // into the default "Configure Gmail" card text as if OAuth needed it too.
   slack: [
     { key: 'bot_token', label: 'Bot Token', required: true },
-    { key: 'signing_secret', label: 'Signing Secret', required: true },
   ],
   gmail: [
-    { key: 'auth_type', label: 'Auth Type (smtp|oauth)', required: true },
-    { key: 'client_id', label: 'OAuth Client ID', required: false },
-    { key: 'client_secret', label: 'OAuth Client Secret', required: false },
-    { key: 'refresh_token', label: 'OAuth Refresh Token', required: false },
-    { key: 'smtp_host', label: 'SMTP Host', required: false },
-    { key: 'smtp_port', label: 'SMTP Port', required: false },
-    { key: 'smtp_user', label: 'SMTP User', required: false },
-    { key: 'smtp_pass', label: 'SMTP Password', required: false },
-    { key: 'from_email', label: 'From Email', required: true },
+    { key: 'oauth_google_gmail', label: 'Google OAuth', required: true },
   ],
   hubspot: [
     { key: 'private_app_token', label: 'Private App Token', required: true },
