@@ -252,7 +252,7 @@ export async function getConnectedAirtableToken(userId: string): Promise<string 
 
     const { data: workflowSelections, error: selectionError } = await db
       .from('workflow_integrations')
-      .select('provider, integration_id')
+      .select('provider, integration_id, credential_id')
       .eq('workflow_id', workflowId)
       .eq('user_id', userId);
 
@@ -267,9 +267,20 @@ export async function getConnectedAirtableToken(userId: string): Promise<string 
     // (a live DB CHECK constraint on this column doesn't allow 'gmail' at
     // all). Canonicalize here so an explicit selection stored under either
     // label is always found by its canonical key below.
+    //
+    // Phase 9.9.8E -- a row's opaque identity now lives in EITHER
+    // integration_id (legacy) OR credential_id (OAuth/native), never both
+    // (dual-FK migration). Exactly one is non-null per row, so this always
+    // resolves to the single real id regardless of which table it came
+    // from; every downstream match below is a plain opaque-id equality
+    // check against getUserIntegrations()'s own `.id`, unaffected by which
+    // column it originated from.
     const selectedByProvider = new Map<IntegrationProvider, string>();
     (workflowSelections ?? []).forEach((row) => {
-      selectedByProvider.set(canonicalizeProviderId(String(row.provider)) as IntegrationProvider, row.integration_id as string);
+      const selectedId = (row.integration_id ?? row.credential_id) as string | null;
+      if (selectedId) {
+        selectedByProvider.set(canonicalizeProviderId(String(row.provider)) as IntegrationProvider, selectedId);
+      }
     });
 
     const resolved = new Map<IntegrationProvider, UserIntegration>();

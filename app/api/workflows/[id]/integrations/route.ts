@@ -81,9 +81,15 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const userIntegrations = await getUserIntegrations(user.id, { connectedOnly: true });
 
   // Get workflow_integrations (currently attached)
+  // Phase 9.9.8E -- a row's opaque identity now lives in EITHER
+  // integration_id (legacy user_integrations.id) OR credential_id
+  // (OAuth/native integration_credentials.id), never both -- see the dual-FK
+  // migration. Select both columns; matching below checks either one since
+  // it never knows in advance which table a given `integration.id` came
+  // from (that is only resolved, positively, in the POST handler).
   const { data: attached, error: attachedError } = await db
     .from('workflow_integrations')
-    .select('id, provider, integration_id')
+    .select('id, provider, integration_id, credential_id')
     .eq('workflow_id', workflowId);
 
   if (attachedError) {
@@ -107,7 +113,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       groupedByProvider.set(canonicalProvider, []);
     }
     const isAttached = (attached ?? []).some(
-      (a) => a.integration_id === integration.id && canonicalizeProviderId(a.provider) === canonicalProvider
+      (a) =>
+        (a.integration_id === integration.id || a.credential_id === integration.id) &&
+        canonicalizeProviderId(a.provider) === canonicalProvider
     );
     groupedByProvider.get(canonicalProvider)!.push({
       integrationId: integration.id,
@@ -126,7 +134,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     workflowId,
     requiredProviders: (workflow.integrations ?? []) as string[],
     availableByProvider,
-    attached: (attached ?? []).map((a) => ({ provider: canonicalizeProviderId(a.provider), integrationId: a.integration_id })),
+    attached: (attached ?? []).map((a) => ({
+      provider: canonicalizeProviderId(a.provider),
+      integrationId: (a.integration_id ?? a.credential_id) as string,
+    })),
   });
 }
 
@@ -172,7 +183,19 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // an opaque, non-secret reference, never a token. Both lookups are scoped
   // by the AUTHENTICATED user's id in the query itself, so neither can ever
   // resolve another tenant's credential.
-  type ResolvedIntegration = { id: string; provider: string; status: 'connected' | 'invalid' | 'not_connected' };
+  // Phase 9.9.8E -- `source` is set exactly once, at the single point each
+  // branch POSITIVELY confirms the id's real origin (a matching row actually
+  // found in that specific table) -- never inferred merely because the
+  // OTHER lookup returned nothing. This explicit tag is what tells the
+  // dual-FK write below (integration_id vs. credential_id) which column
+  // this id is actually valid for; the two identity spaces are otherwise
+  // indistinguishable opaque UUID strings.
+  type ResolvedIntegration = {
+    id: string;
+    provider: string;
+    status: 'connected' | 'invalid' | 'not_connected';
+    source: 'legacy' | 'credential';
+  };
   let integration: ResolvedIntegration | null = null;
   {
     const { data, error } = await db
@@ -185,7 +208,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       const safe = classifyError(error);
       return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
     }
-    if (data) integration = data as ResolvedIntegration;
+    if (data) integration = { ...(data as { id: string; provider: string; status: ResolvedIntegration['status'] }), source: 'legacy' };
   }
 
   if (!integration) {
@@ -207,7 +230,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       // Fails closed if the credential was since revoked/deleted.
       const status = await verifyProviderConnection(user.id, credRow.provider).catch(() => ({ connected: false, missing: [] as string[] }));
       if (status.connected) {
-        integration = { id: credRow.id, provider: credRow.provider, status: 'connected' };
+        integration = { id: credRow.id, provider: credRow.provider, status: 'connected', source: 'credential' };
       }
     }
   }
@@ -285,20 +308,32 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  type AttachedRow = { id: string; provider: string; integration_id: string };
+  type AttachedRow = { id: string; provider: string; integration_id: string | null; credential_id: string | null };
   let attached: AttachedRow | null = null;
   let mutationError: unknown = null;
+
+  // Phase 9.9.8E -- dual-FK identity columns (see the migration for why a
+  // single integration_id column can never validly reference both
+  // user_integrations and integration_credentials). Both columns are always
+  // written explicitly on every insert/update, one to the resolved id and
+  // the other to null, so the row's identity shape is always correct even
+  // when replacing a legacy attachment with an OAuth one (or vice versa)
+  // for the same canonical provider -- never left holding a stale value in
+  // the column that no longer applies.
+  const legacyIdToStore = integration.source === 'legacy' ? integrationId : null;
+  const credentialIdToStore = integration.source === 'credential' ? integrationId : null;
 
   if (existingRow) {
     const { data, error } = await db
       .from('workflow_integrations')
       .update({
-        integration_id: integrationId,
+        integration_id: legacyIdToStore,
+        credential_id: credentialIdToStore,
         provider: rawProviderToStore,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existingRow.id)
-      .select('id, provider, integration_id')
+      .select('id, provider, integration_id, credential_id')
       .maybeSingle();
     attached = data as AttachedRow | null;
     mutationError = error;
@@ -308,12 +343,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       .insert({
         workflow_id: workflowId,
         user_id: user.id,
-        integration_id: integrationId,
+        integration_id: legacyIdToStore,
+        credential_id: credentialIdToStore,
         provider: rawProviderToStore,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .select('id, provider, integration_id')
+      .select('id, provider, integration_id, credential_id')
       .maybeSingle();
     attached = data as AttachedRow | null;
     mutationError = error;
@@ -347,7 +383,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     attached: {
       id: attached?.id,
       provider: canonicalizeProviderId(String(attached?.provider ?? canonicalRequested)),
-      integrationId: attached?.integration_id,
+      integrationId: attached?.integration_id ?? attached?.credential_id,
     },
   });
 }

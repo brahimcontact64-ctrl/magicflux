@@ -195,7 +195,7 @@ describe('GET /api/workflows/[id]/integrations -- Gmail OAuth discovery (Phase 9
 });
 
 describe('POST /api/workflows/[id]/integrations -- attaching a Gmail OAuth credential (Phase 9.9.8C)', () => {
-  it('3. attaching Gmail persists only the opaque credential id, never a secret, into workflow_integrations', async () => {
+  it('3. attaching Gmail persists only the opaque credential id, into credential_id ONLY (never integration_id, never a secret)', async () => {
     seedWorkflow(WORKFLOW_ID, OWNER_ID, ['gmail']);
     seedGmailCredential(OWNER_ID, GMAIL_CRED_ID);
 
@@ -208,7 +208,12 @@ describe('POST /api/workflows/[id]/integrations -- attaching a Gmail OAuth crede
     if (res.status === 200) {
       const rows = fakeDb.tables.get('workflow_integrations') ?? [];
       expect(rows).toHaveLength(1);
-      expect(rows[0].integration_id).toBe(GMAIL_CRED_ID);
+      // Phase 9.9.8E dual-FK: an OAuth-bridged credential id belongs in
+      // credential_id (FK -> integration_credentials), never integration_id
+      // (FK -> user_integrations) -- that mismatch was the root cause of the
+      // "temporary_system_problem" 23503 foreign_key_violation this phase fixes.
+      expect(rows[0].credential_id).toBe(GMAIL_CRED_ID);
+      expect(rows[0].integration_id ?? null).toBeNull();
       expect(rows[0].provider).toBe('gmail'); // never aliased to 'email'
     } else {
       const body = await res.json();
@@ -269,6 +274,7 @@ describe('POST /api/workflows/[id]/integrations -- attaching a Gmail OAuth crede
     const rows = fakeDb.tables.get('workflow_integrations') ?? [];
     expect(rows).toHaveLength(1);
     expect(rows[0].integration_id).toBe('int-airtable-1');
+    expect(rows[0].credential_id ?? null).toBeNull(); // legacy attachment writes integration_id ONLY
     expect(rows[0].provider).toBe('airtable');
   });
 });
@@ -292,7 +298,7 @@ describe('resolveWorkflowIntegrations -- runtime resolves the exact selected Gma
   it('6. runtime resolves the selected Gmail credential server-side, returning a ready-to-use access_token', async () => {
     seedGmailCredential(OWNER_ID, GMAIL_CRED_ID);
     fakeDb.tables.set('workflow_integrations', [
-      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: GMAIL_CRED_ID },
+      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: null, credential_id: GMAIL_CRED_ID },
     ]);
     // Full storage mock needed here (unlike the route-level tests above,
     // which mock '@/lib/user-integrations' wholesale) since this test
@@ -318,7 +324,7 @@ describe('resolveWorkflowIntegrations -- runtime resolves the exact selected Gma
     // not connected, so getAllConnectedProviders-derived availability is empty.
     gmailConnected = false;
     fakeDb.tables.set('workflow_integrations', [
-      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: GMAIL_CRED_ID },
+      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: null, credential_id: GMAIL_CRED_ID },
     ]);
     vi.doMock('@/lib/credentials/storage', () => ({
       verifyProviderConnection: vi.fn(async () => ({ connected: false, missing: [] })),
@@ -339,7 +345,7 @@ describe('resolveWorkflowIntegrations -- runtime resolves the exact selected Gma
       { id: 'int-email-1', user_id: OWNER_ID, provider: 'email', status: 'connected', credentials: {} },
     ] as never);
     fakeDb.tables.set('workflow_integrations', [
-      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: GMAIL_CRED_ID },
+      { id: 'wi-1', workflow_id: WORKFLOW_ID, user_id: OWNER_ID, provider: 'gmail', integration_id: null, credential_id: GMAIL_CRED_ID },
     ]);
     vi.doMock('@/lib/credentials/storage', () => ({
       verifyProviderConnection: vi.fn(async () => ({ connected: false, missing: [] })),
