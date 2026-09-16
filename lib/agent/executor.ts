@@ -42,6 +42,7 @@ import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-rout
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
+import { validateAirtableDedupeClaim } from '@/lib/agent/airtable-dedupe-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 import { validateAirtablePersistenceCompleteness } from '@/lib/agent/airtable-persistence-guard';
 
@@ -1021,6 +1022,29 @@ export async function executeTool(
               type: 'error',
               label: 'Generated qualification policy is structurally invalid',
               detail: qualificationPolicyCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.11A -- Part 9: a generated Airtable node's "dedupe"
+        // parameter must never claim an unimplemented business behavior
+        // ("append") -- reject before persistence rather than silently
+        // substituting plain "create" for a different, unhonored request.
+        const airtableDedupeCheck = validateAirtableDedupeClaim(result.nodes);
+        if (!airtableDedupeCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: airtableDedupeCheck.reason,
+              unimplemented_dedupe_behavior: true,
+              node: airtableDedupeCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated Airtable dedupe policy claims an unimplemented behavior',
+              detail: airtableDedupeCheck.reason,
               agent: 'planner',
             },
           };

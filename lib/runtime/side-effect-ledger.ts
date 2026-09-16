@@ -3,37 +3,46 @@ import 'server-only';
 import { createServiceClient } from '@/lib/supabase-server';
 
 /**
- * Phase 9.9.11 -- Part D: durable side-effect ledger.
- *
- * NOT YET WIRED into the live execution path (runtime/node-runner.ts) --
- * this module is designed, implemented, and unit-tested (against a mocked
- * DB, matching this codebase's established convention) against the
- * migration drafted in supabase/migrations/20260916170907_add_workflow_side_effects_ledger.sql,
- * which has NOT been applied to production. See the Phase 9.9.11 report
- * for why: the migration requires explicit approval before being applied,
- * per the standing rule, and this module must never be called against a
- * table that doesn't exist yet.
+ * Phase 9.9.11A -- Part D: durable side-effect ledger, wired into the live
+ * execution path (runtime/node-runner.ts).
  *
  * What this closes that lib/runtime/idempotency.ts and provider-outcome.ts
- * (both already live) do NOT: those protect a single execution attempt
- * within one process (an event is only ever dispatched once; an ambiguous
- * network outcome within one node's retry loop is never blindly retried).
- * Neither protects against the PROCESS ITSELF crashing after a provider
- * call has already, definitely succeeded but before that success was
- * persisted anywhere -- on recovery, nothing today can tell a fresh
- * attempt "this exact node's effect already happened". Airtable, Gmail,
- * and Slack all lack a caller-supplied idempotency mechanism for the
- * operations this platform performs, so a durable, CAS-claimed ledger row
- * -- written BEFORE the provider is ever called -- is the only way to
- * close that gap safely.
+ * (both already live since Phase 9.9.11) do NOT: those protect a single
+ * execution attempt within one process (an event is only ever dispatched
+ * once; a network-ambiguous outcome within one node's own retry loop is
+ * never blindly retried). Neither protects against the PROCESS ITSELF
+ * crashing after a provider call has already, definitely succeeded but
+ * before that success was persisted anywhere -- on recovery, nothing
+ * before this could tell a fresh attempt "this exact effect already
+ * happened". Airtable, Gmail, and Slack all lack a caller-supplied
+ * idempotency mechanism for the operations this platform performs, so a
+ * durable, CAS-claimed ledger row -- written BEFORE the provider is ever
+ * called -- is the mechanism that closes that gap.
  *
- * Canonical key: (execution_id, node_id) -- the DB's own UNIQUE constraint
- * is the sole arbiter of "first claim wins", exactly like
- * runtime_execution_locks.idempotency_key already proves for event-level
- * idempotency (insert-and-catch-23505, never check-then-insert).
+ * CRITICAL TRUTH this module does NOT overstate (Phase 9.9.11A, Part 5):
+ * it cannot eliminate the fundamental window where a provider accepts a
+ * side effect and the process crashes before the DB can record success --
+ * that attempt correctly recovers as 'indeterminate', not a false
+ * 'succeeded' or 'failed'. The goal is never blindly duplicating an
+ * uncertain external side effect, never a false exactly-once claim.
+ *
+ * Canonical key: (execution_id, node_id, effect_key) -- effect_key exists
+ * because a single node COULD in principle perform more than one distinct
+ * external effect; every current call site passes DEFAULT_EFFECT_KEY since
+ * no existing node type (Airtable/Gmail/Slack) ever does today, but the
+ * schema does not assume that stays true. The DB's own UNIQUE constraint is
+ * the sole arbiter of "first claim wins" (insert-and-catch-23505, never
+ * check-then-insert), exactly like runtime_execution_locks.idempotency_key
+ * already proves for event-level idempotency.
  */
 
 export type SideEffectStatus = 'not_started' | 'in_progress' | 'succeeded' | 'failed' | 'indeterminate';
+
+/** Every current call site's effect_key -- see the module doc comment for why this column exists at all. */
+export const DEFAULT_EFFECT_KEY = 'primary';
+
+/** A stale in_progress row (no update in this long) is treated as an unresolved crash, never as proof of failure OR success. Generous relative to any single provider call's own timeout (Airtable/Slack/Gmail handlers all bound their own fetch to 10-20s) -- this only ever fires for a genuinely abandoned attempt, never a real in-flight one. */
+export const SIDE_EFFECT_LEASE_MS = 5 * 60_000;
 
 export type SideEffectLedgerRow = {
   id: string;
@@ -41,6 +50,7 @@ export type SideEffectLedgerRow = {
   providerRef: unknown;
   attempts: number;
   lastError: string | null;
+  updatedAt: string;
 };
 
 export type ClaimResult =
@@ -54,41 +64,50 @@ function toRow(raw: Record<string, unknown>): SideEffectLedgerRow {
     providerRef: raw.provider_ref ?? null,
     attempts: Number(raw.attempts ?? 0),
     lastError: (raw.last_error as string | null) ?? null,
+    updatedAt: String(raw.updated_at ?? new Date(0).toISOString()),
   };
 }
 
+/** True when an 'in_progress' row has not been touched within the lease window -- the caller's signal that this is an abandoned/crashed attempt, never proof of what the provider actually did. */
+export function isStaleInProgress(row: SideEffectLedgerRow, leaseMs: number = SIDE_EFFECT_LEASE_MS): boolean {
+  if (row.status !== 'in_progress') return false;
+  return Date.now() - new Date(row.updatedAt).getTime() > leaseMs;
+}
+
 /**
- * Attempts to claim the ledger row for (executionId, nodeId) before calling
- * a non-idempotent provider. Three outcomes:
+ * Attempts to claim the ledger row for (executionId, nodeId, effectKey)
+ * before calling a non-idempotent provider.
  *   - No row exists yet: inserts one as 'in_progress' and claims it.
- *   - A row exists in a state safe to retry ('failed' -- the prior attempt
- *     is KNOWN to have never reached the provider, or 'not_started'):
- *     atomically (CAS on status) flips it to 'in_progress' and claims it.
- *   - A row exists as 'succeeded' or 'indeterminate': NEVER claimed --
- *     the caller must not call the provider again (a 'succeeded' effect
- *     should short-circuit as already-done; an 'indeterminate' one must
- *     never be blindly retried, per Part E).
- *   - A row exists as 'in_progress': NEVER claimed -- either a genuine
- *     concurrent attempt is running right now, or a prior attempt crashed
- *     while in flight. Either way this caller must not also call the
- *     provider; a stale 'in_progress' row is a job for an explicit
- *     reconciliation sweep (mirroring lib/runtime/review-resume.ts's
- *     recoverStuckReviewResumes()), never an automatic silent retry here.
+ *   - A row exists in a state safe to retry ('failed' or 'not_started' --
+ *     KNOWN to have never reached the provider): atomically (CAS on
+ *     status) flips it to 'in_progress' and claims it.
+ *   - A row exists as 'succeeded': NEVER claimed -- the caller must treat
+ *     this as duplicate_suppressed and skip the provider entirely.
+ *   - A row exists as 'indeterminate': NEVER claimed -- must never be
+ *     blindly retried (Part E/5).
+ *   - A row exists as 'in_progress': NEVER claimed, whether fresh (a
+ *     genuine concurrent attempt) or stale (a crashed one) -- claiming
+ *     never speculatively resolves this either way (Part 5/6). A stale row
+ *     is a job for reconcileStaleSideEffects() below, never an automatic
+ *     silent retry here.
  */
 export async function claimSideEffect(params: {
   userId: string;
   workflowId: string;
   executionId: string;
   nodeId: string;
+  effectKey?: string;
   effectType: string;
 }): Promise<ClaimResult> {
   const db = createServiceClient();
+  const effectKey = params.effectKey ?? DEFAULT_EFFECT_KEY;
 
   const { error: insertError } = await db.from('workflow_side_effects').insert({
     user_id: params.userId,
     workflow_id: params.workflowId,
     execution_id: params.executionId,
     node_id: params.nodeId,
+    effect_key: effectKey,
     effect_type: params.effectType,
     status: 'in_progress',
     attempts: 1,
@@ -104,9 +123,10 @@ export async function claimSideEffect(params: {
   // prior crashed attempt) -- inspect it rather than assume.
   const { data: existing } = await db
     .from('workflow_side_effects')
-    .select('id, status, provider_ref, attempts, last_error')
+    .select('id, status, provider_ref, attempts, last_error, updated_at')
     .eq('execution_id', params.executionId)
     .eq('node_id', params.nodeId)
+    .eq('effect_key', effectKey)
     .maybeSingle();
 
   if (!existing) {
@@ -142,6 +162,7 @@ export async function claimSideEffect(params: {
 export async function recordSideEffectOutcome(params: {
   executionId: string;
   nodeId: string;
+  effectKey?: string;
   status: 'succeeded' | 'failed' | 'indeterminate';
   providerRef?: unknown;
   error?: string;
@@ -156,17 +177,85 @@ export async function recordSideEffectOutcome(params: {
       updated_at: new Date().toISOString(),
     })
     .eq('execution_id', params.executionId)
-    .eq('node_id', params.nodeId);
+    .eq('node_id', params.nodeId)
+    .eq('effect_key', params.effectKey ?? DEFAULT_EFFECT_KEY);
 }
 
 /** Read-only lookup for observability/reconciliation tooling -- never used to decide whether to call a provider (claimSideEffect is the only gate for that). */
-export async function getSideEffectStatus(params: { executionId: string; nodeId: string }): Promise<SideEffectLedgerRow | null> {
+export async function getSideEffectStatus(params: { executionId: string; nodeId: string; effectKey?: string }): Promise<SideEffectLedgerRow | null> {
   const db = createServiceClient();
   const { data } = await db
     .from('workflow_side_effects')
-    .select('id, status, provider_ref, attempts, last_error')
+    .select('id, status, provider_ref, attempts, last_error, updated_at')
     .eq('execution_id', params.executionId)
     .eq('node_id', params.nodeId)
+    .eq('effect_key', params.effectKey ?? DEFAULT_EFFECT_KEY)
     .maybeSingle();
   return data ? toRow(data) : null;
+}
+
+export type ReconciliationResult = { scanned: number; markedIndeterminate: number };
+
+/**
+ * Phase 9.9.11A -- Part 4/6: a stale 'in_progress' row (see
+ * isStaleInProgress()) means a prior attempt crashed mid-flight -- this
+ * sweep is the ONLY thing that ever moves such a row forward, and it can
+ * only ever move it to 'indeterminate', never to 'succeeded' or 'failed'.
+ *
+ * Investigated per Phase 9.9.11A Part 6 whether a provider-specific
+ * reconciliation could instead PROVE the true outcome here: none of
+ * Airtable (no idempotency-key-style correlation ever sent), Slack
+ * (chat.postMessage accepts no client-supplied message ID), or Gmail
+ * (messages.send is not invoked with a self-generated, searchable
+ * Message-ID today) give this platform a reliable, deterministic way to
+ * query the provider and prove what happened. Matching an Airtable
+ * record's field values or a Slack message's text after the fact is a
+ * heuristic, not a proof -- explicitly what Part 6 forbids relying on. So
+ * every stale row is conservatively marked 'indeterminate' and left for
+ * explicit operator/user resolution, never inferred as succeeded or
+ * silently retried.
+ *
+ * (A deterministic Gmail-specific reconciliation IS possible in principle
+ * -- generating and sending our own RFC822 Message-ID header, then
+ * searching Gmail for it on recovery -- but email.ts does not do this
+ * today; implementing it is a scoped, separate future change, not
+ * something this sweep can rely on until it exists.)
+ */
+export async function reconcileStaleSideEffects(params?: { batchSize?: number; leaseMs?: number }): Promise<ReconciliationResult> {
+  const db = createServiceClient();
+  const batchSize = params?.batchSize ?? 50;
+  const leaseMs = params?.leaseMs ?? SIDE_EFFECT_LEASE_MS;
+  const cutoffIso = new Date(Date.now() - leaseMs).toISOString();
+
+  const { data: candidates } = await db
+    .from('workflow_side_effects')
+    .select('id, updated_at')
+    .eq('status', 'in_progress')
+    .lte('updated_at', cutoffIso)
+    .limit(batchSize);
+
+  const rows = (candidates ?? []) as Array<{ id: string; updated_at: string }>;
+  let markedIndeterminate = 0;
+
+  for (const row of rows) {
+    // CAS: only transition if it is STILL 'in_progress' with the SAME
+    // updated_at we just observed -- never a blind update that could race
+    // a legitimate concurrent claimer's own progress.
+    const { data: updated } = await db
+      .from('workflow_side_effects')
+      .update({
+        status: 'indeterminate',
+        last_error: 'Reconciliation sweep: no provider-specific mechanism can prove the outcome of this stale in-progress attempt.',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .eq('status', 'in_progress')
+      .eq('updated_at', row.updated_at)
+      .select('id')
+      .maybeSingle();
+
+    if (updated) markedIndeterminate += 1;
+  }
+
+  return { scanned: rows.length, markedIndeterminate };
 }

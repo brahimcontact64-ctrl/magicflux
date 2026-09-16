@@ -42,6 +42,12 @@ describe('parseAirtableDedupePolicy', () => {
     const p = parseAirtableDedupePolicy({ version: 1, identityFields: ['Email', 'Phone'], onMatch: 'update' });
     expect(p).toEqual({ version: 1, identityFields: ['Email', 'Phone'], onMatch: 'update' });
   });
+
+  // Phase 9.9.11A -- Part 9: "append" is explicitly rejected, never
+  // silently downgraded to "create" -- see the module doc comment.
+  it('rejects "append" outright -- the whole policy is invalid, never silently treated as "create"', () => {
+    expect(parseAirtableDedupePolicy({ version: 1, identityFields: ['Email'], onMatch: 'append' })).toBeNull();
+  });
 });
 
 describe('normalizeIdentityValue', () => {
@@ -99,7 +105,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => { fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-function nodeWithDedupe(onMatch: 'create' | 'update' | 'append' = 'update'): EngineNode {
+function nodeWithDedupe(onMatch: 'create' | 'update' = 'update'): EngineNode {
   return {
     id: '1', name: 'Airtable', type: 'n8n-nodes-base.airtable',
     parameters: {

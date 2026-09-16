@@ -236,16 +236,9 @@ export async function airtableHandler(
           return { status: 'success', outputData: { ...data, airtable_id: updated.id, airtable_dedupe_matched: true, airtable_dedupe_action: 'update' }, logs };
         }
 
-        // No match, or onMatch is 'create'/'append' -- 'append' is
-        // intentionally NOT yet a distinct linked-record behavior (that
-        // requires knowing the base's own link-field schema, which this
-        // handler has no way to discover safely) -- it creates a new
-        // interaction record exactly like 'create' rather than guessing at
-        // a schema that might not exist, and is logged as such so this is
-        // never silently mistaken for a real linked-append.
-        if (matchedRecordId && dedupePolicy?.onMatch === 'append') {
-          logs.push(`Airtable dedupe: onMatch:"append" is not yet a distinct linked-record behavior -- creating a new interaction record instead of guessing at unknown link-field schema.`);
-        }
+        // No match, or onMatch is 'create' -- parseAirtableDedupePolicy()
+        // already REJECTS a policy requesting the unimplemented 'append'
+        // value outright (Part 9), so dedupePolicy can never carry it here.
 
         // The one operation a duplicate blind retry is most damaging for --
         // a real, extra lead row in the founder's CRM. See the module-level

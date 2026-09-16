@@ -13,9 +13,24 @@
  * Optional and additive: a node with no "dedupe" parameter configured
  * behaves exactly as before (always creates) -- existing, already-
  * certified workflows never silently gain this behavior (Part K).
+ *
+ * Phase 9.9.11A -- Part 9 product-truth correction: "append" (log this
+ * submission as a linked interaction/event under the existing contact,
+ * rather than updating its own fields) is NOT implemented -- this handler
+ * has no reliable way to discover a base's own link-field schema, so it
+ * cannot safely create a correctly-linked child record. The Phase 9.9.11
+ * draft silently fell back to plain "create" whenever "append" was
+ * configured, which is exactly the false capability claim this platform
+ * elsewhere refuses to allow (see lib/agent/notification-content-guard.ts
+ * and qualification-policy-guard.ts's own "fail validation, never silently
+ * degrade" precedent). "append" is now an explicitly REJECTED value, never
+ * a valid AirtableDedupeOnMatch at all -- see
+ * lib/agent/airtable-dedupe-guard.ts for the matching generation/
+ * activation-time guard that refuses to persist/activate a node claiming
+ * it, rather than only catching this here at runtime.
  */
 
-export type AirtableDedupeOnMatch = 'create' | 'update' | 'append';
+export type AirtableDedupeOnMatch = 'create' | 'update';
 
 export type AirtableDedupePolicy = {
   version: 1;
@@ -28,16 +43,23 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
-/** Fails closed to `null` (exactly today's create-only behavior) on anything absent or structurally invalid -- never a partial/guessed policy. */
+/**
+ * Fails closed to `null` (exactly today's create-only behavior) on
+ * anything absent or structurally invalid -- never a partial/guessed
+ * policy. A policy explicitly requesting the unimplemented "append" value
+ * is REJECTED (returns null) rather than silently treated as "create" --
+ * see this module's doc comment.
+ */
 export function parseAirtableDedupePolicy(raw: unknown): AirtableDedupePolicy | null {
   const obj = asRecord(raw);
   if (obj.version !== 1) return null;
+  if (obj.onMatch === 'append') return null;
 
   const identityFieldsRaw = Array.isArray(obj.identityFields) ? obj.identityFields : [];
   const identityFields = Array.from(new Set(identityFieldsRaw.map((f) => String(f).trim()).filter(Boolean)));
   if (identityFields.length === 0) return null;
 
-  const onMatch = obj.onMatch === 'update' || obj.onMatch === 'append' || obj.onMatch === 'create' ? obj.onMatch : 'create';
+  const onMatch = obj.onMatch === 'update' ? 'update' : 'create';
 
   return { version: 1, identityFields, onMatch };
 }

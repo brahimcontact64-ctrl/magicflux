@@ -94,11 +94,33 @@ class FakeTableHandle {
   }
 }
 
+// Phase 9.9.11A -- Part 7: unlike the generic FakeTableHandle above (whose
+// insert() never conflicts), workflow_side_effects' real DB behavior this
+// harness must faithfully model is its UNIQUE(execution_id, node_id,
+// effect_key) constraint -- lib/runtime/side-effect-ledger.ts's
+// claimSideEffect() depends on a genuine 23505 conflict to detect an
+// already-claimed effect, exactly like the applied migration guarantees.
+class FakeSideEffectsHandle {
+  constructor(private rows: Row[]) {}
+  select(): FakeQuery { return new FakeQuery(this.rows, 'select'); }
+  update(patch: Row): FakeQuery { return new FakeQuery(this.rows, 'select').update(patch); }
+  insert(row: Row) {
+    const conflict = this.rows.some((r) => r.execution_id === row.execution_id && r.node_id === row.node_id && r.effect_key === row.effect_key);
+    if (conflict) {
+      return { then: (resolve: (v: { error: { code: string; message: string } | null }) => unknown) => Promise.resolve(resolve({ error: { code: '23505', message: 'duplicate key' } })) };
+    }
+    this.rows.push({ id: `ledger-${this.rows.length + 1}`, updated_at: new Date().toISOString(), ...row });
+    return { then: (resolve: (v: { error: null }) => unknown) => Promise.resolve(resolve({ error: null })) };
+  }
+}
+
 class FakeDb {
   tables = new Map<string, Row[]>();
-  from(name: string): FakeTableHandle {
+  from(name: string): FakeTableHandle | FakeSideEffectsHandle {
     if (!this.tables.has(name)) this.tables.set(name, []);
-    return new FakeTableHandle(this.tables.get(name)!);
+    const rows = this.tables.get(name)!;
+    if (name === 'workflow_side_effects') return new FakeSideEffectsHandle(rows);
+    return new FakeTableHandle(rows);
   }
 }
 
@@ -477,5 +499,70 @@ describe('Confidence semantics after Human Review -- Phase 9.9.9 Part F', () => 
     // Confirms this exact scenario never produces a "decision" field a
     // template could mistake for a human override.
     expect(body.fields).not.toHaveProperty('decision');
+  });
+});
+
+// ─── Phase 9.9.11A -- Part 7: Human Review resume through the ledger ───────
+
+describe('Human Review resume integration with the durable side-effect ledger (Phase 9.9.11A Part 7)', () => {
+  beforeEach(async () => {
+    fakeDb.tables.clear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW', ok: true }));
+    vi.resetModules();
+    await seedIntegrations();
+  });
+
+  it('a duplicate resume that reaches the engine a second time (simulating a recovery race with an interactive resume) cannot repeat the already-succeeded downstream Airtable/Slack/Gmail effects -- the ledger, not just review-resume.ts\'s own separate guard, prevents it', async () => {
+    withMockedClassifier('Hot', 0.4);
+    const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const started = await runWorkflowExecution({
+      workflowJson: topology(0.6), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+    });
+    expect(started.status).toBe('waiting');
+
+    const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
+    reviewRows[0].status = 'resume_pending';
+    reviewRows[0].decision_outcome = 'Hot';
+
+    const first = await resumeWorkflowExecution({
+      executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topology(0.9), mode: 'live', inputData: {},
+    });
+    expect(first.status).toBe('success');
+
+    const airtableCallsAfterFirst = fetchMock.mock.calls.filter(([url]) => String(url).includes('api.airtable.com')).length;
+    const slackCallsAfterFirst = fetchMock.mock.calls.filter(([url]) => String(url).includes('slack.com')).length;
+    const emailCallsAfterFirst = fetchMock.mock.calls.filter(([url]) => String(url).includes('gmail.googleapis.com')).length;
+    expect(airtableCallsAfterFirst).toBe(1);
+    expect(slackCallsAfterFirst).toBe(1);
+    expect(emailCallsAfterFirst).toBe(1);
+
+    // Deliberately calls resumeWorkflowExecution() AGAIN directly -- this
+    // bypasses lib/runtime/review-resume.ts's OWN separately-proven
+    // "stillAtThisNode" guard entirely (that guard is exactly what a real
+    // recovery sweep goes through -- see review-resume-crash-safety.test.ts
+    // -- this test isolates what happens if the engine is ever re-entered
+    // for the same execution regardless). The side-effect ledger, wired
+    // into runtime/node-runner.ts, is the layer that must independently
+    // prevent a real duplicate here.
+    const second = await resumeWorkflowExecution({
+      executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topology(0.9), mode: 'live', inputData: {},
+    });
+
+    const airtableCallsAfterSecond = fetchMock.mock.calls.filter(([url]) => String(url).includes('api.airtable.com')).length;
+    const slackCallsAfterSecond = fetchMock.mock.calls.filter(([url]) => String(url).includes('slack.com')).length;
+    const emailCallsAfterSecond = fetchMock.mock.calls.filter(([url]) => String(url).includes('gmail.googleapis.com')).length;
+
+    // No new provider calls at all -- the ledger suppressed every one as
+    // duplicate_suppressed rather than letting the resumed branch execute
+    // its side effects twice.
+    expect(airtableCallsAfterSecond).toBe(airtableCallsAfterFirst);
+    expect(slackCallsAfterSecond).toBe(slackCallsAfterFirst);
+    expect(emailCallsAfterSecond).toBe(emailCallsAfterFirst);
+    expect(second.status).toBe('success');
+
+    const ledgerRows = fakeDb.tables.get('workflow_side_effects') as Row[];
+    expect(ledgerRows.filter((r) => r.status === 'succeeded')).toHaveLength(3); // Airtable, Slack, Gmail -- one ledger row each, never duplicated
+    vi.doUnmock('../lib/workflow-runtime/node-handlers/ai-classifier');
   });
 });

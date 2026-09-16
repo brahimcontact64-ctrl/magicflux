@@ -2,6 +2,13 @@ import { dispatchNode } from '@/lib/workflow-runtime/node-handlers';
 import type { EngineNode, NodeHandlerContext, NodeStatus } from '@/lib/workflow-runtime/types';
 import { emitRuntimeEvent } from '@/lib/runtime/events';
 import { recordUsageEventSafe } from '@/lib/runtime/usage-metering';
+import { claimSideEffect, recordSideEffectOutcome, isStaleInProgress, type SideEffectLedgerRow } from '@/lib/runtime/side-effect-ledger';
+import {
+  isLedgerProtectedSideEffect,
+  deriveEffectType,
+  extractProviderRef,
+  buildDuplicateSuppressedOutputData,
+} from '@/lib/workflow-runtime/node-handlers/side-effect-gate';
 import { RuntimeStateStore } from './runtime-state';
 
 type RunNodeInput = {
@@ -24,6 +31,8 @@ export type NodeRunResult = {
   error?: string;
   nextRunAt?: Date;
   attempts: number;
+  /** Phase 9.9.11A -- propagated from the terminal NodeHandlerResult so callers (the side-effect ledger gate) can distinguish a network-ambiguous outcome from an ordinary, safely-retryable failure without string-matching the error message. Always false/absent for a genuine "retries exhausted" exit. */
+  nonRetryable?: boolean;
 };
 
 function retryDelay(attempt: number): number {
@@ -35,10 +44,122 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Maps a completed NodeRunResult to the ledger's own succeeded/failed/indeterminate vocabulary. 'cancelled' is treated as 'failed' (safe to retry later) since the cancel check always runs BEFORE any provider call within a given attempt -- cancellation can therefore never itself be the ambiguous case. */
+function classifyRunResultForLedger(result: NodeRunResult): 'succeeded' | 'failed' | 'indeterminate' {
+  if (result.status === 'success' || result.status === 'simulated_success' || result.status === 'skipped' || result.status === 'waiting') {
+    return 'succeeded';
+  }
+  if (result.status === 'cancelled') return 'failed';
+  // status === 'failed'
+  return result.nonRetryable ? 'indeterminate' : 'failed';
+}
+
 export class NodeRunner {
   constructor(private readonly stateStore: RuntimeStateStore) {}
 
+  /**
+   * Phase 9.9.11A -- Part 4/5/7: the durable side-effect ledger gate. Wraps
+   * the ENTIRE claimed attempt (which may itself contain multiple in-
+   * process retries -- see runAttempts() below) as one ledger-tracked
+   * unit: claimed once, BEFORE any provider call, recorded once, after the
+   * attempt reaches a terminal outcome. This is what lets a crash-and-
+   * recover (a fresh process re-running this exact node, whether via
+   * Human Review resume or the retry dispatcher) see "this effect already
+   * happened" and skip the provider entirely, or see "this is genuinely
+   * unresolved" and refuse to guess -- neither of which the in-process
+   * retry loop alone (Phase 9.9.11) could ever know across a process
+   * boundary. Only gates the three currently-certified external-effect
+   * node types (Airtable/Gmail/Slack) -- every other node type (AI
+   * Classifier, Human Review, IF, webhook, ...) runs exactly as before,
+   * completely unaffected.
+   */
   async run(input: RunNodeInput): Promise<NodeRunResult> {
+    if (!isLedgerProtectedSideEffect(input.node)) {
+      return this.runAttempts(input);
+    }
+
+    const nodeId = String(input.node.id ?? input.node.name ?? 'node');
+    const effectType = deriveEffectType(input.node);
+
+    const claim = await claimSideEffect({
+      userId: input.userId,
+      workflowId: input.workflowId,
+      executionId: input.executionId,
+      nodeId,
+      effectType,
+    });
+
+    if (!claim.claimed) {
+      return this.shortCircuitUnclaimed(input, claim.existing);
+    }
+
+    const result = await this.runAttempts(input);
+
+    await recordSideEffectOutcome({
+      executionId: input.executionId,
+      nodeId,
+      status: classifyRunResultForLedger(result),
+      providerRef: result.status === 'success' || result.status === 'simulated_success' ? extractProviderRef(input.node, result.outputData) : undefined,
+      error: result.error,
+    });
+
+    return result;
+  }
+
+  /**
+   * The provider is NEVER called here -- either the effect is already
+   * known-succeeded (duplicate_suppressed, Part 4/8) or the ledger holds a
+   * state this attempt must not act past (indeterminate, or an
+   * in_progress claim -- fresh/concurrent or stale/crashed, Part 4/6:
+   * "recovery must NOT blindly assume either success or failure").
+   */
+  private async shortCircuitUnclaimed(input: RunNodeInput, existing: SideEffectLedgerRow): Promise<NodeRunResult> {
+    const nodeName = String(input.node.name ?? input.node.id ?? 'node');
+    const nodeId = String(input.node.id ?? nodeName);
+    const nodeType = String(input.node.type ?? 'unknown');
+
+    if (existing.status === 'succeeded') {
+      const outputData = buildDuplicateSuppressedOutputData(input.inputData, existing.providerRef);
+      const logs = [`${nodeName}: this effect already succeeded (duplicate_suppressed) -- not calling the provider again.`];
+      await this.stateStore.persistNodeState({
+        executionId: input.executionId, workflowId: input.workflowId, userId: input.userId,
+        nodeId, nodeName, nodeType, status: 'success', attempt: 0, inputData: input.inputData, outputData, logs,
+      });
+      await emitRuntimeEvent({
+        eventType: 'node.completed', userId: input.userId, workflowId: input.workflowId, executionId: input.executionId,
+        correlationId: input.correlationId, traceId: input.traceId, severity: 'info',
+        payload: { nodeId, nodeName, nodeType, attempt: 0, status: 'duplicate_suppressed' },
+      });
+      return { status: 'skipped', outputData, logs, attempts: 0 };
+    }
+
+    // indeterminate, or an in_progress claim (fresh-concurrent or stale-
+    // crashed, per isStaleInProgress) -- MagicFlux cannot prove whether the
+    // provider completed this action; automatic retry is stopped rather
+    // than risk a possible duplicate. A stale in_progress row is left for
+    // the separate reconcileStaleSideEffects() sweep, never speculatively
+    // resolved here.
+    const reason = existing.status === 'in_progress'
+      ? (isStaleInProgress(existing)
+          ? 'INDETERMINATE: a prior attempt for this effect appears to have crashed mid-flight -- MagicFlux cannot prove whether the provider completed this action. Automatic retry stopped to prevent a possible duplicate; this requires manual verification.'
+          : 'A concurrent attempt for this exact effect is already in progress.')
+      : 'INDETERMINATE: this effect was already left in an unresolved state -- MagicFlux cannot prove whether the provider completed this action. Automatic retry stopped to prevent a possible duplicate; this requires manual verification.';
+    const logs = [`${nodeName}: ${reason}`];
+
+    await this.stateStore.persistNodeState({
+      executionId: input.executionId, workflowId: input.workflowId, userId: input.userId,
+      nodeId, nodeName, nodeType, status: 'failed', attempt: 0, inputData: input.inputData, logs, errorMessage: reason,
+    });
+    await emitRuntimeEvent({
+      eventType: 'node.failed', userId: input.userId, workflowId: input.workflowId, executionId: input.executionId,
+      correlationId: input.correlationId, traceId: input.traceId, severity: 'error',
+      payload: { nodeId, nodeName, nodeType, attempt: 0, error: reason },
+    });
+
+    return { status: 'failed', outputData: null, logs, error: reason, attempts: 0 };
+  }
+
+  private async runAttempts(input: RunNodeInput): Promise<NodeRunResult> {
     const nodeName = String(input.node.name ?? input.node.id ?? 'node');
     const nodeId = String(input.node.id ?? nodeName);
     const nodeType = String(input.node.type ?? 'unknown');
@@ -220,6 +341,7 @@ export class NodeRunner {
           logs: result.logs,
           error,
           attempts: attempt,
+          nonRetryable: result.nonRetryable,
         };
       }
 

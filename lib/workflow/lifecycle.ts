@@ -13,6 +13,7 @@ import { validateAirtableMapping } from '@/lib/airtable/schema';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
+import { validateAirtableDedupeClaim } from '@/lib/agent/airtable-dedupe-guard';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -223,6 +224,11 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
   // qualification policy that is structurally invalid.
   const qualificationPolicyResult = validateQualificationPolicyShape(templateSyntaxNodes);
   const qualificationPolicyErrors = qualificationPolicyResult.ok ? [] : [qualificationPolicyResult.reason];
+  // Phase 9.9.11A -- Part 9: same activation-time backstop for a hand-
+  // edited or pre-existing workflow whose Airtable node claims the
+  // unimplemented dedupe.onMatch:"append" behavior.
+  const airtableDedupeResult = validateAirtableDedupeClaim(templateSyntaxNodes);
+  const airtableDedupeErrors = airtableDedupeResult.ok ? [] : [airtableDedupeResult.reason];
   const errors = [
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
@@ -230,6 +236,7 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     ...templateSyntaxErrors,
     ...notificationContentErrors,
     ...qualificationPolicyErrors,
+    ...airtableDedupeErrors,
   ];
 
   if (errors.length > 0) {

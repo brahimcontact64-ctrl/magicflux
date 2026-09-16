@@ -291,6 +291,23 @@ describe('NodeRunner -- a nonRetryable handler failure is never retried, at any 
     vi.doMock('@/lib/runtime/events', () => ({
       emitRuntimeEvent: vi.fn().mockResolvedValue(undefined),
     }));
+    // Phase 9.9.11A -- NodeRunner now claims a side-effect ledger row
+    // (lib/runtime/side-effect-ledger.ts) before dispatching a Gmail/email
+    // node; that module needs a Supabase client, which this test never
+    // otherwise provides. A harmless permissive fake is enough here since
+    // this test verifies the nonRetryable retry-suppression contract, not
+    // ledger persistence itself (see tests/node-runner-side-effect-ledger.test.ts
+    // for that).
+    vi.doMock('@/lib/supabase-server', () => ({
+      createServiceClient: vi.fn(() => {
+        const chain: Record<string, unknown> = {};
+        const resolved = Promise.resolve({ data: null, error: null });
+        for (const m of ['select', 'insert', 'update', 'delete', 'upsert', 'eq', 'in', 'limit', 'order']) chain[m] = vi.fn(() => chain);
+        chain.then = resolved.then.bind(resolved);
+        chain.maybeSingle = vi.fn(() => resolved);
+        return { from: vi.fn(() => chain) };
+      }),
+    }));
 
     const stateStore = {
       getExecutionControl: vi.fn().mockResolvedValue({ cancelRequested: false, pauseRequested: false, resumeRequested: false, reason: null }),
