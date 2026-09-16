@@ -190,6 +190,14 @@ export default function DashboardPage() {
             </span>
           )}
         </Link>
+        {/* Phase 9.9.12 -- the /acknowledgments page/API are fully built and
+            tested, but intentionally NOT linked from here yet: the backing
+            workflow_acknowledgments table has not been applied to
+            production (pending migration approval), so surfacing this now
+            would show the real user a broken "failed to load" page instead
+            of a working feature. Re-add this link once the migration is
+            approved and applied (mirrors the Phase 9.9.11 -> 9.9.11A
+            precedent for the side-effect ledger). */}
         <Link href='/runtime'>
           <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
             <Activity className='h-3.5 w-3.5' />

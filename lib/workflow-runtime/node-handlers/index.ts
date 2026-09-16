@@ -13,7 +13,8 @@ import { httpHandler } from './http';
 import { setHandler } from './set';
 import { aiClassifierHandler } from './ai-classifier';
 import { humanReviewHandler } from './human-review';
-import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE } from '../node-capabilities';
+import { waitForAcknowledgmentHandler } from './wait-for-acknowledgment';
+import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE, WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -73,6 +74,9 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   // Durable Human Review / Approval -- MagicFlux-native capability, no user
   // credential (same CREDENTIAL_FREE_HANDLER_EXCEPTIONS pattern).
   [HUMAN_REVIEW_NODE_TYPE.toLowerCase(), humanReviewHandler],
+  // Durable SLA Acknowledgment -- MagicFlux-native capability, no user
+  // credential (same CREDENTIAL_FREE_HANDLER_EXCEPTIONS pattern).
+  [WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(), waitForAcknowledgmentHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
@@ -163,4 +167,5 @@ export {
   setHandler,
   aiClassifierHandler,
   humanReviewHandler,
+  waitForAcknowledgmentHandler,
 };

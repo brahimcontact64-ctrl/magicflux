@@ -112,10 +112,23 @@ export const AI_CLASSIFIER_NODE_TYPE = 'magicflux-nodes.aiClassifier';
  */
 export const HUMAN_REVIEW_NODE_TYPE = 'magicflux-nodes.humanReview';
 
+/**
+ * Phase 9.9.12 -- canonical type string for the durable SLA Acknowledgment
+ * capability. Genuinely branch-deciding (acknowledged/timed_out), like an
+ * IF node or Human Review, but backed by a real durable deadline record
+ * (lib/workflow-runtime/node-handlers/wait-for-acknowledgment.ts) rather
+ * than an in-memory condition -- must NOT be represented as Set or IF.
+ * Deliberately distinct from HUMAN_REVIEW_NODE_TYPE: that node answers
+ * "what should the AI have decided instead" (no timer); this one answers
+ * "has a human taken ownership before a deadline" (always has a timer).
+ */
+export const WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE = 'magicflux-nodes.waitForAcknowledgment';
+
 /** Exact lowercase type strings for MagicFlux-native (non-n8n) capability nodes. */
 export const MAGICFLUX_NATIVE_EXACT_TYPES: ReadonlySet<string> = new Set([
   AI_CLASSIFIER_NODE_TYPE.toLowerCase(),
   HUMAN_REVIEW_NODE_TYPE.toLowerCase(),
+  WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(),
 ]);
 
 /** Lowercase substrings that route a type to a generic (credential-free) handler. */
@@ -154,7 +167,13 @@ export function isConditionalNodeType(type: string): boolean {
   // Phase 9.9.2 -- humanReview is exact-segment matched too: it genuinely
   // branches (approve/reject/custom outcome), so the branch-connections
   // validator must apply to it exactly like an IF node.
-  if (segment === 'if' || segment === HUMAN_REVIEW_NODE_TYPE.toLowerCase().split('.').pop()) return true;
+  // Phase 9.9.12 -- waitForAcknowledgment is exact-segment matched for the
+  // same reason: it genuinely branches (acknowledged/timed_out).
+  if (
+    segment === 'if' ||
+    segment === HUMAN_REVIEW_NODE_TYPE.toLowerCase().split('.').pop() ||
+    segment === WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase().split('.').pop()
+  ) return true;
   return CONDITIONAL_NODE_SUBSTRINGS.some((s) => lc.includes(s));
 }
 
