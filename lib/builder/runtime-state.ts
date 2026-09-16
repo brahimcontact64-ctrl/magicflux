@@ -697,6 +697,31 @@ export function deriveIntegrationCards(
     addProvider(node.provider ?? node.integration ?? '', node.displayName, schemaFields);
   }
 
+  // Phase 9.9.8A -- when 2+ credentialed nodes share the same provider (the
+  // exact production case: three separate Airtable action nodes, "Save to
+  // Airtable (Hot)"/"(Warm)"/"(Cold)"), addProvider() above unconditionally
+  // overwrites displayName with each node's own specific name every time
+  // it's called for that provider -- so the one surviving card ends up
+  // labeled after whichever node happened to be processed LAST ("Configure
+  // Save to Airtable (Cold)"), looking like the card belongs to one
+  // specific action instead of representing the provider as a whole. This
+  // is exactly the confusing, non-actionable-looking card from the
+  // original bug report. Falls back to the provider's own generic display
+  // name whenever more than one node shares it; a genuinely single-node
+  // provider keeps that one action's specific, more informative name.
+  const credentialedNodeCountByProvider = new Map<string, number>();
+  for (const node of graph?.nodes ?? []) {
+    if (!node.requiresCredentials) continue;
+    const provider = normalizeProviderName(node.provider ?? node.integration ?? '');
+    if (!provider) continue;
+    credentialedNodeCountByProvider.set(provider, (credentialedNodeCountByProvider.get(provider) ?? 0) + 1);
+  }
+  for (const [provider, count] of credentialedNodeCountByProvider) {
+    if (count <= 1) continue;
+    const card = byProvider.get(provider);
+    if (card) card.displayName = providerDisplayName(provider);
+  }
+
   for (const provider of filterProvidersToGraphAllowList(requests.map((request) => request.provider), graph)) {
     addProvider(provider);
   }

@@ -61,6 +61,13 @@ function NodeConfigCard({
   onConfigured: () => void;
 }) {
   const status = node.status ?? 'unconfigured';
+  // Phase 9.9.8A -- every node card starts COLLAPSED behind an explicit
+  // "Configure" button, regardless of status. Production testing found the
+  // always-open form indistinguishable from the surrounding informational
+  // cards ("nothing looks clickable"); a single, unambiguous per-node
+  // button that visibly opens/closes the real editor fixes that, and
+  // matches the literal required UX: "Save to Airtable (Hot) [Configure]".
+  const [expanded, setExpanded] = useState(false);
   const [bases, setBases] = useState<AirtableBase[] | null>(null);
   const [tables, setTables] = useState<AirtableTable[] | null>(null);
   const [baseId, setBaseId] = useState(node.baseId ?? '');
@@ -77,7 +84,7 @@ function NodeConfigCard({
   const credentialMissing = status === 'credential_missing';
 
   useEffect(() => {
-    if (credentialMissing) return;
+    if (!expanded || credentialMissing) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -96,7 +103,7 @@ function NodeConfigCard({
       }
     })();
     return () => { cancelled = true; };
-  }, [credentialMissing]);
+  }, [expanded, credentialMissing]);
 
   const loadTables = useCallback(async (selectedBaseId: string, preselectTableId?: string) => {
     setBaseId(selectedBaseId);
@@ -128,11 +135,12 @@ function NodeConfigCard({
   // of making the founder re-pick a base/table they already chose just to
   // re-check or fix one renamed field.
   useEffect(() => {
+    if (!expanded) return;
     if (node.baseId && bases !== null && tables === null && !loading) {
       loadTables(node.baseId, node.tableId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bases, node.baseId, node.tableId]);
+  }, [expanded, bases, node.baseId, node.tableId]);
 
   const selectedTable = useMemo(() => tables?.find((t) => t.id === tableId) ?? null, [tables, tableId]);
 
@@ -185,92 +193,96 @@ function NodeConfigCard({
 
   const badge = STATUS_BADGE[status];
 
-  if (credentialMissing) {
-    return (
-      <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
+  return (
+    <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <p className="text-sm font-medium">{node.nodeName}</p>
           <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${badge.className}`}>
             {badge.icon}{badge.label}
           </span>
         </div>
+        <Button
+          size="sm"
+          variant={expanded ? 'outline' : 'default'}
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded ? 'Close' : 'Configure'}
+        </Button>
+      </div>
+
+      {expanded && credentialMissing ? (
         <p className="text-xs text-muted-foreground">Connect Airtable first, then come back here to configure this step.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">{node.nodeName}</p>
-        <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${badge.className}`}>
-          {badge.icon}{badge.label}
-        </span>
-      </div>
-      {status === 'schema_changed' ? (
-        <p className="text-[11px] text-amber-700 dark:text-amber-400">
-          One or more previously-mapped fields no longer match Airtable's real schema. Review the mapping below and re-save.
-        </p>
-      ) : null}
-      {justSaved ? (
-        <p className="text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3" /> Saved and verified against Airtable's live schema.
-        </p>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div>
-          <label className="text-xs text-muted-foreground">Base</label>
-          <select
-            className="w-full mt-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={baseId}
-            onChange={(e) => loadTables(e.target.value)}
-          >
-            <option value="">{bases === null ? 'Loading…' : 'Select a base…'}</option>
-            {(bases ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Table</label>
-          <select
-            className="w-full mt-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={tableId}
-            disabled={!baseId}
-            onChange={(e) => setTableId(e.target.value)}
-          >
-            <option value="">{!baseId ? 'Select a base first' : tables === null ? 'Loading…' : 'Select a table…'}</option>
-            {(tables ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
-      </div>
+      {expanded && !credentialMissing ? (
+        <>
+          {status === 'schema_changed' ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              One or more previously-mapped fields no longer match Airtable's real schema. Review the mapping below and re-save.
+            </p>
+          ) : null}
+          {justSaved ? (
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Saved and verified against Airtable's live schema.
+            </p>
+          ) : null}
 
-      {selectedTable && node.fieldKeys.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Map each value this step sends to a real field in this table:</p>
-          {node.fieldKeys.map((key) => (
-            <div key={key} className="flex items-center gap-2 text-sm">
-              <span className="w-40 shrink-0 font-mono text-xs text-muted-foreground truncate">{key}</span>
-              <span className="text-muted-foreground">→</span>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-muted-foreground">Base</label>
               <select
-                className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                value={mapping[key] ?? ''}
-                onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value }))}
+                className="w-full mt-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={baseId}
+                onChange={(e) => loadTables(e.target.value)}
               >
-                <option value="">Select a field…</option>
-                {selectedTable.fields.map((f) => <option key={f.id} value={f.name}>{f.name} ({f.type})</option>)}
+                <option value="">{bases === null ? 'Loading…' : 'Select a base…'}</option>
+                {(bases ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
-          ))}
-        </div>
-      )}
+            <div>
+              <label className="text-xs text-muted-foreground">Table</label>
+              <select
+                className="w-full mt-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={tableId}
+                disabled={!baseId}
+                onChange={(e) => setTableId(e.target.value)}
+              >
+                <option value="">{!baseId ? 'Select a base first' : tables === null ? 'Loading…' : 'Select a table…'}</option>
+                {(tables ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          </div>
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {selectedTable && node.fieldKeys.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Map each value this step sends to a real field in this table:</p>
+              {node.fieldKeys.map((key) => (
+                <div key={key} className="flex items-center gap-2 text-sm">
+                  <span className="w-40 shrink-0 font-mono text-xs text-muted-foreground truncate">{key}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <select
+                    className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={mapping[key] ?? ''}
+                    onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value }))}
+                  >
+                    <option value="">Select a field…</option>
+                    {selectedTable.fields.map((f) => <option key={f.id} value={f.name}>{f.name} ({f.type})</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
 
-      <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-        {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
-        Save & verify mapping
-      </Button>
-      {loading && !bases ? <p className="text-xs text-muted-foreground">Loading your Airtable bases…</p> : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
+          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
+            {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+            Save & verify mapping
+          </Button>
+          {loading && !bases ? <p className="text-xs text-muted-foreground">Loading your Airtable bases…</p> : null}
+        </>
+      ) : null}
     </div>
   );
 }

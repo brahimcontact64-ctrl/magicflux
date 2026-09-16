@@ -176,4 +176,45 @@ describe('deriveIntegrationCards — authoritative readiness (Phase 9.8.6)', () 
     expect(cards[0].connected).toBe(false);
     expect(cards[0].reason).toBe('to send an email using Gmail.');
   });
+
+  describe('Phase 9.9.8A -- multiple nodes sharing one provider get one generic card, not the last node\'s specific name', () => {
+    it('reproduces the exact production defect: three Airtable action nodes (Hot/Warm/Cold) collapse to a single card unconditionally overwritten by whichever node is processed last', () => {
+      const graph = makeGraph([
+        makeNode({ id: '1', name: 'Save to Airtable (Hot)', type: 'n8n-nodes-base.airtable', provider: 'airtable', integration: 'airtable', displayName: 'Save to Airtable (Hot)' }),
+        makeNode({ id: '2', name: 'Save to Airtable (Warm)', type: 'n8n-nodes-base.airtable', provider: 'airtable', integration: 'airtable', displayName: 'Save to Airtable (Warm)' }),
+        makeNode({ id: '3', name: 'Save to Airtable (Cold)', type: 'n8n-nodes-base.airtable', provider: 'airtable', integration: 'airtable', displayName: 'Save to Airtable (Cold)' }),
+      ]);
+      const cards = deriveIntegrationCards(graph, [], ['airtable'], [{ provider: 'airtable', ready: true }]);
+
+      expect(cards).toHaveLength(1);
+      // Before the fix this was "Save to Airtable (Cold)" -- the last node
+      // processed -- making the single provider-level card look like it
+      // belonged to one specific action instead of the provider as a whole.
+      expect(cards[0].displayName).toBe('Airtable');
+      expect(cards[0].displayName).not.toContain('Hot');
+      expect(cards[0].displayName).not.toContain('Warm');
+      expect(cards[0].displayName).not.toContain('Cold');
+    });
+
+    it('a genuinely single-node provider keeps that one action\'s specific, more informative display name', () => {
+      const graph = makeGraph([
+        makeNode({ id: '1', name: 'Save to Airtable', type: 'n8n-nodes-base.airtable', provider: 'airtable', integration: 'airtable', displayName: 'Save New Leads to Airtable' }),
+      ]);
+      const cards = deriveIntegrationCards(graph, [], ['airtable'], [{ provider: 'airtable', ready: true }]);
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].displayName).toBe('Save New Leads to Airtable');
+    });
+
+    it('is provider-agnostic -- the same collapse applies to any provider with multiple credentialed nodes, e.g. two Slack nodes', () => {
+      const graph = makeGraph([
+        makeNode({ id: '1', name: 'Notify Sales (Hot)', type: 'n8n-nodes-base.slack', provider: 'slack', integration: 'slack', displayName: 'Notify Sales (Hot)' }),
+        makeNode({ id: '2', name: 'Notify Support (Cold)', type: 'n8n-nodes-base.slack', provider: 'slack', integration: 'slack', displayName: 'Notify Support (Cold)' }),
+      ]);
+      const cards = deriveIntegrationCards(graph, [], ['slack'], [{ provider: 'slack', ready: true }]);
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].displayName).toBe('Slack');
+    });
+  });
 });

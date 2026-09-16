@@ -56,19 +56,37 @@ export function BuilderAirtableConfigPanel({
   airtableConnected: boolean;
 }) {
   const [nodes, setNodes] = useState<AirtableNodeNeedingConfig[] | null>(null);
+  const [workflowMeta, setWorkflowMeta] = useState<{ id: string; name: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const hasAirtableNodes = (graph?.nodes ?? []).some((n) => isAirtableNodeType(n.type));
 
   const load = useCallback(async () => {
-    if (!workflowId || !hasAirtableNodes) {
+    if (!hasAirtableNodes) {
       setNodes(null);
+      setWorkflowMeta(null);
+      setLoadError(null);
+      return;
+    }
+
+    // Phase 9.9.8A -- a workflow with Airtable nodes visible in the chat but
+    // no persistedWorkflowId yet (the founder's own generation turn hasn't
+    // finished saving) must say so explicitly rather than silently
+    // rendering nothing, which production testing found indistinguishable
+    // from a genuine bug.
+    if (!workflowId) {
+      setNodes(null);
+      setWorkflowMeta(null);
+      setLoadError('still_saving');
       return;
     }
 
     const headers = await authHeaders();
     if (!headers) {
       setNodes(null);
+      setWorkflowMeta(null);
+      setLoadError('session_expired');
       return;
     }
 
@@ -77,8 +95,16 @@ export function BuilderAirtableConfigPanel({
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.workflow) {
         setNodes(null);
+        setWorkflowMeta(null);
+        setLoadError('load_failed');
         return;
       }
+      setLoadError(null);
+      // Phase 9.9.8A -- resolves the duplicate-workflow ambiguity: this is
+      // the exact persisted row (id + name) every save below targets, shown
+      // to the founder so it's never a guess which of several
+      // similarly-named drafts is actually being edited.
+      setWorkflowMeta({ id: String(body.workflow.id ?? workflowId), name: String(body.workflow.name ?? 'Untitled workflow') });
 
       const rawNodes: Array<Record<string, unknown>> = Array.isArray(body.workflow.workflow_json?.nodes)
         ? body.workflow.workflow_json.nodes
@@ -135,6 +161,8 @@ export function BuilderAirtableConfigPanel({
       setNodes(results);
     } catch {
       setNodes(null);
+      setWorkflowMeta(null);
+      setLoadError('load_failed');
     }
   }, [workflowId, hasAirtableNodes, airtableConnected]);
 
@@ -144,13 +172,54 @@ export function BuilderAirtableConfigPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, refreshKey]);
 
-  if (!workflowId || !nodes || nodes.length === 0) return null;
+  if (!hasAirtableNodes) return null;
+
+  if (loadError === 'still_saving') {
+    return (
+      <div className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-3 text-xs text-muted-foreground">
+        Still saving your workflow — Airtable configuration will appear here in a moment.
+      </div>
+    );
+  }
+
+  if (loadError === 'session_expired') {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+        Your session expired — refresh the page to configure Airtable here.
+      </div>
+    );
+  }
+
+  if (loadError === 'load_failed') return null;
+
+  // Phase 9.9.8A -- render SOMETHING the instant Airtable nodes are known to
+  // exist, instead of staying invisible while the workflow/schema fetches
+  // are in flight. Production testing found the panel popping in silently
+  // after the chat had already auto-scrolled to the bottom indistinguishable
+  // from it simply not being there at all.
+  if (!nodes) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
+        Loading Airtable configuration…
+      </div>
+    );
+  }
+
+  if (nodes.length === 0) return null;
 
   return (
-    <AirtableConfigPanel
-      workflowId={workflowId}
-      nodes={nodes}
-      onConfigured={() => setRefreshKey((k) => k + 1)}
-    />
+    <div className="space-y-1.5">
+      {workflowMeta ? (
+        <p className="text-[11px] text-muted-foreground px-1">
+          Editing: <span className="font-medium text-foreground">{workflowMeta.name}</span>{' '}
+          <span className="font-mono">({workflowMeta.id.slice(0, 8)}…)</span> — every save below targets this exact workflow.
+        </p>
+      ) : null}
+      <AirtableConfigPanel
+        workflowId={workflowId!}
+        nodes={nodes}
+        onConfigured={() => setRefreshKey((k) => k + 1)}
+      />
+    </div>
   );
 }
