@@ -18,6 +18,7 @@ import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { classifyError } from '@/lib/security/safe-error';
 import { getUserIntegrations } from '@/lib/user-integrations';
 import { canonicalizeProviderId } from '@/lib/integrations';
+import { getCredentialRowById, verifyProviderConnection } from '@/lib/credentials/storage';
 
 // Phase 9.9.4H -- root cause of "Builder shows Gmail as Attached with no
 // workflow_integrations row": getUserFromRequest() reads the auth token off
@@ -162,18 +163,55 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
-  // Verify integration exists, belongs to user, and is connected
-  const { data: integration, error: integrationError } = await db
-    .from('user_integrations')
-    .select('id, provider, status')
-    .eq('id', integrationId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (integrationError) {
-    const safe = classifyError(integrationError);
-    return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+  // Verify integration exists, belongs to user, and is connected. Tries the
+  // legacy user_integrations table first (unchanged behavior for Airtable/
+  // Slack/legacy-SMTP-email), then falls back to the canonical OAuth
+  // credential store (Phase 9.9.8C) -- integrationId there is
+  // integration_credentials' own real row id (see
+  // lib/credentials/storage.ts's getCredentialRowId()/getCredentialRowById()),
+  // an opaque, non-secret reference, never a token. Both lookups are scoped
+  // by the AUTHENTICATED user's id in the query itself, so neither can ever
+  // resolve another tenant's credential.
+  type ResolvedIntegration = { id: string; provider: string; status: 'connected' | 'invalid' | 'not_connected' };
+  let integration: ResolvedIntegration | null = null;
+  {
+    const { data, error } = await db
+      .from('user_integrations')
+      .select('id, provider, status')
+      .eq('id', integrationId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (error) {
+      const safe = classifyError(error);
+      return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+    }
+    if (data) integration = data as ResolvedIntegration;
   }
+
+  if (!integration) {
+    // Phase 9.9.8C -- the canonical OAuth credential path. A Gmail (or any
+    // other OAuth-bridged provider) connection lives in integration_credentials,
+    // never user_integrations, so it was previously invisible to this route
+    // entirely -- Settings correctly showed "Connected via Google OAuth"
+    // while the workflow-attachment selector showed "No connected
+    // integrations" for the exact same credential.
+    let credRow: Awaited<ReturnType<typeof getCredentialRowById>> = null;
+    try {
+      credRow = await getCredentialRowById(user.id, integrationId);
+    } catch {
+      credRow = null;
+    }
+    if (credRow) {
+      // Re-verify genuinely connected RIGHT NOW (never trust mere row
+      // existence) -- the same authoritative check Settings/discovery use.
+      // Fails closed if the credential was since revoked/deleted.
+      const status = await verifyProviderConnection(user.id, credRow.provider).catch(() => ({ connected: false, missing: [] as string[] }));
+      if (status.connected) {
+        integration = { id: credRow.id, provider: credRow.provider, status: 'connected' };
+      }
+    }
+  }
+
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 });
   }
@@ -191,25 +229,26 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Integration provider mismatch' }, { status: 400 });
   }
 
-  // Phase 9.9.4F -- root cause of the production "temporary_system_problem"
-  // failure: workflow_integrations.provider has a live, un-migrated DB
-  // CHECK constraint (workflow_integrations_provider_check) whose allowed
-  // value list is ['email','shopify','slack','airtable','twilio','webhook']
-  // -- it does NOT include 'gmail' at all. Phase 9.9.4E's fix stored the
-  // CANONICAL requested provider ('gmail'), which the database itself then
-  // rejected with a check_violation (Postgres SQLSTATE 23514) --
-  // classifyError() maps any raw Postgres SQLSTATE to the generic
-  // 'temporary_system_problem' code, which is exactly the message that
-  // reached the UI. Storing 'gmail' would need a schema migration to add it
-  // to the constraint; per this project's standing rule, no migration is
-  // applied without stopping first to get it approved -- so this stores the
-  // credential's own ALREADY-ALLOWED raw provider instead ('email' for a
-  // legacy SMTP-connected credential), and every reader below canonicalizes
-  // at comparison time instead of assuming the stored value is already
-  // canonical. Functionally identical to storing 'gmail' from every
-  // caller's perspective (GET already canonicalizes on the way out;
-  // resolveWorkflowIntegrations() now does too, see lib/user-integrations.ts),
-  // with zero schema risk.
+  // Phase 9.9.4F -- root cause of an earlier production "temporary_system_problem"
+  // failure: workflow_integrations.provider had a live DB CHECK constraint
+  // (workflow_integrations_provider_check) whose allowed value list was
+  // ['email','shopify','slack','airtable','twilio','webhook'] -- it did not
+  // include 'gmail'. For a LEGACY, SMTP-connected credential this was
+  // stored under its own already-allowed raw label ('email') instead, since
+  // that credential genuinely IS the same 'email'/'gmail' alias group
+  // (lib/integrations.ts's PROVIDER_STORAGE_ALIAS_GROUPS).
+  //
+  // Phase 9.9.8C -- a genuine Gmail OAuth credential (integration.provider
+  // === 'gmail' from integration_credentials, not user_integrations) is
+  // NOT the same credential as legacy SMTP/email and must never be stored
+  // under the 'email' label as if it were -- that would misrepresent which
+  // credential type is actually attached and violate the "Gmail OAuth and
+  // Email/SMTP remain independent credential types" requirement. This
+  // stores the credential's own true raw provider (rawProviderToStore)
+  // unconditionally; if the live CHECK constraint still does not allow
+  // 'gmail', the write below is caught explicitly (23514) and reported
+  // honestly as a specific, actionable schema-limitation error -- never
+  // silently substituted for a different credential identity.
   //
   // "One row per canonical provider per workflow" is enforced at the
   // application level here (rather than via the table's own
@@ -230,7 +269,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const existingRow = (existingRows ?? []).find((row) => canonicalizeProviderId(String(row.provider)) === canonicalRequested);
 
-  const rawProviderToStore = integration.provider; // Always the credential's OWN, already-constraint-valid raw label.
+  const rawProviderToStore = integration.provider; // Always the credential's OWN true raw provider identity -- never aliased.
   type AttachedRow = { id: string; provider: string; integration_id: string };
   let attached: AttachedRow | null = null;
   let mutationError: unknown = null;
@@ -266,6 +305,24 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   if (mutationError) {
+    // Phase 9.9.8C -- a Postgres check_violation (23514) here means the
+    // live workflow_integrations_provider_check constraint does not yet
+    // allow this credential's raw provider value (e.g. 'gmail'). Reported
+    // explicitly and honestly rather than the generic
+    // 'temporary_system_problem' classifyError() would otherwise produce --
+    // this is a specific, known, fixable schema limitation, never a
+    // transient failure, and never silently worked around by storing a
+    // different (e.g. 'email') credential identity instead.
+    const rawCode = (mutationError as { code?: unknown } | null)?.code;
+    if (rawCode === '23514') {
+      return NextResponse.json(
+        {
+          error: 'PROVIDER_NOT_YET_ALLOWED',
+          message: `Attaching a "${rawProviderToStore}" credential requires a small database schema update that has not been applied to this environment yet. This is a known, tracked limitation, not a transient error -- please contact support.`,
+        },
+        { status: 409 }
+      );
+    }
     const safe = classifyError(mutationError);
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }

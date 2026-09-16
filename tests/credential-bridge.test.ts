@@ -24,10 +24,16 @@ vi.mock('@/lib/credentials/storage', () => ({
   getAllConnectedProviders: vi.fn(),
   verifyProviderConnection: vi.fn(),
   getDecryptedProviderCredentials: vi.fn(),
+  // Phase 9.9.8C -- resolveBridgedIntegration() now also looks up the
+  // credential's own real row id (an opaque, non-secret attachment
+  // reference) for OAuth providers; default to "not found" so existing
+  // tests that don't care about it keep passing unchanged.
+  getCredentialRowId: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('@/lib/credentials/oauth-providers', () => ({
   isOAuthProvider: vi.fn(),
+  getOAuthProviderConfig: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('@/lib/credentials/oauth-refresh', () => ({

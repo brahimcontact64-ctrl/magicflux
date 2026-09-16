@@ -401,6 +401,73 @@ export async function getAllConnectedProviders(userId: string): Promise<string[]
 }
 
 /**
+ * Phase 9.9.8C -- the opaque, canonical identity for a user's OAuth-bridged
+ * credential (e.g. a Gmail Google OAuth grant), for use ONLY as a stable,
+ * non-secret reference (workflow attachment selection) -- never a
+ * credential value itself. This is integration_credentials' own real,
+ * database-generated row id, not an invented/derived one, so it requires no
+ * new column or table: the row already exists and already has a UUID
+ * primary key that never needs to collide with (and is trivially
+ * distinguishable from) a legacy user_integrations.id.
+ *
+ * Root cause this exists to fix: resolveBridgedIntegration()
+ * (lib/user-integrations.ts) previously returned no `id` at all for any
+ * OAuth-bridged provider, since bridged/legacy rows were assumed to always
+ * be user_integrations rows with their own id. The workflow-attachment
+ * discovery route (app/api/workflows/[id]/integrations) silently drops any
+ * integration with no id (`if (!integration.id) return`), which is exactly
+ * why a genuinely-connected Gmail OAuth credential (Settings correctly
+ * shows "Connected") never appeared as attachable -- there was no id for
+ * the selector to reference.
+ */
+export async function getCredentialRowId(
+  userId: string,
+  provider: string,
+  credentialKey: string
+): Promise<string | null> {
+  assertTrustedUserId(userId);
+
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from('integration_credentials')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .eq('credential_key', credentialKey)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data?.id ? String(data.id) : null;
+}
+
+/**
+ * Phase 9.9.8C -- the reverse lookup of getCredentialRowId(), used by the
+ * workflow-attachment POST route to verify a client-supplied opaque
+ * credential id (from GET's availableByProvider list) actually belongs to
+ * the AUTHENTICATED user before ever attaching it -- the id column is
+ * scoped by userId in the query itself, so this can never resolve another
+ * tenant's row, not merely by convention but structurally.
+ */
+export async function getCredentialRowById(
+  userId: string,
+  credentialRowId: string
+): Promise<{ id: string; provider: string; credentialKey: string } | null> {
+  assertTrustedUserId(userId);
+
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from('integration_credentials')
+    .select('id, provider, credential_key')
+    .eq('id', credentialRowId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return { id: String(data.id), provider: String(data.provider), credentialKey: String(data.credential_key) };
+}
+
+/**
  * Returns the plaintext (decrypted) credentials for a provider.
  * Used internally by the stale-verifier to re-validate stored credentials.
  * The return value MUST NOT be sent to clients or written to any log.

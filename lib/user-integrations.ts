@@ -5,8 +5,9 @@ import {
   getAllConnectedProviders,
   verifyProviderConnection,
   getDecryptedProviderCredentials,
+  getCredentialRowId,
 } from '@/lib/credentials/storage';
-import { isOAuthProvider } from '@/lib/credentials/oauth-providers';
+import { isOAuthProvider, getOAuthProviderConfig } from '@/lib/credentials/oauth-providers';
 import { getValidAccessToken } from '@/lib/credentials/oauth-refresh';
 
 export type IntegrationStatus = 'connected' | 'invalid' | 'not_connected';
@@ -46,7 +47,23 @@ async function resolveBridgedIntegration(
   try {
     if (isOAuthProvider(provider)) {
       const accessToken = await getValidAccessToken(userId, provider);
-      return { provider, credentials: { access_token: accessToken }, status: 'connected' };
+      // Phase 9.9.8C -- the opaque, canonical identity for this OAuth
+      // credential (integration_credentials' own real row id), so the
+      // workflow-attachment selector (app/api/workflows/[id]/integrations)
+      // and resolveWorkflowIntegrations() below have a stable, non-secret
+      // id to reference -- previously omitted entirely for every OAuth
+      // provider, which is exactly why a genuinely-connected Gmail OAuth
+      // credential never appeared as attachable ("No connected
+      // integrations") despite Settings correctly showing it Connected.
+      // Best-effort: a lookup failure here must never break credential
+      // resolution for actual workflow EXECUTION (the access_token above
+      // already resolved successfully) -- only the attachment UI's
+      // discoverability would be affected.
+      const config = getOAuthProviderConfig(provider);
+      const id = config
+        ? await getCredentialRowId(userId, provider, config.credentialKey).catch(() => null)
+        : null;
+      return { ...(id ? { id } : {}), provider, credentials: { access_token: accessToken }, status: 'connected' };
     }
     const credentials = await getDecryptedProviderCredentials(userId, provider);
     return { provider, credentials, status: 'connected' };

@@ -361,8 +361,12 @@ describe('Phase 9.9.7A fix -- a broken OAuth credential never silently falls bac
       getAllConnectedProviders: async () => ['gmail'],
       verifyProviderConnection: async () => ({ connected: true }),
       getDecryptedProviderCredentials: async () => ({}),
+      getCredentialRowId: async () => 'cred-row-gmail-1',
     }));
-    vi.doMock('@/lib/credentials/oauth-providers', () => ({ isOAuthProvider: () => true }));
+    vi.doMock('@/lib/credentials/oauth-providers', () => ({
+      isOAuthProvider: () => true,
+      getOAuthProviderConfig: () => ({ credentialKey: 'oauth_google_gmail' }),
+    }));
     vi.doMock('@/lib/credentials/oauth-refresh', () => ({ getValidAccessToken: async () => 'real-access-token' }));
 
     const { getUserIntegrations } = await import('../lib/user-integrations');
