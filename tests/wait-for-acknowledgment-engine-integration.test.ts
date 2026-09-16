@@ -266,3 +266,77 @@ describe('Hot Lead SLA reference topology (Phase 9.9.12, Part C/G)', () => {
     expect(ledgerRows.filter((r) => r.effect_type === 'slack_post' && r.status === 'succeeded')).toHaveLength(2); // the initial "#leads" notice + the one escalation, never duplicated
   });
 });
+
+// ─── Phase 9.9.12A -- Part I: the two-node split closes the chicken-and-egg gap ──
+
+function topologyWithChallenge(slaMinutes: number): unknown {
+  return {
+    name: 'Hot Lead SLA with notification-embedded ack link (engine test)',
+    nodes: [
+      { id: 'trigger', name: 'Webhook Trigger', type: 'n8n-nodes-base.webhook', parameters: {} },
+      { id: 'airtable', name: 'Save to Airtable', type: 'n8n-nodes-base.airtable', parameters: { baseId: 'appREAL', tableId: 'tblREAL', operation: 'create', fields: { Name: '={{$json["name"]}}' } } },
+      // Positioned BEFORE the notifications -- this is the whole point.
+      { id: 'challenge', name: 'Create Acknowledgment Challenge', type: 'magicflux-nodes.createAcknowledgmentChallenge', parameters: { slaMinutes } },
+      { id: 'gmail', name: 'Send Gmail', type: 'n8n-nodes-base.gmail', parameters: { to: 'founder@example.com', subject: 'Hot lead', text: 'Acknowledge: {{$json["acknowledgment_url"]}}' } },
+      { id: 'slack', name: 'Slack Notification', type: 'n8n-nodes-base.slack', parameters: { text: 'Hot lead: {{$json["name"]}} -- {{$json["acknowledgment_url"]}}', channel: '#leads' } },
+      { id: 'ack', name: 'Await acknowledgment', type: 'magicflux-nodes.waitForAcknowledgment', parameters: { slaMinutes } },
+      { id: 'handled', name: 'Marked Handled', type: 'n8n-nodes-base.slack', parameters: { text: 'Lead handled', channel: '#leads-handled' } },
+      { id: 'escalate', name: 'Escalation Notice', type: 'n8n-nodes-base.slack', parameters: { text: 'SLA BREACHED -- escalating', channel: '#leads-escalation' } },
+    ],
+    connections: {
+      'Webhook Trigger': { main: [[{ node: 'Save to Airtable' }]] },
+      'Save to Airtable': { main: [[{ node: 'Create Acknowledgment Challenge' }]] },
+      'Create Acknowledgment Challenge': { main: [[{ node: 'Send Gmail' }]] },
+      'Send Gmail': { main: [[{ node: 'Slack Notification' }]] },
+      'Slack Notification': { main: [[{ node: 'Await acknowledgment' }]] },
+      'Await acknowledgment': { main: [[{ node: 'Marked Handled' }], [{ node: 'Escalation Notice' }]] },
+    },
+  };
+}
+
+describe('Two-node split topology: Airtable -> Create Challenge -> Gmail -> Slack -> Await Acknowledgment (Part I)', () => {
+  beforeEach(async () => {
+    fakeDb.tables.clear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW', ok: true }));
+    vi.resetModules();
+    await seedIntegrations();
+  });
+
+  it('the acknowledgment_url exists and is embedded in BOTH the Gmail and Slack notification bodies -- proves the chicken-and-egg gap is actually closed, not just documented', async () => {
+    const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const result = await runWorkflowExecution({ workflowJson: topologyWithChallenge(15), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live' });
+
+    expect(result.status).toBe('waiting');
+
+    // Exactly one challenge row exists, and it's the one the notifications reference.
+    const ackRows = fakeDb.tables.get('workflow_acknowledgments') as Row[];
+    expect(ackRows).toHaveLength(1);
+    const challengeId = String(ackRows[0].id);
+
+    const gmailCall = fetchMock.mock.calls.find(([url]) => String(url).includes('gmail.googleapis.com'));
+    const gmailMime = Buffer.from(JSON.parse(gmailCall![1].body).raw, 'base64url').toString('utf8');
+    expect(gmailMime).toContain(`/api/acknowledgments/${challengeId}/ack?token=`);
+
+    const slackCall = fetchMock.mock.calls.find(([url]) => String(url).includes('slack.com'));
+    const slackBody = JSON.parse(slackCall![1].body);
+    expect(slackBody.text).toContain(`/api/acknowledgments/${challengeId}/ack?token=`);
+
+    // The wait node never created a SECOND row for the same lifecycle.
+    expect(fakeDb.tables.get('workflow_acknowledgments')).toHaveLength(1);
+  });
+
+  it('acknowledging via the URL embedded in the ORIGINAL notification correctly resumes to "Marked Handled"', async () => {
+    const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const started = await runWorkflowExecution({ workflowJson: topologyWithChallenge(15), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live' });
+
+    const ackRow = (fakeDb.tables.get('workflow_acknowledgments') as Row[])[0];
+    ackRow.status = 'acknowledged'; // simulates the token route's own CAS, already unit-tested separately
+
+    const resumed = await resumeWorkflowExecution({ executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topologyWithChallenge(15), mode: 'live', inputData: {} });
+
+    expect(resumed.status).toBe('success');
+    expect(slackCallsToChannel('#leads-handled')).toBe(1);
+    expect(slackCallsToChannel('#leads-escalation')).toBe(0);
+  });
+});

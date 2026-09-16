@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Activity, ArrowLeft, ClipboardCheck, Loader2, Plus, RefreshCw, Zap } from 'lucide-react';
+import { Activity, AlarmClock, ArrowLeft, ClipboardCheck, Loader2, Plus, RefreshCw, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -44,6 +44,13 @@ type PendingReviewSummary = {
   id: string;
 };
 
+// Phase 9.9.12A -- same minimal shape as PendingReviewSummary above; this
+// dashboard only ever needs the count, never the full acknowledgment item
+// (deadline, token, etc. belong to /acknowledgments itself).
+type PendingAcknowledgmentSummary = {
+  id: string;
+};
+
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '-';
   const d = new Date(iso);
@@ -63,6 +70,10 @@ export default function DashboardPage() {
   // pending reviews" when the truth just hasn't arrived yet.
   const [pendingReviews, setPendingReviews] = useState<PendingReviewSummary[] | null>(null);
 
+  // Phase 9.9.12A -- same null-vs-empty-array discipline as pendingReviews
+  // above: null means "not loaded yet", never rendered as "zero pending".
+  const [pendingAcknowledgments, setPendingAcknowledgments] = useState<PendingAcknowledgmentSummary[] | null>(null);
+
   // Phase 9.5 Step E — this page previously had no auth guard at all: an
   // anonymous visitor (expired session, shared/bookmarked link) saw a
   // silently empty dashboard (RLS blocks the actual reads, so no data
@@ -76,7 +87,7 @@ export default function DashboardPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [workflowRes, executionRes, integrationRes, reviewsRes] = await Promise.all([
+      const [workflowRes, executionRes, integrationRes, reviewsRes, acknowledgmentsRes] = await Promise.all([
         supabase
           .from('workflows')
           .select('id, name, description, integrations, status, updated_at')
@@ -94,6 +105,9 @@ export default function DashboardPage() {
         // comment) -- Founder/admin status grants no cross-tenant
         // visibility here or there.
         fetch('/api/reviews?status=pending', { cache: 'no-store' }),
+        // Phase 9.9.12A -- same pattern: the owner-scoped /api/acknowledgments
+        // endpoint the /acknowledgments page itself uses, default status=pending.
+        fetch('/api/acknowledgments', { cache: 'no-store' }),
       ]);
 
       setWorkflows((workflowRes.data ?? []) as Workflow[]);
@@ -114,6 +128,13 @@ export default function DashboardPage() {
         // as-is (null on first load) rather than claiming there's nothing
         // pending when the request itself never actually succeeded.
         setPendingReviews((prev) => prev);
+      }
+
+      if (acknowledgmentsRes.ok) {
+        const payload = (await acknowledgmentsRes.json().catch(() => ({}))) as { items?: PendingAcknowledgmentSummary[] };
+        setPendingAcknowledgments(payload.items ?? []);
+      } else {
+        setPendingAcknowledgments((prev) => prev);
       }
     } finally {
       setLoading(false);
@@ -190,14 +211,22 @@ export default function DashboardPage() {
             </span>
           )}
         </Link>
-        {/* Phase 9.9.12 -- the /acknowledgments page/API are fully built and
-            tested, but intentionally NOT linked from here yet: the backing
-            workflow_acknowledgments table has not been applied to
-            production (pending migration approval), so surfacing this now
-            would show the real user a broken "failed to load" page instead
-            of a working feature. Re-add this link once the migration is
-            approved and applied (mirrors the Phase 9.9.11 -> 9.9.11A
-            precedent for the side-effect ledger). */}
+        {/* Phase 9.9.12A -- workflow_acknowledgments is now live in
+            production (migration applied, schema/RLS certified), so this
+            link is restored (previously deferred in Phase 9.9.12 pending
+            that approval). Same owner-scoped /api/acknowledgments count
+            pattern as the Reviews badge above. */}
+        <Link href='/acknowledgments' className='relative'>
+          <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
+            <AlarmClock className='h-3.5 w-3.5' />
+            Acknowledgments
+          </Button>
+          {pendingAcknowledgments !== null && pendingAcknowledgments.length > 0 && (
+            <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
+              {pendingAcknowledgments.length}
+            </span>
+          )}
+        </Link>
         <Link href='/runtime'>
           <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
             <Activity className='h-3.5 w-3.5' />

@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/recover-review-resumes",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-acknowledgment-resumes",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

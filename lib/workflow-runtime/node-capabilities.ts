@@ -124,11 +124,23 @@ export const HUMAN_REVIEW_NODE_TYPE = 'magicflux-nodes.humanReview';
  */
 export const WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE = 'magicflux-nodes.waitForAcknowledgment';
 
+/**
+ * Phase 9.9.12A -- Part I: canonical type string for the non-blocking
+ * companion to WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE. Creates the SAME durable
+ * challenge row but never pauses/branches (a single output port, like Set)
+ * -- placed BEFORE notification nodes so their content can safely
+ * reference the resulting acknowledgment_url, closing the chicken-and-egg
+ * gap a single-node design would otherwise have. See
+ * lib/workflow-runtime/node-handlers/create-acknowledgment-challenge.ts.
+ */
+export const CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE = 'magicflux-nodes.createAcknowledgmentChallenge';
+
 /** Exact lowercase type strings for MagicFlux-native (non-n8n) capability nodes. */
 export const MAGICFLUX_NATIVE_EXACT_TYPES: ReadonlySet<string> = new Set([
   AI_CLASSIFIER_NODE_TYPE.toLowerCase(),
   HUMAN_REVIEW_NODE_TYPE.toLowerCase(),
   WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(),
+  CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE.toLowerCase(),
 ]);
 
 /** Lowercase substrings that route a type to a generic (credential-free) handler. */

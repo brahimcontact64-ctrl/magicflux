@@ -14,7 +14,8 @@ import { setHandler } from './set';
 import { aiClassifierHandler } from './ai-classifier';
 import { humanReviewHandler } from './human-review';
 import { waitForAcknowledgmentHandler } from './wait-for-acknowledgment';
-import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE, WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE } from '../node-capabilities';
+import { createAcknowledgmentChallengeHandler } from './create-acknowledgment-challenge';
+import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE, WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE, CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -77,6 +78,8 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   // Durable SLA Acknowledgment -- MagicFlux-native capability, no user
   // credential (same CREDENTIAL_FREE_HANDLER_EXCEPTIONS pattern).
   [WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(), waitForAcknowledgmentHandler],
+  // Non-blocking companion -- creates the same durable row early, no user credential.
+  [CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE.toLowerCase(), createAcknowledgmentChallengeHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
@@ -168,4 +171,5 @@ export {
   aiClassifierHandler,
   humanReviewHandler,
   waitForAcknowledgmentHandler,
+  createAcknowledgmentChallengeHandler,
 };

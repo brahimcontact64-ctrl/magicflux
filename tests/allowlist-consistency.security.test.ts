@@ -50,6 +50,8 @@ const CREDENTIAL_FREE_HANDLER_EXCEPTIONS: ReadonlySet<string> = new Set([
   'magicflux-nodes.humanreview',
   // Phase 9.9.12: same reasoning -- durable acknowledgment/deadline state, no per-user credential.
   'magicflux-nodes.waitforacknowledgment',
+  // Phase 9.9.12A: same reasoning -- creates the same durable row, no per-user credential.
+  'magicflux-nodes.createacknowledgmentchallenge',
 ]);
 
 // ─── A: Every provider node type has a handler ────────────────────────────────

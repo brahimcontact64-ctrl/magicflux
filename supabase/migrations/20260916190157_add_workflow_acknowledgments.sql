@@ -104,6 +104,18 @@ CREATE TABLE IF NOT EXISTS "public"."workflow_acknowledgments" (
     CONSTRAINT "workflow_acknowledgments_ack_metadata_check" CHECK (
         (("status" = 'acknowledged'::"text" AND "acknowledged_by" IS NOT NULL AND "acknowledged_at" IS NOT NULL)
          OR ("status" <> 'acknowledged'::"text" AND "acknowledged_by" IS NULL AND "acknowledged_at" IS NULL))
+    ),
+    -- Phase 9.9.12A -- Part A/B re-review addition: the original draft left
+    -- late_acknowledged_by/at completely unconstrained -- nothing stopped a
+    -- future application bug from stamping a late acknowledgment onto a
+    -- 'pending' or 'acknowledged' row. A late acknowledgment is BY
+    -- DEFINITION only meaningful once the SLA has already timed out (Part
+    -- H/B: "must never restore pending or acknowledged"), so this makes
+    -- that a structural impossibility, not just an application-code
+    -- promise -- mirrors the ack_metadata_check pattern above exactly.
+    CONSTRAINT "workflow_acknowledgments_late_ack_check" CHECK (
+        (("late_acknowledged_at" IS NULL AND "late_acknowledged_by" IS NULL)
+         OR ("status" = 'timed_out'::"text" AND "late_acknowledged_at" IS NOT NULL AND "late_acknowledged_by" IS NOT NULL))
     )
 );
 
@@ -142,6 +154,12 @@ CREATE INDEX "idx_workflow_acknowledgments_user" ON "public"."workflow_acknowled
 -- recovery sweep's "acknowledged/timed_out but never resumed" scan.
 CREATE INDEX "idx_workflow_acknowledgments_status" ON "public"."workflow_acknowledgments" USING "btree" ("status");
 CREATE INDEX "idx_workflow_acknowledgments_deadline" ON "public"."workflow_acknowledgments" USING "btree" ("deadline_at");
+-- Phase 9.9.12A -- Part A re-review addition: the actual due-deadline
+-- scan a dashboard/operator view runs is "pending items, soonest deadline
+-- first" (see app/api/acknowledgments/route.ts) -- a composite index
+-- serves that exact predicate+order directly, rather than relying on the
+-- planner combining the two single-column indexes above.
+CREATE INDEX "idx_workflow_acknowledgments_status_deadline" ON "public"."workflow_acknowledgments" USING "btree" ("status", "deadline_at");
 
 ALTER TABLE "public"."workflow_acknowledgments" ENABLE ROW LEVEL SECURITY;
 

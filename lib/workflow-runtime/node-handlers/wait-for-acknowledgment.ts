@@ -1,6 +1,6 @@
 /**
  * Durable SLA Acknowledgment -- magicflux-nodes.waitForAcknowledgment
- * (Phase 9.9.12).
+ * (Phase 9.9.12, topology fix Phase 9.9.12A Part I).
  *
  * The third real, reusable durable-pause capability alongside
  * magicflux-nodes.humanReview (Phase 9.9.2) and Wait (lib/workflow-runtime/
@@ -37,6 +37,24 @@
  * 9.9.11A side-effect ledger. Whichever transition's UPDATE actually
  * commits first in Postgres wins; the other's WHERE clause simply no
  * longer matches -- there is no in-memory race to reason about.
+ *
+ * Phase 9.9.12A -- Part I topology fix: the ORIGINAL single-node design
+ * (this node creates its own row on first dispatch) has a real
+ * chicken-and-egg gap -- if this node is positioned AFTER the Gmail/Slack
+ * notifications it's meant to track (the natural reading of "Airtable ->
+ * Gmail -> Slack -> Await Acknowledgment"), the acknowledgment_url does
+ * not exist yet when those notifications are rendered, so the FIRST
+ * (Level 0) notification can never contain a working acknowledgment link.
+ * This node now ALSO supports referencing a challenge row created EARLIER
+ * by magicflux-nodes.createAcknowledgmentChallenge (see that module) via
+ * an explicit `$json[challengeIdField]` value flowing through the graph
+ * (default field name "acknowledgment_challenge_id") -- when present, this
+ * node looks up and waits on THAT already-created row (whose deadline
+ * clock started at creation time, BEFORE the notifications ever sent)
+ * instead of creating a new one under its own node_id. The original
+ * self-contained, single-node behavior is COMPLETELY UNCHANGED and remains
+ * the default when no upstream challenge id is present -- this is
+ * additive, never a breaking change to the Phase 9.9.12 contract.
  */
 
 import { randomBytes, createHash } from 'crypto';
@@ -44,6 +62,7 @@ import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types
 import { createServiceClient } from '@/lib/supabase-server';
 
 const DEFAULT_OUTPUT_FIELD = 'acknowledgment_status';
+const DEFAULT_CHALLENGE_ID_FIELD = 'acknowledgment_challenge_id';
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -53,6 +72,7 @@ type AckParams = {
   slaMinutes: number;
   outputField: string;
   escalationLevel: number;
+  challengeIdField: string;
 };
 
 type ParamResult = { ok: true; params: AckParams } | { ok: false; error: string };
@@ -71,21 +91,9 @@ function parseParams(node: EngineNode): ParamResult {
   const escalationLevelRaw = raw.escalationLevel;
   const escalationLevel = typeof escalationLevelRaw === 'number' && Number.isInteger(escalationLevelRaw) && escalationLevelRaw >= 0 ? escalationLevelRaw : 0;
 
-  return { ok: true, params: { slaMinutes, outputField, escalationLevel } };
-}
+  const challengeIdField = typeof raw.challengeIdField === 'string' && raw.challengeIdField.trim() ? raw.challengeIdField.trim() : DEFAULT_CHALLENGE_ID_FIELD;
 
-/** SHA-256 hex digest -- the ONLY form of the acknowledgment token ever persisted (Part D/J). The plaintext exists only transiently in this function's return value and the notification content a downstream node may reference. */
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-function generateToken(): string {
-  return randomBytes(32).toString('base64url'); // 256 bits of entropy -- unguessable (Part J).
-}
-
-function acknowledgmentUrl(id: string, token: string): string {
-  const site = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-  return `${site}/api/acknowledgments/${id}/ack?token=${token}`;
+  return { ok: true, params: { slaMinutes, outputField, escalationLevel, challengeIdField } };
 }
 
 type AckRow = {
@@ -94,107 +102,20 @@ type AckRow = {
   deadline_at: string;
 };
 
-export async function waitForAcknowledgmentHandler(
-  node: EngineNode,
-  inputData: unknown,
-  context: NodeHandlerContext,
+/**
+ * Given an existing row (however it was found -- by this node's own
+ * node_id, or by an upstream-created challenge id), decides the branch and
+ * performs the timeout CAS if the deadline has passed. Shared by both
+ * lookup modes so their resume/race/idempotency semantics can never drift
+ * apart.
+ */
+async function resolveFromRow(
+  db: ReturnType<typeof createServiceClient>,
+  row: AckRow,
+  data: Record<string, unknown>,
+  params: AckParams,
+  logs: string[],
 ): Promise<NodeHandlerResult> {
-  const logs: string[] = [];
-  const data = asRecord(inputData);
-
-  const parsed = parseParams(node);
-  if (!parsed.ok) {
-    return { status: 'failed', outputData: null, logs: [parsed.error], error: parsed.error };
-  }
-  const params = parsed.params;
-
-  if (context.mode === 'test') {
-    logs.push('Wait for Acknowledgment: simulated in test mode -- auto-acknowledged, no durable row created.');
-    return {
-      status: 'simulated_success',
-      outputData: { ...data, [params.outputField]: 'acknowledged', _conditionBranch: 0 },
-      logs,
-    };
-  }
-
-  const nodeId = String(node.id ?? node.name ?? '').trim();
-  if (!context.userId || !context.workflowId || !context.executionId || !nodeId) {
-    const error = 'Wait for Acknowledgment requires an active execution context (userId/workflowId/executionId).';
-    logs.push(error);
-    return { status: 'failed', outputData: null, logs, error };
-  }
-
-  const db = createServiceClient();
-
-  const { data: existing, error: lookupError } = await db
-    .from('workflow_acknowledgments')
-    .select('id, status, deadline_at')
-    .eq('execution_id', context.executionId)
-    .eq('node_id', nodeId)
-    .maybeSingle();
-
-  if (lookupError) {
-    const error = 'Failed to look up the durable acknowledgment record.';
-    logs.push(error);
-    return { status: 'failed', outputData: null, logs, error };
-  }
-
-  const row = existing as AckRow | null;
-
-  if (!row) {
-    const deadline = new Date(Date.now() + params.slaMinutes * 60_000);
-    const token = generateToken();
-    const { error: insertError } = await db.from('workflow_acknowledgments').insert({
-      user_id: context.userId,
-      workflow_id: context.workflowId,
-      execution_id: context.executionId,
-      node_id: nodeId,
-      node_name: node.name ?? null,
-      deployment_version_id: context.deploymentVersionId ?? null,
-      mode: context.mode,
-      status: 'pending',
-      deadline_at: deadline.toISOString(),
-      escalation_level: params.escalationLevel,
-      acknowledgment_token_hash: hashToken(token),
-    });
-
-    // A concurrent duplicate insert (two parallel dispatches of the same
-    // node) fails the (execution_id, node_id) unique constraint -- treat
-    // it the same as finding it via the lookup above, not as a real error.
-    if (insertError && !String(insertError.message ?? '').toLowerCase().includes('duplicate')) {
-      const error = 'Failed to create the durable acknowledgment record.';
-      logs.push(error);
-      return { status: 'failed', outputData: null, logs, error };
-    }
-
-    logs.push(`Wait for Acknowledgment: awaiting acknowledgment until ${deadline.toISOString()} (SLA: ${params.slaMinutes} minute(s)).`);
-
-    // The id was just generated server-side (gen_random_uuid()) -- read it
-    // back so the URL handed to any downstream reminder/escalation node is
-    // the real one, never guessed.
-    const { data: created } = await db
-      .from('workflow_acknowledgments')
-      .select('id')
-      .eq('execution_id', context.executionId)
-      .eq('node_id', nodeId)
-      .maybeSingle();
-
-    return {
-      status: 'waiting',
-      outputData: {
-        ...data,
-        // Never a secret in the sense of "must stay confidential from
-        // everyone" -- this capability URL is specifically MEANT to be
-        // delivered to the lead owner (e.g. in a reminder/escalation
-        // notification); its security property is unguessability, not
-        // confidentiality from its own intended recipient.
-        acknowledgment_url: created?.id ? acknowledgmentUrl(String(created.id), token) : null,
-      },
-      logs,
-      nextRunAt: deadline,
-    };
-  }
-
   if (row.status === 'acknowledged') {
     logs.push('Wait for Acknowledgment: already acknowledged -- continuing on the acknowledged branch.');
     return {
@@ -265,4 +186,191 @@ export async function waitForAcknowledgmentHandler(
     outputData: { ...data, [params.outputField]: finalStatus === 'acknowledged' ? 'acknowledged' : 'timed_out', _conditionBranch: finalStatus === 'acknowledged' ? 0 : 1 },
     logs,
   };
+}
+
+export async function waitForAcknowledgmentHandler(
+  node: EngineNode,
+  inputData: unknown,
+  context: NodeHandlerContext,
+): Promise<NodeHandlerResult> {
+  const logs: string[] = [];
+  const data = asRecord(inputData);
+
+  const parsed = parseParams(node);
+  if (!parsed.ok) {
+    return { status: 'failed', outputData: null, logs: [parsed.error], error: parsed.error };
+  }
+  const params = parsed.params;
+
+  if (context.mode === 'test') {
+    logs.push('Wait for Acknowledgment: simulated in test mode -- auto-acknowledged, no durable row created.');
+    return {
+      status: 'simulated_success',
+      outputData: { ...data, [params.outputField]: 'acknowledged', _conditionBranch: 0 },
+      logs,
+    };
+  }
+
+  const nodeId = String(node.id ?? node.name ?? '').trim();
+  if (!context.userId || !context.workflowId || !context.executionId || !nodeId) {
+    const error = 'Wait for Acknowledgment requires an active execution context (userId/workflowId/executionId).';
+    logs.push(error);
+    return { status: 'failed', outputData: null, logs, error };
+  }
+
+  const db = createServiceClient();
+
+  // Phase 9.9.12A -- Part I: if an upstream createAcknowledgmentChallenge
+  // node already created the row (its id flowing through $json), wait on
+  // THAT row -- scoped by execution_id AND user_id so a value from an
+  // unrelated tenant/execution can never be referenced. Never creates a
+  // row in this mode; the challenge node is the sole source of truth.
+  const referencedChallengeId = data[params.challengeIdField];
+  if (typeof referencedChallengeId === 'string' && referencedChallengeId.trim()) {
+    const { data: challengeRow, error: challengeLookupError } = await db
+      .from('workflow_acknowledgments')
+      .select('id, status, deadline_at')
+      .eq('id', referencedChallengeId.trim())
+      .eq('execution_id', context.executionId)
+      .eq('user_id', context.userId)
+      .maybeSingle();
+
+    if (challengeLookupError) {
+      const error = 'Failed to look up the referenced acknowledgment challenge.';
+      logs.push(error);
+      return { status: 'failed', outputData: null, logs, error };
+    }
+    if (!challengeRow) {
+      const error = `Wait for Acknowledgment: no acknowledgment challenge found for $json["${params.challengeIdField}"] -- was createAcknowledgmentChallenge run earlier in this same execution?`;
+      logs.push(error);
+      return { status: 'failed', outputData: null, logs, error };
+    }
+
+    return resolveFromRow(db, challengeRow as AckRow, data, params, logs);
+  }
+
+  // Self-contained mode (Phase 9.9.12's original, unchanged default): this
+  // node creates and owns its own row, keyed by its own node_id.
+  const { data: existing, error: lookupError } = await db
+    .from('workflow_acknowledgments')
+    .select('id, status, deadline_at')
+    .eq('execution_id', context.executionId)
+    .eq('node_id', nodeId)
+    .maybeSingle();
+
+  if (lookupError) {
+    const error = 'Failed to look up the durable acknowledgment record.';
+    logs.push(error);
+    return { status: 'failed', outputData: null, logs, error };
+  }
+
+  const row = existing as AckRow | null;
+
+  if (!row) {
+    const created = await createChallengeRow(db, {
+      userId: context.userId,
+      workflowId: context.workflowId,
+      executionId: context.executionId,
+      nodeId,
+      nodeName: node.name ?? null,
+      deploymentVersionId: context.deploymentVersionId ?? null,
+      mode: context.mode,
+      slaMinutes: params.slaMinutes,
+      escalationLevel: params.escalationLevel,
+    });
+
+    if (!created.ok) {
+      logs.push(created.error);
+      return { status: 'failed', outputData: null, logs, error: created.error };
+    }
+
+    logs.push(`Wait for Acknowledgment: awaiting acknowledgment until ${created.deadline.toISOString()} (SLA: ${params.slaMinutes} minute(s)).`);
+    return {
+      status: 'waiting',
+      outputData: { ...data, acknowledgment_url: created.url },
+      logs,
+      nextRunAt: created.deadline,
+    };
+  }
+
+  return resolveFromRow(db, row, data, params, logs);
+}
+
+/** SHA-256 hex digest -- the ONLY form of the acknowledgment token ever persisted (Part D/J). The plaintext exists only transiently in this function's return value and the notification content a downstream node may reference. */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function generateToken(): string {
+  return randomBytes(32).toString('base64url'); // 256 bits of entropy -- unguessable (Part J).
+}
+
+export function acknowledgmentUrl(id: string, token: string): string {
+  const site = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  return `${site}/api/acknowledgments/${id}/ack?token=${token}`;
+}
+
+export type CreateChallengeResult =
+  | { ok: true; id: string; url: string; deadline: Date }
+  | { ok: false; error: string };
+
+/**
+ * Shared by both magicflux-nodes.waitForAcknowledgment's self-contained
+ * mode and magicflux-nodes.createAcknowledgmentChallenge (Part I) -- the
+ * ONE place a workflow_acknowledgments row is ever inserted, so both
+ * topologies create rows with identical shape/guarantees.
+ */
+export async function createChallengeRow(
+  db: ReturnType<typeof createServiceClient>,
+  params: {
+    userId: string;
+    workflowId: string;
+    executionId: string;
+    nodeId: string;
+    nodeName: string | null;
+    deploymentVersionId: string | null;
+    mode: 'test' | 'live';
+    slaMinutes: number;
+    escalationLevel: number;
+  },
+): Promise<CreateChallengeResult> {
+  const deadline = new Date(Date.now() + params.slaMinutes * 60_000);
+  const token = generateToken();
+
+  const { error: insertError } = await db.from('workflow_acknowledgments').insert({
+    user_id: params.userId,
+    workflow_id: params.workflowId,
+    execution_id: params.executionId,
+    node_id: params.nodeId,
+    node_name: params.nodeName,
+    deployment_version_id: params.deploymentVersionId,
+    mode: params.mode,
+    status: 'pending',
+    deadline_at: deadline.toISOString(),
+    escalation_level: params.escalationLevel,
+    acknowledgment_token_hash: hashToken(token),
+  });
+
+  // A concurrent duplicate insert (two parallel dispatches of the same
+  // node) fails the (execution_id, node_id) unique constraint -- treat it
+  // the same as finding it via a fresh lookup, not as a real error.
+  if (insertError && !String(insertError.message ?? '').toLowerCase().includes('duplicate')) {
+    return { ok: false, error: 'Failed to create the durable acknowledgment record.' };
+  }
+
+  // The id was just generated server-side (gen_random_uuid()) -- read it
+  // back so the URL/challenge id handed to downstream nodes is the real
+  // one, never guessed.
+  const { data: created } = await db
+    .from('workflow_acknowledgments')
+    .select('id')
+    .eq('execution_id', params.executionId)
+    .eq('node_id', params.nodeId)
+    .maybeSingle();
+
+  if (!created?.id) {
+    return { ok: false, error: 'Failed to read back the created acknowledgment record.' };
+  }
+
+  return { ok: true, id: String(created.id), url: acknowledgmentUrl(String(created.id), token), deadline };
 }
