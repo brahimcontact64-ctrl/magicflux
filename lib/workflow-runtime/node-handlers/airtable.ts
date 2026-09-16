@@ -2,6 +2,8 @@ import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types
 import { redactText } from '@/lib/security/redact';
 import { extractAirtableNodeConfig } from '@/lib/airtable/node-params';
 import { resolveFieldMapping } from './json-field-reference';
+import { fetchWithOutcome, indeterminateFailure } from './provider-outcome';
+import { parseAirtableDedupePolicy, buildIdentityFilterFormula } from './airtable-dedupe';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -105,6 +107,14 @@ export async function airtableHandler(
   const baseUrl = `https://api.airtable.com/v0/${encodeURIComponent(finalBaseId)}/${encodeURIComponent(finalTable)}`;
   const authHeaders = { Authorization: `Bearer ${apiKey}` };
 
+  // Phase 9.9.11 -- Part E/H: Airtable's API has no caller-supplied
+  // idempotency mechanism for any of these operations. A response actually
+  // received from Airtable (any status) means Airtable explicitly accepted
+  // or rejected the request -- trustworthy, safe to retry on a real
+  // rejection. A thrown fetch() error (timeout/connection reset/DNS
+  // failure) means the request may already have been processed before the
+  // response was lost -- classified indeterminate and never auto-retried,
+  // so a create's timeout can never silently become two rows.
   try {
     switch (operation) {
       case 'list': {
@@ -118,7 +128,12 @@ export async function airtableHandler(
           }
         }
 
-        const res = await fetch(url, { headers: authHeaders });
+        const attempt = await fetchWithOutcome(url.toString(), { headers: authHeaders });
+        if (attempt.kind === 'indeterminate') {
+          logs.push(`Airtable list: ${attempt.message}`);
+          return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable list', attempt.message) };
+        }
+        const res = attempt.response;
         if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const body = await res.json() as { records?: unknown[] };
         logs.push(`Airtable listed ${body.records?.length ?? 0} record(s).`);
@@ -126,7 +141,12 @@ export async function airtableHandler(
       }
 
       case 'get': {
-        const res = await fetch(`${baseUrl}/${encodeURIComponent(recordId)}`, { headers: authHeaders });
+        const attempt = await fetchWithOutcome(`${baseUrl}/${encodeURIComponent(recordId)}`, { headers: authHeaders });
+        if (attempt.kind === 'indeterminate') {
+          logs.push(`Airtable get: ${attempt.message}`);
+          return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable get', attempt.message) };
+        }
+        const res = attempt.response;
         if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const record = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record fetched: ${recordId}.`);
@@ -134,11 +154,16 @@ export async function airtableHandler(
       }
 
       case 'update': {
-        const res = await fetch(`${baseUrl}/${encodeURIComponent(recordId)}`, {
+        const attempt = await fetchWithOutcome(`${baseUrl}/${encodeURIComponent(recordId)}`, {
           method: 'PATCH',
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: record }),
         });
+        if (attempt.kind === 'indeterminate') {
+          logs.push(`Airtable update: ${attempt.message}`);
+          return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable update', attempt.message) };
+        }
+        const res = attempt.response;
         if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const updated = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record updated: ${recordId}.`);
@@ -146,10 +171,15 @@ export async function airtableHandler(
       }
 
       case 'delete': {
-        const res = await fetch(`${baseUrl}/${encodeURIComponent(recordId)}`, {
+        const attempt = await fetchWithOutcome(`${baseUrl}/${encodeURIComponent(recordId)}`, {
           method: 'DELETE',
           headers: authHeaders,
         });
+        if (attempt.kind === 'indeterminate') {
+          logs.push(`Airtable delete: ${attempt.message}`);
+          return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable delete', attempt.message) };
+        }
+        const res = attempt.response;
         if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         logs.push(`Airtable record deleted: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_deleted_id: recordId }, logs };
@@ -157,15 +187,91 @@ export async function airtableHandler(
 
       case 'create':
       default: {
-        const res = await fetch(baseUrl, {
+        // Phase 9.9.11 -- Part F: OPTIONAL, additive business (CRM)
+        // deduplication -- entirely separate from the technical/transport
+        // idempotency above. A node with no "dedupe" parameter configured
+        // (every existing, already-certified workflow) always creates,
+        // exactly as before (Part K -- no silent behavior change).
+        const dedupePolicy = parseAirtableDedupePolicy(asRecord(node.parameters).dedupe);
+        let matchedRecordId: string | null = null;
+
+        if (dedupePolicy) {
+          const formula = buildIdentityFilterFormula(dedupePolicy, record);
+          if (formula) {
+            const searchUrl = new URL(baseUrl);
+            searchUrl.searchParams.set('filterByFormula', formula);
+            searchUrl.searchParams.set('maxRecords', '1');
+            const searchAttempt = await fetchWithOutcome(searchUrl.toString(), { headers: authHeaders });
+            if (searchAttempt.kind === 'indeterminate') {
+              // Cannot safely proceed without knowing whether a duplicate
+              // lead/contact already exists -- fail closed rather than
+              // risk creating a business-duplicate record.
+              logs.push(`Airtable dedupe lookup: ${searchAttempt.message}`);
+              return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable dedupe lookup', searchAttempt.message) };
+            }
+            const searchRes = searchAttempt.response;
+            if (!searchRes.ok) throw new Error(`Airtable dedupe lookup returned ${searchRes.status}: ${redactText((await searchRes.text().catch(() => '')).slice(0, 200))}`);
+            const searchBody = await searchRes.json() as { records?: Array<{ id: string }> };
+            matchedRecordId = searchBody.records?.[0]?.id ?? null;
+            if (matchedRecordId) {
+              logs.push(`Airtable dedupe: found an existing record (${matchedRecordId}) matching this lead's identity -- applying onMatch:"${dedupePolicy.onMatch}".`);
+            }
+          }
+        }
+
+        if (matchedRecordId && dedupePolicy?.onMatch === 'update') {
+          const updateAttempt = await fetchWithOutcome(`${baseUrl}/${encodeURIComponent(matchedRecordId)}`, {
+            method: 'PATCH',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: record }),
+          });
+          if (updateAttempt.kind === 'indeterminate') {
+            logs.push(`Airtable dedupe update: ${updateAttempt.message}`);
+            return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable dedupe update', updateAttempt.message) };
+          }
+          const updateRes = updateAttempt.response;
+          if (!updateRes.ok) throw new Error(`Airtable returned ${updateRes.status}: ${redactText((await updateRes.text().catch(() => '')).slice(0, 200))}`);
+          const updated = await updateRes.json() as Record<string, unknown>;
+          logs.push(`Airtable record updated (business dedupe match): ${matchedRecordId}.`);
+          return { status: 'success', outputData: { ...data, airtable_id: updated.id, airtable_dedupe_matched: true, airtable_dedupe_action: 'update' }, logs };
+        }
+
+        // No match, or onMatch is 'create'/'append' -- 'append' is
+        // intentionally NOT yet a distinct linked-record behavior (that
+        // requires knowing the base's own link-field schema, which this
+        // handler has no way to discover safely) -- it creates a new
+        // interaction record exactly like 'create' rather than guessing at
+        // a schema that might not exist, and is logged as such so this is
+        // never silently mistaken for a real linked-append.
+        if (matchedRecordId && dedupePolicy?.onMatch === 'append') {
+          logs.push(`Airtable dedupe: onMatch:"append" is not yet a distinct linked-record behavior -- creating a new interaction record instead of guessing at unknown link-field schema.`);
+        }
+
+        // The one operation a duplicate blind retry is most damaging for --
+        // a real, extra lead row in the founder's CRM. See the module-level
+        // comment above for the classification this depends on.
+        const attempt = await fetchWithOutcome(baseUrl, {
           method: 'POST',
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: record }),
         });
+        if (attempt.kind === 'indeterminate') {
+          logs.push(`Airtable create: ${attempt.message}`);
+          return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable create', attempt.message) };
+        }
+        const res = attempt.response;
         if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
         const created = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record created: ${String(created.id ?? 'unknown')}.`);
-        return { status: 'success', outputData: { ...data, airtable_id: created.id }, logs };
+        return {
+          status: 'success',
+          outputData: {
+            ...data,
+            airtable_id: created.id,
+            ...(dedupePolicy ? { airtable_dedupe_matched: false, airtable_dedupe_action: 'create' } : {}),
+          },
+          logs,
+        };
       }
     }
   } catch (err) {

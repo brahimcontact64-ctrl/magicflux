@@ -130,6 +130,37 @@ describe('deriveWebhookIdempotencyKey', () => {
     const wfB = deriveWebhookIdempotencyKey({ workflowId: 'wf-B', rawBody: '{}', headers: headerMap({ 'x-shopify-webhook-id': 'evt-1' }) });
     expect(wfA.key).not.toBe(wfB.key);
   });
+
+  // ─── Phase 9.9.11 -- Part J: untrusted caller-supplied key bounds ─────────
+
+  it('an oversized Idempotency-Key header (> 200 chars) is rejected -- falls back to the safe payload-hash key, never truncated/trusted verbatim', async () => {
+    const { deriveWebhookIdempotencyKey } = await import('../lib/runtime/idempotency');
+    const oversized = 'a'.repeat(500);
+    const result = deriveWebhookIdempotencyKey({ workflowId: 'wf-1', rawBody: '{"a":1}', headers: headerMap({ 'idempotency-key': oversized }) });
+    expect(result.source).toBe('payload_hash');
+    expect(result.key).not.toContain(oversized);
+  });
+
+  it('a malformed Idempotency-Key header (control characters / injection attempt) is rejected -- falls back to payload hash', async () => {
+    const { deriveWebhookIdempotencyKey } = await import('../lib/runtime/idempotency');
+    const malformed = 'evt-1\n\rx-injected-header: evil';
+    const result = deriveWebhookIdempotencyKey({ workflowId: 'wf-1', rawBody: '{"a":1}', headers: headerMap({ 'idempotency-key': malformed }) });
+    expect(result.source).toBe('payload_hash');
+    expect(result.key).not.toContain(malformed);
+  });
+
+  it('an oversized Shopify webhook ID header is also rejected -- falls back to payload hash', async () => {
+    const { deriveWebhookIdempotencyKey } = await import('../lib/runtime/idempotency');
+    const result = deriveWebhookIdempotencyKey({ workflowId: 'wf-1', rawBody: '{}', headers: headerMap({ 'x-shopify-webhook-id': 'x'.repeat(1000) }) });
+    expect(result.source).toBe('payload_hash');
+  });
+
+  it('a normal, reasonably-shaped Idempotency-Key (uuid-like) is accepted unchanged', async () => {
+    const { deriveWebhookIdempotencyKey } = await import('../lib/runtime/idempotency');
+    const result = deriveWebhookIdempotencyKey({ workflowId: 'wf-1', rawBody: '{}', headers: headerMap({ 'idempotency-key': '550e8400-e29b-41d4-a716-446655440000' }) });
+    expect(result.source).toBe('idempotency_key_header');
+    expect(result.key).toBe('webhook:wf-1:idem:550e8400-e29b-41d4-a716-446655440000');
+  });
 });
 
 // ─── Atomic reservation ──────────────────────────────────────────────────────

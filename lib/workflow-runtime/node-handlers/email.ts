@@ -4,6 +4,7 @@ import dns from 'node:dns';
 import net from 'node:net';
 import { redactText } from '@/lib/security/redact';
 import { asRecord, resolveFieldReference, resolveNotificationTemplate } from './json-field-reference';
+import { fetchWithOutcome } from './provider-outcome';
 
 /**
  * Phase 9.9.6 -- Part A: explicit, bounded SMTP timeouts.
@@ -157,10 +158,28 @@ function encodeHeaderWord(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
 }
 
+type GmailSendResult =
+  | { ok: true; id: string }
+  | { ok: false; indeterminate: true; message: string }
+  | { ok: false; indeterminate: false; message: string };
+
+/**
+ * Phase 9.9.11 -- Part E/H: the Gmail API has no caller-supplied idempotency
+ * key for messages.send. Corrected a previously-incorrect assumption here
+ * ("a failed fetch() means the request never completed, so this is always
+ * safely retryable") -- that is true for a clean HTTP error response
+ * (Gmail explicitly rejected the request; nothing was sent), but NOT for
+ * fetch() itself throwing due to AbortSignal.timeout() firing or a network
+ * error: Gmail may have already received and fully processed the send
+ * before our own client-side timeout elapsed or the response was lost in
+ * transit. That case is now classified indeterminate and must never be
+ * blindly retried, exactly like the SMTP path's own DATA-command ambiguity
+ * below.
+ */
 async function sendViaGmailApi(
   accessToken: string,
   opts: { to: string; from?: string; subject: string; body: string }
-): Promise<{ id: string }> {
+): Promise<GmailSendResult> {
   const headers = [
     opts.from ? `From: ${opts.from}` : null,
     `To: ${opts.to}`,
@@ -170,7 +189,7 @@ async function sendViaGmailApi(
   ].filter(Boolean);
   const mime = `${headers.join('\r\n')}\r\n\r\n${opts.body}`;
 
-  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+  const attempt = await fetchWithOutcome('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -184,13 +203,18 @@ async function sendViaGmailApi(
     signal: AbortSignal.timeout(GMAIL_API_TIMEOUT_MS),
   });
 
+  if (attempt.kind === 'indeterminate') {
+    return { ok: false, indeterminate: true, message: attempt.message };
+  }
+
+  const res = attempt.response;
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
-    throw new Error(`Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}`);
+    return { ok: false, indeterminate: false, message: `Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}` };
   }
 
   const result = (await res.json()) as { id?: string };
-  return { id: String(result.id ?? 'unknown') };
+  return { ok: true, id: String(result.id ?? 'unknown') };
 }
 
 export async function emailHandler(
@@ -263,20 +287,26 @@ export async function emailHandler(
   const gmailAccessToken = gmailCredentials.access_token as string | undefined;
 
   if (gmailAccessToken) {
-    try {
-      const from = gmailCredentials.email as string | undefined;
-      const info = await sendViaGmailApi(gmailAccessToken, { to, from, subject, body });
+    const from = gmailCredentials.email as string | undefined;
+    const info = await sendViaGmailApi(gmailAccessToken, { to, from, subject, body });
+    if (info.ok) {
       logs.push(`Email sent to ${to} via Gmail API. messageId=${info.id}`);
       return { status: 'success', outputData: { ...data, sent_to: to, messageId: info.id }, logs };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Gmail delivery failed';
-      logs.push(`Gmail delivery failed: ${msg}`);
-      // The Gmail API is a single request/response call, not SMTP's
-      // multi-command protocol -- there is no "message accepted but ack
-      // lost" window here; a failed fetch() means the request never
-      // completed, so this is always safely retryable.
-      return { status: 'failed', outputData: null, logs, error: msg };
     }
+    logs.push(`Gmail delivery failed: ${info.message}`);
+    if (info.indeterminate) {
+      // Phase 9.9.11 -- corrected: a lost/timed-out response does NOT prove
+      // the message was never sent (see sendViaGmailApi's doc comment) --
+      // never auto-retry, to avoid a real duplicate email to the recipient.
+      return {
+        status: 'failed',
+        outputData: null,
+        logs,
+        error: `INDETERMINATE: Gmail send may have already succeeded remotely -- ${info.message}. Not retrying automatically to avoid a duplicate; this requires manual verification.`,
+        nonRetryable: true,
+      };
+    }
+    return { status: 'failed', outputData: null, logs, error: info.message };
   }
 
   const smtpIntegration =

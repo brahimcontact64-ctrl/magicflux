@@ -1,5 +1,6 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { resolveNotificationTemplate } from './json-field-reference';
+import { fetchWithOutcome, indeterminateFailure } from './provider-outcome';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -63,33 +64,44 @@ export async function slackHandler(
   const botToken = creds.bot_token as string | undefined;
   const webhookUrl = creds.webhook_url as string | undefined;
 
+  // Phase 9.9.11 -- Part E/H: Slack's chat.postMessage has no caller-
+  // supplied idempotency key. A response actually received from Slack
+  // (ok:true or a clean `{ok:false, error}`) is trustworthy -- Slack
+  // explicitly told us what happened, safe to retry a real rejection. A
+  // thrown fetch() error (timeout/connection reset) means the message may
+  // already have posted before the response was lost -- classified
+  // indeterminate and never auto-retried, so a lost response can never
+  // silently become a duplicate Slack message.
+  //
   // Bot token (Slack Web API) is the current credential type — see
   // lib/credentials/provider-registry.ts. Incoming-webhook URL is kept as a
   // fallback for integrations connected before the bot-token flow existed.
   if (botToken) {
-    try {
-      const res = await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${botToken}`,
-          'Content-Type': 'application/json; charset=utf-8',
-        },
-        body: JSON.stringify({ channel, text }),
-      });
+    const attempt = await fetchWithOutcome('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({ channel, text }),
+    });
 
-      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string; ts?: string } | null;
+    if (attempt.kind === 'indeterminate') {
+      logs.push(`Slack delivery: ${attempt.message}`);
+      return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Slack message', attempt.message) };
+    }
 
-      if (!res.ok || !body?.ok) {
-        throw new Error(body?.error ? `Slack API error: ${body.error}` : `Slack returned ${res.status}`);
-      }
+    const res = attempt.response;
+    const body = await res.json().catch(() => null) as { ok?: boolean; error?: string; ts?: string } | null;
 
-      logs.push(`Slack message sent to ${channel}.`);
-      return { status: 'success', outputData: { ...data, slack_delivered: true, channel, ts: body.ts }, logs };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    if (!res.ok || !body?.ok) {
+      const msg = body?.error ? `Slack API error: ${body.error}` : `Slack returned ${res.status}`;
       logs.push(`Slack delivery failed: ${msg}`);
       return { status: 'failed', outputData: null, logs, error: msg };
     }
+
+    logs.push(`Slack message sent to ${channel}.`);
+    return { status: 'success', outputData: { ...data, slack_delivered: true, channel, ts: body.ts }, logs };
   }
 
   if (!webhookUrl) {
@@ -97,19 +109,24 @@ export async function slackHandler(
     return { status: 'failed', outputData: null, logs, error: 'Slack credentials incomplete' };
   }
 
-  try {
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, channel }),
-    });
+  const attempt = await fetchWithOutcome(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, channel }),
+  });
 
-    if (!res.ok) throw new Error(`Slack returned ${res.status}`);
-    logs.push(`Slack message sent to ${channel}.`);
-    return { status: 'success', outputData: { ...data, slack_delivered: true, channel }, logs };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  if (attempt.kind === 'indeterminate') {
+    logs.push(`Slack delivery: ${attempt.message}`);
+    return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Slack message', attempt.message) };
+  }
+
+  const res = attempt.response;
+  if (!res.ok) {
+    const msg = `Slack returned ${res.status}`;
     logs.push(`Slack delivery failed: ${msg}`);
     return { status: 'failed', outputData: null, logs, error: msg };
   }
+
+  logs.push(`Slack message sent to ${channel}.`);
+  return { status: 'success', outputData: { ...data, slack_delivered: true, channel }, logs };
 }

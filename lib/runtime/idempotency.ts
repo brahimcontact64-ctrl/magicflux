@@ -46,22 +46,46 @@ export type WebhookIdempotencyResult = {
   source: WebhookIdempotencySource;
 };
 
+// Phase 9.9.11 -- Part J: a caller-supplied idempotency key/delivery ID is
+// an UNTRUSTED external string, never authentication (webhook auth is
+// handled entirely separately by guardWebhookRequest()/the workflow's own
+// secret). Bounded to a generous but finite length and a safe charset
+// before it is ever embedded in the composite key string or stored --
+// an oversized or malformed value falls back to the deterministic
+// payload-hash key rather than being trusted verbatim (never truncated
+// silently into a colliding prefix, never used to inject unexpected
+// structure into the composite key).
+const MAX_EXTERNAL_ID_LENGTH = 200;
+const SAFE_EXTERNAL_ID_PATTERN = /^[A-Za-z0-9._:\-\/]+$/;
+
+function sanitizeExternalId(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  if (value.length > MAX_EXTERNAL_ID_LENGTH) return null;
+  if (!SAFE_EXTERNAL_ID_PATTERN.test(value)) return null;
+  return value;
+}
+
 /**
  * Derives the idempotency key for an incoming production webhook request.
  * Priority: Shopify's native delivery ID > a generic Idempotency-Key header
- * supplied by the caller > a deterministic hash of the raw body.
+ * supplied by the caller > a deterministic hash of the raw body. Every key
+ * is prefixed with workflowId (Part J -- tenant/workflow isolation: two
+ * different workflows' identical caller-supplied ids can never collide,
+ * because their workflowId component differs; this is never itself used
+ * for authentication).
  */
 export function deriveWebhookIdempotencyKey(params: {
   workflowId: string;
   rawBody: string;
   headers: { get(name: string): string | null };
 }): WebhookIdempotencyResult {
-  const shopifyId = params.headers.get('x-shopify-webhook-id')?.trim();
+  const shopifyId = sanitizeExternalId(params.headers.get('x-shopify-webhook-id'));
   if (shopifyId) {
     return { key: `webhook:${params.workflowId}:shopify:${shopifyId}`, source: 'shopify_webhook_id' };
   }
 
-  const genericKey = params.headers.get('idempotency-key')?.trim();
+  const genericKey = sanitizeExternalId(params.headers.get('idempotency-key'));
   if (genericKey) {
     return { key: `webhook:${params.workflowId}:idem:${genericKey}`, source: 'idempotency_key_header' };
   }

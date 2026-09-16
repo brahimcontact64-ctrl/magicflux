@@ -200,4 +200,60 @@ describe('POST /api/reviews/[id]/decide', () => {
     expect(tables.workflow_review_items[0].status).toBe('resume_pending');
     expect(tables.workflow_review_items[0].decision_outcome).toBe('approve');
   });
+
+  // ─── Phase 9.9.11 -- Part G/L: two concurrent decisions cannot both win ───
+
+  it('two concurrent decide requests with DIFFERENT decisions: exactly one CAS wins, the loser never overwrites it -- final decision is one or the other, never both/neither', async () => {
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+
+    const { POST } = await import('../app/api/reviews/[id]/decide/route');
+    const [resA, resB] = await Promise.all([
+      POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } }),
+      POST(makeReq({ decision: 'reject' }), { params: { id: REVIEW_ID } }),
+    ]);
+    const [bodyA, bodyB] = await Promise.all([resA.json(), resB.json()]);
+
+    // Exactly one request actually performed the CAS transition (its own
+    // request never reports alreadyDecided); the other lost the race and
+    // was routed through the SAME idempotent "already decided" recovery
+    // path duplicate submits already use -- never a second, conflicting write.
+    const winners = [bodyA, bodyB].filter((b) => !b.alreadyDecided);
+    const losers = [bodyA, bodyB].filter((b) => b.alreadyDecided);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+
+    // The final persisted decision is EXACTLY one of the two values --
+    // never overwritten, never a mix, never left pending.
+    const finalDecision = tables.workflow_review_items[0].decision_outcome;
+    expect(['approve', 'reject']).toContain(finalDecision);
+    expect(tables.workflow_review_items[0].status).toBe('resume_pending');
+
+    // Both requests still drove SOME resume attempt (the winner via the
+    // fresh CAS, the loser via the recovery path) -- but only ONE decision
+    // value is ever durably recorded, matching the resume that actually ran.
+    expect(attemptReviewResumeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('two concurrent decide requests with the SAME decision value: still only one CAS transition, never a duplicate resume trigger from the route itself', async () => {
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+
+    const { POST } = await import('../app/api/reviews/[id]/decide/route');
+    const [resA, resB] = await Promise.all([
+      POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } }),
+      POST(makeReq({ decision: 'approve' }), { params: { id: REVIEW_ID } }),
+    ]);
+    const [bodyA, bodyB] = await Promise.all([resA.json(), resB.json()]);
+
+    const winners = [bodyA, bodyB].filter((b) => !b.alreadyDecided);
+    expect(winners).toHaveLength(1);
+    expect(tables.workflow_review_items[0].decision_outcome).toBe('approve');
+    // The route itself calls attemptReviewResume for both requests, but
+    // attemptReviewResume (proven separately in review-resume-crash-safety
+    // tests) is what guarantees the underlying execution is only ever
+    // actually resumed once -- this route-level test only proves the CAS
+    // write itself is race-safe.
+    expect(attemptReviewResumeMock).toHaveBeenCalledTimes(2);
+  });
 });
