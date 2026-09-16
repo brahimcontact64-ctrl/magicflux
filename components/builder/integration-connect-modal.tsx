@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getProviderCredentialSchema } from '@/lib/agent/provider-credential-registry';
+import { isOAuthProvider } from '@/lib/credentials/oauth-providers';
 
 type IntegrationUiState = 'not_connected' | 'validating' | 'connected' | 'failed';
 type FieldDef = { key: string; label: string; placeholder: string; type?: 'text' | 'password' | 'select'; options?: Array<{ label: string; value: string }> };
@@ -121,7 +122,10 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     logo: <Bot className="w-4 h-4" />,
     helpText: 'Send from your own Gmail account. MagicFlux never sees your Google password.',
     quickSetup: ['Click "Continue with Google" and approve access to send email on your behalf.'],
-    helperActions: [{ label: 'Test connection', action: 'test_connection' }],
+    // Phase 9.9.7B -- no "Test connection" helper action: the OAuth path
+    // has no manual credentials to test here, and /api/integrations/verify
+    // now rejects 'gmail' outright (Gmail must be connected via OAuth), so
+    // this action could only ever fail.
   },
 };
 
@@ -211,7 +215,10 @@ export function IntegrationConnectModal({
   // Phase 9.9.7A -- gmail's default/preferred UX is the one-click Google
   // OAuth redirect, not a credential form. "Use SMTP instead" explicitly
   // opts into the legacy form (kept for backward compatibility).
-  const isGmailOAuthMode = currentProvider === 'gmail' && (currentProviderValues.auth_type ?? '').toLowerCase().trim() !== 'smtp';
+  // Phase 9.9.7B -- driven by isOAuthProvider() (the same canonical registry
+  // Settings' connect flow checks) rather than a second hardcoded
+  // `provider === 'gmail'` string check duplicated in this component.
+  const isGmailOAuthMode = isOAuthProvider(currentProvider) && (currentProviderValues.auth_type ?? '').toLowerCase().trim() !== 'smtp';
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -344,6 +351,22 @@ export function IntegrationConnectModal({
 
     setProviderState((prev) => ({ ...prev, [provider]: { state: 'validating', message: 'Validating credentials...' } }));
 
+    // Phase 9.9.7B -- "Use SMTP instead" for gmail must submit under the
+    // real legacy 'email' provider, not 'gmail'. Previously this posted
+    // provider:'gmail' with smtp_* fields, which isLegacyProvider() treats
+    // as false -- so it silently ran through the generic AI-inferred
+    // dynamic-provider adapter instead of the real, purpose-built SMTP
+    // verifier that Settings' own "Email (SMTP)" card uses. Submitting as
+    // 'email' fixes that and unifies storage with the one real legacy SMTP
+    // row (lib/integrations.ts's PROVIDER_STORAGE_ALIAS_GROUPS already
+    // treats 'email' and 'gmail' as the same credential slot at runtime).
+    // UI state (providerState/onConnected) still keys off 'gmail' so this
+    // component's own bookkeeping is unaffected.
+    const wireProvider =
+      provider === 'gmail' && (providerValues.auth_type ?? '').toLowerCase().trim() === 'smtp'
+        ? 'email'
+        : provider;
+
     try {
       const credentials = fields.reduce<Record<string, string>>((acc, field) => {
         acc[field.key] = providerValues[field.key] ?? '';
@@ -356,7 +379,7 @@ export function IntegrationConnectModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ provider, credentials }),
+        body: JSON.stringify({ provider: wireProvider, credentials }),
       });
 
       const verifyPayload = await verifyRes.json().catch(() => null) as { success?: boolean; error?: string } | null;
@@ -370,7 +393,7 @@ export function IntegrationConnectModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ provider, credentials }),
+        body: JSON.stringify({ provider: wireProvider, credentials }),
       });
 
       const savePayload = await saveRes.json().catch(() => null) as { success?: boolean; error?: string } | null;
@@ -405,20 +428,20 @@ export function IntegrationConnectModal({
    * screen; no token of any kind is ever exposed in this component's
    * state, the URL, or a log line.
    */
-  async function connectGmailOAuth() {
+  async function connectGmailOAuth(provider: string) {
     if (!accessToken) return;
-    setProviderState((prev) => ({ ...prev, gmail: { state: 'validating', message: 'Redirecting to Google…' } }));
+    setProviderState((prev) => ({ ...prev, [provider]: { state: 'validating', message: 'Redirecting to Google…' } }));
     try {
       const res = await fetch('/api/oauth/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ provider: 'gmail' }),
+        body: JSON.stringify({ provider, returnTo: '/builder' }),
       });
       const data = await res.json().catch(() => null) as { redirectUrl?: string; error?: string } | null;
       if (!res.ok || !data?.redirectUrl) {
         setProviderState((prev) => ({
           ...prev,
-          gmail: { state: 'failed', message: data?.error ?? 'Could not start Google sign-in. Please try again.' },
+          [provider]: { state: 'failed', message: data?.error ?? 'Could not start Google sign-in. Please try again.' },
         }));
         return;
       }
@@ -426,7 +449,7 @@ export function IntegrationConnectModal({
     } catch {
       setProviderState((prev) => ({
         ...prev,
-        gmail: { state: 'failed', message: 'Network error starting Google sign-in. Please try again.' },
+        [provider]: { state: 'failed', message: 'Network error starting Google sign-in. Please try again.' },
       }));
     }
   }
@@ -518,10 +541,10 @@ export function IntegrationConnectModal({
                   <>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
-                        onClick={() => void connectGmailOAuth()}
-                        disabled={providerState.gmail?.state === 'validating'}
+                        onClick={() => void connectGmailOAuth(currentProvider)}
+                        disabled={providerState[currentProvider]?.state === 'validating'}
                       >
-                        {providerState.gmail?.state === 'validating' ? (
+                        {providerState[currentProvider]?.state === 'validating' ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin mr-1" />
                             Redirecting…

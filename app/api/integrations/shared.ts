@@ -10,6 +10,7 @@ import { classifyError } from '@/lib/security/safe-error';
 import { verifyIntegrationCredentials, runIntegrationTestAction } from '@/lib/integration-verifier';
 import { normalizeCredentials, validateRequiredCredentials, maskIntegrationInfo } from '@/lib/integration-credentials';
 import { getIntegrationUsage, getPlanLimits } from '@/lib/billing/plan-limits';
+import { getAllConnectedProviders, getVerificationStatus, deleteProviderCredentials } from '@/lib/credentials/storage';
 import { reasonProvider } from '@/lib/dynamic-providers/provider-reasoning-engine';
 import { generateProviderAdapter } from '@/lib/dynamic-providers/provider-adapter-generator';
 import { validateProviderAdapter } from '@/lib/dynamic-providers/generic-validation-engine';
@@ -22,6 +23,47 @@ type IntegrationStatus = 'connected' | 'invalid' | 'not_connected';
 
 function isLegacyProvider(value: string): value is LegacyProvider {
   return value === 'shopify' || value === 'slack' || value === 'airtable' || value === 'email';
+}
+
+/**
+ * Phase 9.9.7B -- providers whose connection UX on this page (and in the
+ * Builder's connect modal) must always be the real Google OAuth redirect
+ * (/api/oauth/start -> Google consent -> /api/oauth/callback), never the
+ * generic manual-credential form. Deliberately scoped to 'gmail' only for
+ * this phase, matching the one OAuth connection actually surfaced in this
+ * UI today -- the mechanism below (canonical catalog card + authoritative
+ * status override + rejecting the manual path) generalizes to any other
+ * lib/credentials/oauth-providers.ts entry the moment it gets its own UI
+ * surface, without further changes here.
+ *
+ * Root cause this guards against: legacy provider-agnostic code in this
+ * file (verifyDynamicIntegration/reasonProvider) treats any provider not in
+ * isLegacyProvider() as a generic API-driven integration and, on first
+ * encounter, memoizes an AI-inferred credential shape (typically a bare
+ * API_KEY field) into provider_intelligence for that provider key. Gmail's
+ * real credential is a Google OAuth grant stored in integration_credentials,
+ * not an API key in user_integrations/provider_intelligence -- so a stale
+ * memoized 'gmail' entry must never be allowed to define this provider's
+ * catalog fields or connection/status logic again.
+ */
+function isCanonicalOAuthUiProvider(provider: string): boolean {
+  return provider === 'gmail';
+}
+
+function canonicalOAuthCatalogCard(provider: string): DynamicIntegrationCardModel {
+  return {
+    provider,
+    category: 'messaging',
+    capabilities: ['notifications', 'messaging'],
+    // No credential fields, ever -- the client renders "Continue with
+    // Google" instead of a form whenever authStrategy.type === 'oauth2'.
+    requiredCredentials: [],
+    docsUrl: 'https://support.google.com/accounts/answer/3466521',
+    logo: null,
+    authStrategy: { type: 'oauth2' },
+    validationStrategy: 'sample_execution',
+    endpointHints: [],
+  };
 }
 
 function normalizeProvider(value: string): string {
@@ -242,10 +284,36 @@ export async function listIntegrations(req: NextRequest) {
     }
   }
 
+  // Phase 9.9.7B -- Gmail's status on this page must reflect ONLY a real
+  // Google OAuth grant in integration_credentials, never a legacy
+  // user_integrations row -- including one under the 'email' identifier.
+  // lib/integrations.ts's PROVIDER_STORAGE_ALIAS_GROUPS deliberately treats
+  // 'gmail' and 'email' as interchangeable for WORKFLOW EXECUTION (either
+  // satisfies an email-sending node's credential requirement), which is why
+  // verifyProviderConnection('gmail') intentionally falls back to a
+  // connected legacy 'email' row. That equivalence is correct for runtime
+  // resolution but wrong here: requirement is that Gmail (OAuth) and Email
+  // (SMTP) remain two visibly separate, independently-statused cards, so
+  // connecting SMTP alone must never make the Gmail card show "Connected".
+  // getAllConnectedProviders() queries integration_credentials directly,
+  // with no legacy-table fallback, so it is the correct authoritative
+  // signal for this specific display purpose.
+  const oauthConnectedProviders = await getAllConnectedProviders(auth.id).catch(() => [] as string[]);
+  const gmailOAuthConnected = oauthConnectedProviders.includes('gmail');
+  const gmailVerification = gmailOAuthConnected ? await getVerificationStatus(auth.id, 'gmail').catch(() => null) : null;
+  byProvider.set('gmail', {
+    provider: 'gmail',
+    status: gmailOAuthConnected ? 'connected' : 'not_connected',
+    last_verified_at: gmailOAuthConnected ? gmailVerification?.verifiedAt ?? null : null,
+    masked_info: gmailOAuthConnected ? 'Connected via Google OAuth' : '-',
+    created_at: null,
+  });
+
+  const pinnedProviders: string[] = [...staticProviders, 'gmail'];
   const integrations = Array.from(byProvider.values()).sort((left, right) => {
     if (left.provider === right.provider) return 0;
-    if (staticProviders.includes(left.provider as LegacyProvider) && !staticProviders.includes(right.provider as LegacyProvider)) return -1;
-    if (!staticProviders.includes(left.provider as LegacyProvider) && staticProviders.includes(right.provider as LegacyProvider)) return 1;
+    if (pinnedProviders.includes(left.provider) && !pinnedProviders.includes(right.provider)) return -1;
+    if (!pinnedProviders.includes(left.provider) && pinnedProviders.includes(right.provider)) return 1;
     return left.provider.localeCompare(right.provider);
   });
 
@@ -263,6 +331,18 @@ export async function saveIntegration(req: NextRequest) {
 
   const provider = normalizeProvider(String(body.provider ?? ''));
   if (!provider) return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+
+  // Phase 9.9.7B -- this generic manual-credential path must never be able
+  // to create/overwrite a 'gmail' row, defense-in-depth behind the UI no
+  // longer offering the form: a direct API call must fail closed the same
+  // way, rather than silently accepting a pasted API key as if it were a
+  // real Gmail connection.
+  if (isCanonicalOAuthUiProvider(provider)) {
+    return NextResponse.json(
+      { error: 'GMAIL_REQUIRES_OAUTH', message: 'Gmail must be connected via Google sign-in. Use /api/oauth/start.' },
+      { status: 400 }
+    );
+  }
 
   const normalized = isLegacyProvider(provider)
     ? normalizeCredentials(provider, body.credentials ?? {})
@@ -348,6 +428,13 @@ export async function verifyIntegration(req: NextRequest) {
   const provider = normalizeProvider(String(body.provider ?? ''));
   if (!provider) return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
 
+  if (isCanonicalOAuthUiProvider(provider)) {
+    return NextResponse.json(
+      { error: 'GMAIL_REQUIRES_OAUTH', message: 'Gmail must be connected via Google sign-in. Use /api/oauth/start.' },
+      { status: 400 }
+    );
+  }
+
   const normalized = isLegacyProvider(provider)
     ? normalizeCredentials(provider, body.credentials ?? {})
     : normalizeGenericCredentials(body.credentials ?? {});
@@ -385,6 +472,17 @@ export async function runIntegrationAction(req: NextRequest) {
 
   const provider = normalizeProvider(String(body.provider ?? ''));
   if (!provider) return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+
+  // Phase 9.9.7B -- Gmail's real credential lives in integration_credentials
+  // (the OAuth store), not a decryptable row in this legacy table, so this
+  // generic test-action path can never correctly run for it. Fail clearly
+  // rather than reading/misinterpreting a stale legacy row.
+  if (isCanonicalOAuthUiProvider(provider)) {
+    return NextResponse.json(
+      { error: 'GMAIL_REQUIRES_OAUTH', message: 'Gmail actions are not available through this endpoint.' },
+      { status: 400 }
+    );
+  }
 
   const db = createServiceClient();
   const { data: row, error } = await db
@@ -467,6 +565,21 @@ export async function disconnectIntegration(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
   }
 
+  // Phase 9.9.7B -- Gmail's real credential lives in integration_credentials
+  // (the OAuth store), not the legacy user_integrations table, so disconnect
+  // must revoke it there. Without this, "Disconnect" on the Gmail card would
+  // upsert a 'not_connected' row into a table Gmail was never actually
+  // stored in -- a no-op that leaves the real OAuth grant connected.
+  if (isCanonicalOAuthUiProvider(provider)) {
+    try {
+      await deleteProviderCredentials(auth.id, provider);
+    } catch (err) {
+      const safe = classifyError(err);
+      return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
+    }
+    return NextResponse.json({ success: true, provider });
+  }
+
   const db = createServiceClient();
   const { error } = await db
     .from('user_integrations')
@@ -518,6 +631,14 @@ export async function getIntegrationCatalog(req: NextRequest) {
   for (const card of dynamicCards) {
     merged.set(card.provider, card);
   }
+
+  // Phase 9.9.7B -- override LAST, unconditionally, so a stale
+  // provider_intelligence memory row for 'gmail' (an AI-inferred generic
+  // API_KEY shape memoized on first encounter, before this fix existed) can
+  // never win the merge and put manual credential fields back in front of
+  // the user. Gmail's catalog entry is always this fixed, field-free OAuth
+  // card, regardless of what memory or static tables contain for that key.
+  merged.set('gmail', canonicalOAuthCatalogCard('gmail'));
 
   return NextResponse.json({
     success: true,

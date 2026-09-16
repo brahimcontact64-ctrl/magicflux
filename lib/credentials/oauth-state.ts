@@ -19,7 +19,24 @@ export type OAuthStatePayload = {
   provider: string;
   nonce: string;
   iat: number; // unix seconds
+  /**
+   * Phase 9.9.7B -- which page initiated this OAuth connection (Builder vs
+   * Settings), so /api/oauth/callback can send the user back to where they
+   * started instead of always landing on /builder. Embedded in the signed
+   * state (never a bare query param) so it cannot be tampered with to build
+   * an open redirect; validated against ALLOWED_OAUTH_RETURN_PATHS on both
+   * write (buildOAuthState) and read (isAllowedOAuthReturnTo).
+   */
+  returnTo?: string;
 };
+
+/** Internal pages an OAuth flow is allowed to redirect back to. */
+const ALLOWED_OAUTH_RETURN_PATHS = new Set(['/builder', '/settings/integrations']);
+
+/** True when `value` is one of the known-safe internal return paths. */
+export function isAllowedOAuthReturnTo(value: unknown): value is string {
+  return typeof value === 'string' && ALLOWED_OAUTH_RETURN_PATHS.has(value);
+}
 
 export type StateVerificationResult =
   | { valid: true; payload: OAuthStatePayload }
@@ -36,12 +53,13 @@ function getHmacKey(): Buffer {
  * Builds a signed state token embedding userId + provider.
  * Each call produces a unique token due to the random nonce.
  */
-export function buildOAuthState(userId: string, provider: string): string {
+export function buildOAuthState(userId: string, provider: string, returnTo?: string): string {
   const payload: OAuthStatePayload = {
     userId,
     provider,
     nonce: crypto.randomBytes(16).toString('hex'),
     iat: Math.floor(Date.now() / 1000),
+    ...(isAllowedOAuthReturnTo(returnTo) ? { returnTo } : {}),
   };
   const b64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', getHmacKey()).update(b64).digest('hex');

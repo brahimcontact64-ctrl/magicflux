@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeProvider } from '@/lib/agent/provider-allowlist';
 import { getOAuthProviderConfig, exchangeOAuthCode, serializeOAuthTokens } from '@/lib/credentials/oauth-providers';
-import { verifyOAuthState } from '@/lib/credentials/oauth-state';
+import { isAllowedOAuthReturnTo, verifyOAuthState } from '@/lib/credentials/oauth-state';
 import { assertTrustedUserId, saveCredentialsWithVerification } from '@/lib/credentials/storage';
 
 /**
@@ -12,18 +12,34 @@ import { assertTrustedUserId, saveCredentialsWithVerification } from '@/lib/cred
  *   1. Verifies the HMAC-signed state (CSRF + replay protection)
  *   2. Exchanges the authorization code for access + refresh tokens
  *   3. Saves credentials atomically via saveCredentialsWithVerification()
- *   4. Redirects to /builder?oauth=success&provider=<p>  or ?oauth=error&reason=<r>
+ *   4. Redirects to <returnTo>?oauth=success&provider=<p>  or ?oauth=error&reason=<r>
+ *      (returnTo defaults to /builder; Phase 9.9.7B lets Settings-initiated
+ *      connections land back on /settings/integrations instead)
  *
  * The userId embedded in the state is NEVER sourced from query params —
- * it is always extracted from the server-signed state token.
+ * it is always extracted from the server-signed state token. Same for
+ * returnTo: only a value carried inside the signed state is ever used, so a
+ * caller cannot redirect the browser anywhere by tampering with query params.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-  const builderBase = `${appUrl}/builder`;
+
+  // Best-effort: recover which page started this flow from the signed state,
+  // even on an error path (e.g. the user clicked "Cancel" on Google's consent
+  // screen), so Settings-initiated connections don't get bounced to Builder.
+  // Falls back to /builder when the state is missing/invalid/unrecognized —
+  // identical to this route's behavior before Phase 9.9.7B.
+  const stateParam = searchParams.get('state');
+  const stateResult = stateParam ? verifyOAuthState(stateParam) : null;
+  const returnTo =
+    stateResult?.valid && isAllowedOAuthReturnTo(stateResult.payload.returnTo)
+      ? stateResult.payload.returnTo
+      : '/builder';
+  const returnBase = `${appUrl}${returnTo}`;
 
   function errorRedirect(reason: string): NextResponse {
-    return NextResponse.redirect(`${builderBase}?oauth=error&reason=${encodeURIComponent(reason)}`);
+    return NextResponse.redirect(`${returnBase}?oauth=error&reason=${encodeURIComponent(reason)}`);
   }
 
   // ── Provider-side denial (user clicked "Cancel" on OAuth consent screen) ──────
@@ -34,15 +50,13 @@ export async function GET(req: NextRequest) {
 
   // ── Required params ────────────────────────────────────────────────────────────
   const code = searchParams.get('code');
-  const stateParam = searchParams.get('state');
 
   if (!code || !stateParam) {
     return errorRedirect('missing_params');
   }
 
   // ── State verification (CSRF + replay protection) ─────────────────────────────
-  const stateResult = verifyOAuthState(stateParam);
-  if (!stateResult.valid) {
+  if (!stateResult || !stateResult.valid) {
     return errorRedirect('invalid_state');
   }
 
@@ -98,6 +112,6 @@ export async function GET(req: NextRequest) {
 
   // ── Success redirect ───────────────────────────────────────────────────────────
   return NextResponse.redirect(
-    `${builderBase}?oauth=success&provider=${encodeURIComponent(provider)}`
+    `${returnBase}?oauth=success&provider=${encodeURIComponent(provider)}`
   );
 }

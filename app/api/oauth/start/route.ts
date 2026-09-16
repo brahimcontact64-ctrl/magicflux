@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/supabase-server';
 import { normalizeProvider } from '@/lib/agent/provider-allowlist';
 import { getOAuthProviderConfig } from '@/lib/credentials/oauth-providers';
-import { buildOAuthState } from '@/lib/credentials/oauth-state';
+import { buildOAuthState, isAllowedOAuthReturnTo } from '@/lib/credentials/oauth-state';
 
 /**
  * POST /api/oauth/start
@@ -24,12 +24,18 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Body parsing ─────────────────────────────────────────────────────────────
-  let body: { provider?: unknown };
+  let body: { provider?: unknown; returnTo?: unknown };
   try {
-    body = (await req.json()) as { provider?: unknown };
+    body = (await req.json()) as { provider?: unknown; returnTo?: unknown };
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
+
+  // Phase 9.9.7B -- which page to send the user back to after the OAuth
+  // round trip (Builder vs Settings). Only ever taken from a fixed allow-list
+  // (never an arbitrary caller-supplied path) and embedded in the signed
+  // state so it can't be tampered with in transit.
+  const returnTo = isAllowedOAuthReturnTo(body.returnTo) ? body.returnTo : undefined;
 
   // ── Provider validation ──────────────────────────────────────────────────────
   const rawProvider = String(body.provider ?? '');
@@ -63,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   // ── Build OAuth URL ───────────────────────────────────────────────────────────
   const redirectUri = `${appUrl}/api/oauth/callback`;
-  const state = buildOAuthState(user.id, provider);
+  const state = buildOAuthState(user.id, provider, returnTo);
 
   const authParams = new URLSearchParams({
     client_id: clientId,

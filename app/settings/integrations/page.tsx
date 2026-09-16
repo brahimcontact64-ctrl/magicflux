@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, PlugZap, Store, MessageSquare, Database, Trash2, Pencil, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -40,6 +40,12 @@ type ProviderConfig = {
   title: string;
   icon: React.ElementType;
   fields: Array<{ key: string; label: string; type: string; placeholder: string }>;
+  // Phase 9.9.7B -- true for providers whose connection UX must be the real
+  // Google OAuth redirect (currently just 'gmail'), never the manual
+  // credential form below. Sourced from the catalog's authStrategy.type so
+  // Settings and the Builder connect modal both key off the same canonical
+  // signal instead of each hardcoding their own provider-name check.
+  isOAuth?: boolean;
 };
 
 type CatalogProvider = {
@@ -51,6 +57,7 @@ type CatalogProvider = {
     secret: boolean;
     placeholder?: string;
   }>;
+  authStrategy?: { type?: string };
 };
 
 const PROVIDERS: ProviderConfig[] = [
@@ -93,10 +100,22 @@ const PROVIDERS: ProviderConfig[] = [
       { key: 'FROM_EMAIL', label: 'FROM_EMAIL', type: 'text', placeholder: 'you@example.com' },
     ],
   },
+  // Phase 9.9.7B -- fallback shown only if /api/integrations/catalog fails
+  // to load (catalogProviders.length === 0). The real, live card always
+  // comes from the catalog's server-forced canonical OAuth entry below;
+  // this just keeps the OAuth-only UX correct even when that fetch fails.
+  {
+    id: 'gmail',
+    title: 'Gmail',
+    icon: Mail,
+    fields: [],
+    isOAuth: true,
+  },
 ];
 
 export default function IntegrationsSettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
 
   // Phase 9.5 Step E — no auth guard previously: an anonymous/expired-
@@ -106,6 +125,31 @@ export default function IntegrationsSettingsPage() {
   useEffect(() => {
     if (!authLoading && !user) router.replace('/login');
   }, [authLoading, user, router]);
+
+  // Phase 9.9.7B -- /api/oauth/callback now redirects back here (via the
+  // signed-state returnTo) when a connection was started from this page,
+  // instead of always landing on /builder. Mirrors app/builder/page.tsx's
+  // own oauth query-param handling.
+  useEffect(() => {
+    const oauthResult = searchParams.get('oauth');
+    if (!oauthResult) return;
+    const provider = searchParams.get('provider') ?? 'Integration';
+    const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+    if (oauthResult === 'success') {
+      toast.success(`${label} connected`);
+      void fetchRows();
+    } else if (oauthResult === 'error') {
+      const reason = searchParams.get('reason') ?? 'unknown_error';
+      toast.error(`${label} connection failed (${reason}). Please try again.`);
+    }
+    const cleanParams = new URLSearchParams(searchParams.toString());
+    cleanParams.delete('oauth');
+    cleanParams.delete('provider');
+    cleanParams.delete('reason');
+    const query = cleanParams.toString();
+    router.replace(query ? `/settings/integrations?${query}` : '/settings/integrations');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -188,17 +232,27 @@ export default function IntegrationsSettingsPage() {
   const providerConfigs = useMemo<ProviderConfig[]>(() => {
     if (catalogProviders.length === 0) return PROVIDERS;
 
-    return catalogProviders.map((provider) => ({
-      id: provider.provider,
-      title: titleFromProvider(provider.provider),
-      icon: categoryIcon(provider.category),
-      fields: (provider.requiredCredentials ?? []).map((field) => ({
-        key: field.key,
-        label: field.label,
-        type: field.secret ? 'password' : 'text',
-        placeholder: field.placeholder ?? '',
-      })),
-    }));
+    return catalogProviders.map((provider) => {
+      const isOAuth = provider.authStrategy?.type === 'oauth2';
+      return {
+        id: provider.provider,
+        title: titleFromProvider(provider.provider),
+        icon: provider.provider === 'gmail' ? Mail : categoryIcon(provider.category),
+        // Phase 9.9.7B -- an OAuth-canonical provider never renders manual
+        // credential fields, even if the catalog payload carried any (it
+        // won't -- the server always sends requiredCredentials: [] for
+        // these -- this is a second, client-side guarantee).
+        fields: isOAuth
+          ? []
+          : (provider.requiredCredentials ?? []).map((field) => ({
+              key: field.key,
+              label: field.label,
+              type: field.secret ? 'password' : 'text',
+              placeholder: field.placeholder ?? '',
+            })),
+        isOAuth,
+      };
+    });
   }, [catalogProviders, categoryIcon, titleFromProvider]);
 
   const byProvider = useMemo(() => {
@@ -233,6 +287,38 @@ export default function IntegrationsSettingsPage() {
     setEditing(provider);
     setFormValues({});
     setIsModalOpen(true);
+  };
+
+  /**
+   * Phase 9.9.7B -- one-click Gmail OAuth, mirroring the Builder connect
+   * modal's connectGmailOAuth() so both surfaces drive the exact same
+   * /api/oauth/start -> Google consent -> /api/oauth/callback flow instead
+   * of maintaining two divergent connect implementations. Never opens the
+   * manual-credential Dialog for this provider. returnTo tells the callback
+   * to land back on this page instead of its /builder default.
+   */
+  const connectOAuthProvider = async (provider: string) => {
+    setSaving(provider);
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) return;
+
+      const res = await fetch('/api/oauth/start', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ provider, returnTo: '/settings/integrations' }),
+      });
+      const data = await res.json().catch(() => null) as { redirectUrl?: string; error?: string } | null;
+      if (!res.ok || !data?.redirectUrl) {
+        toast.error(data?.error ?? 'Could not start Google sign-in. Please try again.');
+        return;
+      }
+      window.location.href = data.redirectUrl;
+    } catch {
+      toast.error('Network error starting Google sign-in. Please try again.');
+    } finally {
+      setSaving(null);
+    }
   };
 
   const saveProvider = async (provider: string) => {
@@ -424,14 +510,16 @@ export default function IntegrationsSettingsPage() {
                     <Button
                       size="sm"
                       className="h-8 gap-1.5"
-                      onClick={() => startEdit(cfg.id)}
+                      onClick={() => (cfg.isOAuth ? connectOAuthProvider(cfg.id) : startEdit(cfg.id))}
                       disabled={saving === cfg.id || disconnecting === cfg.id || acting === cfg.id || verifying === cfg.id || !canCreateNew}
                     >
                       {saving === cfg.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />}
-                      {status === 'not_connected' ? 'Connect' : 'Edit credentials'}
+                      {cfg.isOAuth
+                        ? (status === 'not_connected' ? 'Continue with Google' : 'Reconnect with Google')
+                        : (status === 'not_connected' ? 'Connect' : 'Edit credentials')}
                     </Button>
 
-                    {status !== 'not_connected' && (
+                    {status !== 'not_connected' && !cfg.isOAuth && (
                       <Button
                         size="sm"
                         variant="outline"
