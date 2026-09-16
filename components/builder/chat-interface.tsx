@@ -9,7 +9,6 @@ import { type ConversationState } from '@/lib/conversation-agent';
 import { AutomationTemplate, PROMPT_EXAMPLES } from '@/lib/templates';
 import { LiveWorkflowPanel, type LiveWorkflowStatus } from './live-workflow-panel';
 import { AutomationBrain } from './AutomationBrain';
-import { BuilderAirtableConfigPanel } from './airtable-node-config-panel';
 import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
 import { sanitizeAutomationBrainForGraph } from '@/lib/automation/sanitize-automation-brain-for-graph';
 import {
@@ -1340,17 +1339,6 @@ export function ChatInterface({
                           };
                         });
                       }}
-                    />
-                  ) : null}
-                  {isActiveAssistant && runtimeState.workflowGraph ? (
-                    <BuilderAirtableConfigPanel
-                      workflowId={runtimeState.persistedWorkflowId}
-                      graph={runtimeState.workflowGraph}
-                      airtableConnected={
-                        runtimeState.automationBrain?.credentialIntelligence?.find((c) => c.provider === 'airtable')?.ready
-                        ?? runtimeState.integrationCards.find((c) => c.provider === 'airtable')?.connected
-                        ?? false
-                      }
                     />
                   ) : null}
                   {isActiveAssistant && runtimeState.workflowGraph && !runtimeState.deployState.workflowActive ? (

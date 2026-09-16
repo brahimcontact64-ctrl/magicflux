@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -11,6 +11,7 @@ import { IndustrySelector } from '@/components/builder/industry-selector';
 import { ChatInterface } from '@/components/builder/chat-interface';
 import { IntegrationConnectModal } from '@/components/builder/integration-connect-modal';
 import { ArchitectPanel } from '@/components/builder/architect-panel';
+import { BuilderAirtableConfigPanel } from '@/components/builder/airtable-node-config-panel';
 import { AUTOMATION_TEMPLATES, AutomationTemplate, Industry } from '@/lib/templates';
 import { createAutomationPlanAsync, PlannerApiError, PlannerResult } from '@/lib/planner';
 import { validateWorkflow, ValidationResult } from '@/lib/validator';
@@ -48,6 +49,13 @@ type ExecutionMode = 'safe_preview' | 'staging_deploy' | 'production_deploy';
 
 const MODE_STORAGE_KEY = 'magicflux.builder.execution_mode';
 const MODE_SESSION_PREFIX = 'magicflux.builder.execution_mode.session.';
+// Phase 9.9.8B -- the exact persisted workflow row id this Builder tab's
+// current result was saved as (app/builder/page.tsx's savedWorkflowId).
+// Recovered on mount so a page refresh does not treat an already-saved
+// workflow as unsaved -- never recovered by matching on name (this app has
+// multiple workflows sharing the same generated name), only ever the exact
+// id this exact browser tab last saved to.
+const SAVED_WORKFLOW_ID_KEY = 'magicflux.builder.saved_workflow_id';
 
 const EXECUTION_MODES: Array<{ value: ExecutionMode; label: string }> = [
   { value: 'safe_preview', label: 'Preview' },
@@ -276,6 +284,43 @@ export default function BuilderPage() {
   const [isCreatingManagedRequest, setIsCreatingManagedRequest] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null);
+  // Phase 9.9.8B -- explicit save lifecycle for computeWorkflowIdentityStatus()
+  // (lib/builder/workflow-identity-status.ts). 'idle' before any plan exists,
+  // 'saving' while the eager auto-save effect below is in flight, 'saved'/
+  // 'failed' are terminal per plan -- never left indefinitely ambiguous.
+  const [workflowSaveState, setWorkflowSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+
+  // Phase 9.9.8B -- recover the exact persisted workflow id on mount/refresh
+  // (never by name -- see SAVED_WORKFLOW_ID_KEY above). BuilderAirtableConfigPanel
+  // independently re-verifies this id still resolves to a real, owned
+  // workflow via its own GET /api/workflows/[id] call, so a stale/deleted
+  // id here fails visibly there rather than silently mis-configuring
+  // something.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SAVED_WORKFLOW_ID_KEY);
+      if (stored) {
+        setSavedWorkflowId(stored);
+        setWorkflowSaveState('saved');
+      }
+    } catch {
+      // localStorage unavailable (private browsing, etc.) -- fall back to
+      // treating this as a fresh session; no crash.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (savedWorkflowId) {
+        window.localStorage.setItem(SAVED_WORKFLOW_ID_KEY, savedWorkflowId);
+      } else {
+        window.localStorage.removeItem(SAVED_WORKFLOW_ID_KEY);
+      }
+    } catch {
+      // Best-effort only -- persistence is a convenience for refresh
+      // recovery, not a correctness requirement of any single session.
+    }
+  }, [savedWorkflowId]);
   const [requiredIntegrations, setRequiredIntegrations] = useState<IntegrationProvider[]>([]);
   const [missingIntegrations, setMissingIntegrations] = useState<IntegrationProvider[]>([]);
   const [isTestingWorkflow, setIsTestingWorkflow] = useState(false);
@@ -590,6 +635,15 @@ export default function BuilderPage() {
     if (isMobile) setSidebarOpen(false);
   }
 
+  // Phase 9.9.8B -- de-dupes CONCURRENT callers (the eager auto-save effect
+  // below and a manual Test/Activate click could otherwise both observe
+  // savedWorkflowId === null at the same time and each independently POST a
+  // new row for the exact same plan -- a real, confirmed contributor to the
+  // duplicate "Lead Classification and Notification" draft rows found
+  // read-only in production). Concurrent callers now await the SAME in-
+  // flight save instead of starting a second one.
+  const savingPromiseRef = useRef<Promise<string | null> | null>(null);
+
   // Ensures the currently generated plan has a saved workflows row (idempotent
   // — reuses savedWorkflowId if runPlanner's own save already succeeded),
   // via the same canonical POST /api/workflows path.
@@ -599,16 +653,53 @@ export default function BuilderPage() {
       toast.error('Generate a workflow first.');
       return null;
     }
+    if (savingPromiseRef.current) return savingPromiseRef.current;
 
-    const id = await saveWorkflowDraft({
-      name: plannerResult.plan.title,
-      description: plannerResult.plan.description,
-      prompt: lastPrompt,
-      workflowJson: plannerResult.n8nJson,
-    });
-    setSavedWorkflowId(id);
-    return id;
+    const currentPlannerResult = plannerResult;
+    const promise = (async () => {
+      setWorkflowSaveState('saving');
+      const id = await saveWorkflowDraft({
+        name: currentPlannerResult.plan.title,
+        description: currentPlannerResult.plan.description,
+        prompt: lastPrompt,
+        workflowJson: currentPlannerResult.n8nJson,
+      });
+      setSavedWorkflowId(id);
+      setWorkflowSaveState(id ? 'saved' : 'failed');
+      return id;
+    })();
+    savingPromiseRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      savingPromiseRef.current = null;
+    }
   }, [lastPrompt, plannerResult, saveWorkflowDraft, savedWorkflowId, user?.id]);
+
+  // Phase 9.9.8B -- root-cause fix: the Airtable configuration panel needs a
+  // persisted workflow id available WITHOUT requiring the founder to first
+  // click "Run Simulated Test" or "Review & Activate" (previously the ONLY
+  // two callers of ensureWorkflowSaved()). Saves eagerly and exactly once
+  // per generated plan, using the same idempotent, de-duped path above --
+  // not a new/parallel persistence mechanism.
+  useEffect(() => {
+    // A recovered savedWorkflowId (restored from localStorage on mount,
+    // above) must win even before any plannerResult exists this session --
+    // otherwise this effect would immediately stomp the just-restored
+    // 'saved' state back to 'idle' on first render, since a fresh page load
+    // always starts with plannerResult === null regardless of what was
+    // recovered.
+    if (savedWorkflowId) {
+      setWorkflowSaveState('saved');
+      return;
+    }
+    if (!plannerResult) {
+      setWorkflowSaveState('idle');
+      return;
+    }
+    void ensureWorkflowSaved();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerResult, savedWorkflowId]);
 
   const handleTestWorkflow = useCallback(async () => {
     const workflowId = await ensureWorkflowSaved();
@@ -763,6 +854,7 @@ export default function BuilderPage() {
   const isPro = user?.plan === 'pro' || user?.plan === 'business';
   const hasMissingIntegrations = missingIntegrations.length > 0;
   const testDisabled = hasMissingIntegrations || isTestingWorkflow;
+  const airtableConnected = requiredIntegrations.includes('airtable') && !missingIntegrations.includes('airtable');
   // Entitlement (Pro vs Free) is checked server-side when the user clicks
   // Activate on the editor page, not here — this page only needs to know
   // whether it's safe to hand off to the editor at all.
@@ -1015,6 +1107,22 @@ export default function BuilderPage() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Phase 9.9.8B -- deliberately OUTSIDE the plannerResult-gated
+              block above: savedWorkflowId (and workflowSaveState) are
+              recovered from localStorage on mount (see the restore effect
+              near their declarations), independent of whether plannerResult
+              itself is currently populated -- so a page refresh does not
+              hide Airtable configuration for an already-saved workflow. */}
+          {(plannerResult || savedWorkflowId || workflowSaveState !== 'idle') && (
+            <div className="mt-3">
+              <BuilderAirtableConfigPanel
+                workflowId={savedWorkflowId}
+                saveState={workflowSaveState}
+                airtableConnected={airtableConnected}
+              />
             </div>
           )}
         </main>

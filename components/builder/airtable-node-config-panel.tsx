@@ -4,40 +4,39 @@ import { useCallback, useEffect, useState } from 'react';
 import { AirtableConfigPanel, type AirtableNodeNeedingConfig } from '@/components/workflows/AirtableConfigPanel';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import { computeAirtableNodeStatus } from '@/lib/airtable/node-config-status';
+import { computeWorkflowIdentityStatus } from '@/lib/builder/workflow-identity-status';
 import { supabase } from '@/lib/supabase-client';
-import type { WorkflowGraphSummary } from '@/lib/agent/workflow-graph';
 
 /**
  * Phase 9.9.8 -- Builder Action Configuration UX.
+ * Phase 9.9.8B -- root-cause fix for "Still saving your workflow" never
+ * resolving: this panel was previously rendered inside ChatInterface, bound
+ * to the CONVERSATIONAL agent's own persistedWorkflowId (lib/agent/
+ * executor.ts's ensurePersistedWorkflowDraft(), linked via
+ * automation_conversations.workflow_id). But the workflow this page's
+ * "Output" section actually tests/activates (plannerResult / savedWorkflowId
+ * in app/builder/page.tsx, saved via the separate POST /api/workflows path
+ * triggered by onPlannerReadyAction) is a SECOND, independently-generated
+ * and independently-persisted result -- the founder's real, already-existing
+ * draft has NO automation_conversations link at all (confirmed read-only:
+ * zero rows reference it), meaning it was produced by this second path, not
+ * the first. Rendering the panel against the first system's id/graph while
+ * the founder is actually looking at the second system's result meant the
+ * id could never arrive, no matter how long the founder waited.
  *
- * The Builder's "Configure Save to Airtable (Cold)" cards (deriveIntegrationCards(),
- * lib/builder/runtime-state.ts) only ever showed a provider-level "connect
- * credentials" prompt -- there was no way to open/configure an individual
- * Airtable action node's real base/table/field mapping from the Builder at
- * all; that capability only existed on the Dashboard workflow detail page
- * (components/workflows/AirtableConfigPanel.tsx, Phase 9.9.3). This wires
- * the SAME certified component into the Builder, for every Airtable node
- * independently (not just ones missing configuration), computing an
- * explicit status per node so Hot/Warm/Cold never get confused for one
- * another:
+ * Fixed by rendering this panel where the REAL, tested/activatable result
+ * and its persisted id live together (app/builder/page.tsx's Output
+ * section: plannerResult.n8nJson for the graph, savedWorkflowId for the id,
+ * both already the single source of truth "Run Simulated Test"/"Review &
+ * Activate" use) instead of re-deriving a second, disconnected identity.
  *
- *   - credential_missing: Airtable isn't connected yet at all.
- *   - unconfigured: connected, but this node has no base/table selected yet
- *     (generation deliberately leaves these empty -- lib/agent/airtable-config-guard.ts).
- *   - configured: base/table selected AND every currently-mapped field name
- *     still exists on Airtable's real live schema right now.
- *   - schema_changed: base/table selected, but a previously-mapped field
- *     name no longer exists on the real table (renamed/deleted since).
- *
- * Reuses the exact same server-side pieces the Dashboard page already uses
- * and that already do the real work correctly: GET /api/workflows/[id] (this
- * user's own persisted workflow_json), GET /api/integrations/airtable/{bases,
- * fields} (server-side schema discovery, Airtable token never leaves the
- * server), and PATCH /api/workflows/[id]/airtable-config (re-verifies the
- * mapping against Airtable's real schema server-side before ever persisting
- * it into the node's own parameters.fields, in the exact format
- * lib/workflow-runtime/node-handlers/airtable.ts already reads at
- * execution time). No second mapping format, no new persistence path.
+ * Server-side pieces reused unchanged: GET /api/workflows/[id] (this user's
+ * own persisted workflow_json), GET /api/integrations/airtable/{bases,
+ * fields} (server-side schema discovery, token never leaves the server),
+ * and PATCH /api/workflows/[id]/airtable-config (re-verifies the mapping
+ * against Airtable's real schema server-side before persisting into the
+ * node's own parameters.fields, the exact format
+ * lib/workflow-runtime/node-handlers/airtable.ts reads at execution time).
  */
 async function authHeaders(): Promise<HeadersInit | null> {
   const { data } = await supabase.auth.getSession();
@@ -48,37 +47,36 @@ async function authHeaders(): Promise<HeadersInit | null> {
 
 export function BuilderAirtableConfigPanel({
   workflowId,
-  graph,
+  saveState,
   airtableConnected,
 }: {
-  workflowId: string | null | undefined;
-  graph?: WorkflowGraphSummary;
+  /** The exact persisted row id for the current result (app/builder/page.tsx's savedWorkflowId, recovered from localStorage across a refresh), or null. */
+  workflowId: string | null;
+  /** The save attempt's own lifecycle -- drives the explicit saving/persisted/failed states (Phase 9.9.8B). */
+  saveState: 'idle' | 'saving' | 'saved' | 'failed';
   airtableConnected: boolean;
 }) {
   const [nodes, setNodes] = useState<AirtableNodeNeedingConfig[] | null>(null);
   const [workflowMeta, setWorkflowMeta] = useState<{ id: string; name: string } | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const hasAirtableNodes = (graph?.nodes ?? []).some((n) => isAirtableNodeType(n.type));
+  // Phase 9.9.8B -- deliberately does NOT take a separate "graph"/node-list
+  // prop from the caller. The one and only thing needed to know everything
+  // about this workflow -- including whether it even HAS an Airtable node --
+  // is its own persisted id, fetched fresh below. This is what makes the
+  // panel self-sufficient across a page refresh: as long as workflowId is
+  // recovered (see app/builder/page.tsx's localStorage restore), this panel
+  // needs nothing else from the rest of the page's (possibly not yet
+  // restored) React state to find and show its own real Airtable nodes.
+  const hasResult = saveState !== 'idle' || Boolean(workflowId);
+  const identity = computeWorkflowIdentityStatus({ hasResult, workflowId, saveState });
 
   const load = useCallback(async () => {
-    if (!hasAirtableNodes) {
+    if (identity !== 'persisted' || !workflowId) {
       setNodes(null);
       setWorkflowMeta(null);
-      setLoadError(null);
-      return;
-    }
-
-    // Phase 9.9.8A -- a workflow with Airtable nodes visible in the chat but
-    // no persistedWorkflowId yet (the founder's own generation turn hasn't
-    // finished saving) must say so explicitly rather than silently
-    // rendering nothing, which production testing found indistinguishable
-    // from a genuine bug.
-    if (!workflowId) {
-      setNodes(null);
-      setWorkflowMeta(null);
-      setLoadError('still_saving');
+      setLoadFailed(false);
       return;
     }
 
@@ -86,7 +84,7 @@ export function BuilderAirtableConfigPanel({
     if (!headers) {
       setNodes(null);
       setWorkflowMeta(null);
-      setLoadError('session_expired');
+      setLoadFailed(true);
       return;
     }
 
@@ -96,11 +94,11 @@ export function BuilderAirtableConfigPanel({
       if (!res.ok || !body?.workflow) {
         setNodes(null);
         setWorkflowMeta(null);
-        setLoadError('load_failed');
+        setLoadFailed(true);
         return;
       }
-      setLoadError(null);
-      // Phase 9.9.8A -- resolves the duplicate-workflow ambiguity: this is
+      setLoadFailed(false);
+      // Phase 9.9.8A/B -- resolves the duplicate-workflow ambiguity: this is
       // the exact persisted row (id + name) every save below targets, shown
       // to the founder so it's never a guess which of several
       // similarly-named drafts is actually being edited.
@@ -162,9 +160,9 @@ export function BuilderAirtableConfigPanel({
     } catch {
       setNodes(null);
       setWorkflowMeta(null);
-      setLoadError('load_failed');
+      setLoadFailed(true);
     }
-  }, [workflowId, hasAirtableNodes, airtableConnected]);
+  }, [identity, workflowId, airtableConnected]);
 
   useEffect(() => {
     void load();
@@ -172,31 +170,41 @@ export function BuilderAirtableConfigPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, refreshKey]);
 
-  if (!hasAirtableNodes) return null;
+  // Phase 9.9.8B -- explicit, terminating states (no more indefinite
+  // generic "still saving"). 'no_workflow' never renders (nothing to
+  // configure yet); 'saving' and 'persistence_failed' are both real,
+  // distinct, visible outcomes.
+  if (identity === 'no_workflow') return null;
 
-  if (loadError === 'still_saving') {
+  if (identity === 'saving') {
     return (
       <div className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-3 text-xs text-muted-foreground">
-        Still saving your workflow — Airtable configuration will appear here in a moment.
+        Saving your workflow — Airtable configuration will appear here as soon as it's saved.
       </div>
     );
   }
 
-  if (loadError === 'session_expired') {
+  if (identity === 'persistence_failed') {
+    return (
+      <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-muted-foreground">
+        This workflow could not be saved, so Airtable configuration isn't available yet. Try generating it again.
+      </div>
+    );
+  }
+
+  // identity === 'persisted' from here on.
+
+  if (loadFailed) {
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
-        Your session expired — refresh the page to configure Airtable here.
+        Could not load this workflow's Airtable configuration. Refresh and try again.
       </div>
     );
   }
-
-  if (loadError === 'load_failed') return null;
 
   // Phase 9.9.8A -- render SOMETHING the instant Airtable nodes are known to
   // exist, instead of staying invisible while the workflow/schema fetches
-  // are in flight. Production testing found the panel popping in silently
-  // after the chat had already auto-scrolled to the bottom indistinguishable
-  // from it simply not being there at all.
+  // are in flight.
   if (!nodes) {
     return (
       <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
