@@ -157,6 +157,32 @@ export function canonicalizeProviderId(provider: string): string {
   return group ? group[0] : provider;
 }
 
+/**
+ * Phase 9.9.8D -- mirrors workflow_integrations.provider's live DB CHECK
+ * constraint (verified via `supabase db dump` immediately before, and
+ * again immediately after, the migration that added 'gmail':
+ * supabase/migrations/20260916134334_widen_workflow_integrations_provider_check_add_gmail.sql --
+ * a full schema diff confirmed this was the ONLY line that changed).
+ * Used by app/api/workflows/[id]/integrations/route.ts as a defense-in-
+ * depth, EARLY, clear rejection for a raw provider value the database
+ * would reject anyway -- it does not replace the DB constraint as the
+ * actual source of truth (a drift here fails safe: the DB still rejects
+ * anything this allowlist mistakenly let through, just with a less
+ * specific error), and must be kept in sync whenever that constraint changes.
+ * Lives here (not in the route file) because a Next.js App Router route.ts
+ * module may only export the specific route-handler/config names Next.js
+ * recognizes -- any other export fails the framework's own type check.
+ */
+export const WORKFLOW_INTEGRATION_ALLOWED_RAW_PROVIDERS: ReadonlySet<string> = new Set([
+  'email',
+  'shopify',
+  'slack',
+  'airtable',
+  'twilio',
+  'webhook',
+  'gmail',
+]);
+
 function replaceEnvTokens(raw: string, integrations: Record<IntegrationProvider, Record<string, string> | undefined>): string {
   const shopify = integrations.shopify;
   const slack = integrations.slack;

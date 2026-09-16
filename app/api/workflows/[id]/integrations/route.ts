@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { classifyError } from '@/lib/security/safe-error';
 import { getUserIntegrations } from '@/lib/user-integrations';
-import { canonicalizeProviderId } from '@/lib/integrations';
+import { canonicalizeProviderId, WORKFLOW_INTEGRATION_ALLOWED_RAW_PROVIDERS } from '@/lib/integrations';
 import { getCredentialRowById, verifyProviderConnection } from '@/lib/credentials/storage';
 
 // Phase 9.9.4H -- root cause of "Builder shows Gmail as Attached with no
@@ -270,6 +270,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const existingRow = (existingRows ?? []).find((row) => canonicalizeProviderId(String(row.provider)) === canonicalRequested);
 
   const rawProviderToStore = integration.provider; // Always the credential's OWN true raw provider identity -- never aliased.
+
+  // Phase 9.9.8D -- fail clearly and immediately for a raw provider value
+  // the DB CHECK constraint would reject anyway, instead of relying solely
+  // on the 23514 catch below. Both paths lead to the same honest error;
+  // this one avoids the round-trip.
+  if (!WORKFLOW_INTEGRATION_ALLOWED_RAW_PROVIDERS.has(rawProviderToStore)) {
+    return NextResponse.json(
+      {
+        error: 'PROVIDER_NOT_YET_ALLOWED',
+        message: `Attaching a "${rawProviderToStore}" credential requires a small database schema update that has not been applied to this environment yet. This is a known, tracked limitation, not a transient error -- please contact support.`,
+      },
+      { status: 409 }
+    );
+  }
+
   type AttachedRow = { id: string; provider: string; integration_id: string };
   let attached: AttachedRow | null = null;
   let mutationError: unknown = null;
