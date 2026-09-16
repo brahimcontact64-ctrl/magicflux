@@ -12,6 +12,7 @@ import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/no
 import { validateAirtableMapping } from '@/lib/airtable/schema';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
+import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -217,12 +218,18 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
   // field name.
   const notificationContentResult = validateNotificationFieldAllowlist(templateSyntaxNodes);
   const notificationContentErrors = notificationContentResult.ok ? [] : [notificationContentResult.reason];
+  // Phase 9.9.10 -- same activation-time backstop as the guards above, for
+  // a hand-edited or pre-existing workflow whose aiClassifier node claims a
+  // qualification policy that is structurally invalid.
+  const qualificationPolicyResult = validateQualificationPolicyShape(templateSyntaxNodes);
+  const qualificationPolicyErrors = qualificationPolicyResult.ok ? [] : [qualificationPolicyResult.reason];
   const errors = [
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
     ...airtableErrors,
     ...templateSyntaxErrors,
     ...notificationContentErrors,
+    ...qualificationPolicyErrors,
   ];
 
   if (errors.length > 0) {

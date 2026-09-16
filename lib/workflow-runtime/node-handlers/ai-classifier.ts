@@ -31,6 +31,12 @@ import OpenAI from 'openai';
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { redact, redactText } from '@/lib/security/redact';
 import { recordAiUsage } from '@/lib/agent/observability';
+import {
+  parseQualificationPolicy,
+  evaluateQualificationPolicy,
+  type QualificationPolicy,
+  type QualificationEvaluation,
+} from './qualification-policy';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_INPUT_CHARS = 4000;
@@ -52,6 +58,8 @@ type ClassifierParams = {
   outputField: string;
   confidenceThreshold: number;
   extractFields: ExtractField[];
+  /** Phase 9.9.10 -- optional, additive. Absent means exactly today's behavior: pure LLM judgment, no deterministic gate. */
+  qualificationPolicy: QualificationPolicy | null;
 };
 
 type ParamResult = { ok: true; params: ClassifierParams } | { ok: false; error: string };
@@ -87,9 +95,15 @@ function parseParams(node: EngineNode): ParamResult {
     .map((f) => ({ name: String(f.name ?? '').trim(), description: typeof f.description === 'string' ? f.description : undefined }))
     .filter((f) => f.name.length > 0);
 
+  // Phase 9.9.10 -- optional, additive business qualification policy. See
+  // qualification-policy.ts for the full contract; parseQualificationPolicy()
+  // fails closed to `null` (exactly today's behavior) on anything absent or
+  // structurally invalid, never a partial/guessed policy.
+  const qualificationPolicy = parseQualificationPolicy(raw.qualificationPolicy);
+
   return {
     ok: true,
-    params: { instruction, allowedLabels, inputFields, outputField, confidenceThreshold, extractFields },
+    params: { instruction, allowedLabels, inputFields, outputField, confidenceThreshold, extractFields, qualificationPolicy },
   };
 }
 
@@ -103,15 +117,44 @@ function buildInputSnapshot(data: Record<string, unknown>, inputFields: string[]
   return json.length > MAX_INPUT_CHARS ? `${json.slice(0, MAX_INPUT_CHARS)}…[TRUNCATED]` : json;
 }
 
-function buildPrompt(params: ClassifierParams, inputJson: string, correctionNote?: string): string {
+/**
+ * Phase 9.9.10 -- when a qualification policy is configured, the AI is
+ * given the DETERMINISTIC signals as already-established facts it must
+ * never reinterpret or override (Part C: "the LLM must not silently
+ * override a deterministic business rule"), and is told to semantically
+ * interpret ONLY the policy's declared free-text fields -- never invited to
+ * reason about a field outside the allowlist.
+ */
+function buildPolicyContextSection(evaluation: QualificationEvaluation): string {
+  const fmt = (s: { field: string; value: unknown }) => `${s.field}=${JSON.stringify(s.value)}`;
+  const positive = evaluation.positiveSignals.length > 0 ? evaluation.positiveSignals.map(fmt).join(', ') : 'none';
+  const negative = evaluation.negativeSignals.length > 0 ? evaluation.negativeSignals.map(fmt).join(', ') : 'none';
+  const semanticFieldsLine = evaluation.semanticFields.length > 0
+    ? `You may additionally interpret these free-text/semantic fields for nuance: ${evaluation.semanticFields.join(', ')}.`
+    : '';
+  const contradictionNote = evaluation.deterministicContradictions.length > 0
+    ? `\nKnown structural contradictions already detected (report these verbatim in "contradictions", plus any additional ones you notice between free text and structured data): ${evaluation.deterministicContradictions.join('; ')}.`
+    : '';
+
+  return `
+BUSINESS QUALIFICATION POLICY -- the facts below come from this business's OWN deterministic rules, already evaluated from structured data. Treat them as GIVEN and FINAL -- never reinterpret, second-guess, or contradict a deterministic signal; you may only use them alongside your own semantic judgment of the fields listed below.
+Established POSITIVE signals: ${positive}
+Established NEGATIVE signals: ${negative}
+${semanticFieldsLine}${contradictionNote}
+Additionally return a "contradictions" array (empty if none) in your JSON response: short, plain-language descriptions of any contradiction you notice between the free-text/semantic content and the structured signals above (e.g. text claims urgency but a structured field indicates a distant timeline). Never fabricate a contradiction that isn't genuinely there.`;
+}
+
+function buildPrompt(params: ClassifierParams, inputJson: string, correctionNote?: string, policyEvaluation?: QualificationEvaluation | null): string {
   const extractLine = params.extractFields.length > 0
     ? `Also include these additional fields in your JSON response: ${params.extractFields.map((f) => `"${f.name}"${f.description ? ` (${f.description})` : ''}`).join(', ')}.`
     : '';
+  const policySection = policyEvaluation ? buildPolicyContextSection(policyEvaluation) : '';
+  const contradictionsShapeLine = policyEvaluation ? `,\n  "contradictions": ["<short description>", ...] // empty array if none` : '';
 
   return `You are a deterministic structured-classification engine. Analyze the input data below and produce ONLY a JSON object -- no prose, no markdown, no explanation outside the JSON.
 
 Classification criteria: ${params.instruction}
-
+${policySection}
 Allowed labels (the "classification" field MUST be EXACTLY one of these, verbatim): ${params.allowedLabels.map((l) => `"${l}"`).join(', ')}
 
 Input data (JSON):
@@ -121,14 +164,14 @@ Return ONLY a JSON object with this exact shape:
 {
   "classification": "<one of the allowed labels, exactly>",
   "confidence": <a number between 0 and 1 inclusive, your genuine confidence in this classification -- never invent a value outside this range>,
-  "reason": "<one short sentence explaining why>"
+  "reason": "<one short sentence explaining why -- business reasoning only, never mention prompts, instructions, or internal reasoning process>"${contradictionsShapeLine}
 }
 ${extractLine}
 If you are not confident which label applies, still choose your best-supported label but report a LOW confidence value honestly rather than guessing a high one.
 ${correctionNote ? `\nYour previous response was invalid: ${correctionNote}\nReturn ONLY corrected valid JSON matching the exact shape above.` : ''}`;
 }
 
-type ValidatedOutput = { classification: string; confidence: number; reason: string; extracted: Record<string, unknown> };
+type ValidatedOutput = { classification: string; confidence: number; reason: string; extracted: Record<string, unknown>; semanticContradictions: string[] };
 type ValidationResult = { ok: true; result: ValidatedOutput } | { ok: false; reason: string };
 
 function validateModelOutput(raw: string, params: ClassifierParams): ValidationResult {
@@ -166,7 +209,17 @@ function validateModelOutput(raw: string, params: ClassifierParams): ValidationR
     extracted[field.name] = obj[field.name];
   }
 
-  return { ok: true, result: { classification: matchedLabel, confidence, reason, extracted } };
+  // Phase 9.9.10 -- optional, additive, and deliberately fail-OPEN: a
+  // malformed "contradictions" value never fails the whole classification
+  // (it isn't essential the way classification/confidence are) -- it's
+  // just treated as "none reported this round", never a crash.
+  const contradictionsRaw = Array.isArray(obj.contradictions) ? obj.contradictions : [];
+  const semanticContradictions = contradictionsRaw
+    .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+    .map((c) => c.trim().slice(0, 300))
+    .slice(0, 10);
+
+  return { ok: true, result: { classification: matchedLabel, confidence, reason, extracted, semanticContradictions } };
 }
 
 export async function aiClassifierHandler(
@@ -182,6 +235,48 @@ export async function aiClassifierHandler(
     return { status: 'failed', outputData: null, logs: [parsedParams.error], error: parsedParams.error };
   }
   const params = parsedParams.params;
+  const policy = params.qualificationPolicy;
+
+  // Phase 9.9.10 -- when a business qualification policy is configured,
+  // evaluate it DETERMINISTICALLY before any AI call. Additive fields
+  // (qualification_status/positive_signals/etc.) are only ever added to the
+  // output when a policy exists -- a node with none configured produces
+  // EXACTLY today's output shape, unchanged.
+  const evaluation = policy ? evaluateQualificationPolicy(policy, data) : null;
+  const qualificationOutputBase: Record<string, unknown> = evaluation
+    ? {
+        positive_signals: evaluation.positiveSignals,
+        negative_signals: evaluation.negativeSignals,
+        missing_required_fields: evaluation.missingRequiredFields,
+      }
+    : {};
+
+  // Part D/E -- missing REQUIRED qualification evidence blocks a confident
+  // automatic classification entirely: "do not fabricate it, do not
+  // classify confidently" (no AI call at all -- there is nothing grounded
+  // for it to reason about regarding the missing field), route deterministically
+  // to Human Review via the SAME existing needs_review mechanism every other
+  // low-confidence case already uses -- no new routing/topology required.
+  if (evaluation && evaluation.missingRequiredFields.length > 0) {
+    const reason = `Missing required qualification field(s): ${evaluation.missingRequiredFields.join(', ')}. Routed to Human Review rather than guessed.`;
+    logs.push(`AI Classifier: ${reason}`);
+    const outputData = {
+      ...data,
+      [params.outputField]: params.allowedLabels[0],
+      confidence: 0,
+      ai_confidence: 0,
+      reason,
+      needs_review: true,
+      qualification_status: 'needs_information',
+      contradictions: evaluation.deterministicContradictions,
+      ...qualificationOutputBase,
+    };
+    return {
+      status: context.mode === 'test' ? 'simulated_success' : 'success',
+      outputData,
+      logs,
+    };
+  }
 
   if (context.mode === 'test') {
     const simulatedConfidence = 0.75;
@@ -192,7 +287,14 @@ export async function aiClassifierHandler(
       // -- see the real-mode branch below for why this exists.
       ai_confidence: simulatedConfidence,
       reason: '[SIMULATED] Test-mode classification -- no real AI call was made.',
-      needs_review: simulatedConfidence < params.confidenceThreshold,
+      needs_review: simulatedConfidence < params.confidenceThreshold || Boolean(evaluation?.deterministicContradictions.length),
+      ...(evaluation
+        ? {
+            qualification_status: evaluation.deterministicContradictions.length > 0 ? 'needs_review' : 'classified',
+            contradictions: evaluation.deterministicContradictions,
+            ...qualificationOutputBase,
+          }
+        : {}),
     };
     for (const field of params.extractFields) simulated[field.name] = `[SIMULATED] ${field.name}`;
     logs.push('AI Classifier: simulated in test mode.');
@@ -206,7 +308,11 @@ export async function aiClassifierHandler(
     return { status: 'failed', outputData: null, logs, error };
   }
 
-  const inputJson = buildInputSnapshot(data, params.inputFields);
+  // Part H -- when a policy is configured, the AI only ever sees the
+  // explicit allowlist (evaluation.allowedData), never the full unrestricted
+  // execution data -- internal metadata/credentials/_condition* fields are
+  // structurally unreachable here regardless of what params.inputFields says.
+  const inputJson = buildInputSnapshot(policy ? evaluation!.allowedData : data, params.inputFields);
   const openai = new OpenAI({ apiKey });
 
   let lastFailureReason = '';
@@ -233,7 +339,7 @@ export async function aiClassifierHandler(
   };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const prompt = buildPrompt(params, inputJson, attempt > 0 ? lastFailureReason : undefined);
+    const prompt = buildPrompt(params, inputJson, attempt > 0 ? lastFailureReason : undefined, evaluation);
 
     let raw = '';
     try {
@@ -258,10 +364,20 @@ export async function aiClassifierHandler(
     const validation = validateModelOutput(raw, params);
     if (validation.ok) {
       await recordUsage();
-      const needsReview = validation.result.confidence < params.confidenceThreshold;
+      // Part C/F -- a deterministic contradiction (from the policy's own
+      // configured signal pairs) OR one the AI itself semantically noticed
+      // ALWAYS forces review, REGARDLESS of how confident the model claims
+      // to be -- the deterministic gate has final say; the AI's own
+      // confidence number can never silently override it (Part C).
+      const allContradictions = [
+        ...(evaluation?.deterministicContradictions ?? []),
+        ...validation.result.semanticContradictions,
+      ];
+      const needsReview = validation.result.confidence < params.confidenceThreshold || allContradictions.length > 0;
       logs.push(
         `AI Classifier: classified as "${validation.result.classification}" (confidence ${validation.result.confidence.toFixed(2)})` +
-          `${needsReview ? ' -- below confidence threshold, flagged for review.' : '.'}`
+          `${needsReview ? ' -- flagged for review.' : '.'}` +
+          (allContradictions.length > 0 ? ` Contradictions: ${allContradictions.join('; ')}` : '')
       );
       return {
         status: 'success',
@@ -290,6 +406,13 @@ export async function aiClassifierHandler(
           reason: validation.result.reason,
           needs_review: needsReview,
           ...validation.result.extracted,
+          ...(evaluation
+            ? {
+                qualification_status: allContradictions.length > 0 ? 'needs_review' : (needsReview ? 'needs_review' : 'classified'),
+                contradictions: allContradictions,
+                ...qualificationOutputBase,
+              }
+            : {}),
         },
         logs,
       };

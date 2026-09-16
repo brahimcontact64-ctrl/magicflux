@@ -41,6 +41,7 @@ import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-g
 import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
+import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 import { validateAirtablePersistenceCompleteness } from '@/lib/agent/airtable-persistence-guard';
 
@@ -318,6 +319,19 @@ AI CLASSIFICATION CONTRACT -- MANDATORY whenever this automation needs to classi
   - "outputField": the field name downstream IF nodes will read (defaults to "classification" if omitted -- prefer the default unless the request names a different field).
   - "confidenceThreshold": optional number in [0,1] (defaults to 0.6) -- below this, the node reports needs_review:true instead of guessing.
 Every downstream IF node that reads the classification MUST branch on exactly "={{$json[\"<outputField>\"]}}" -- the literal field the aiClassifier node writes. Do NOT use this node type for a deterministic threshold/exact-match branch (e.g. "if amount > 100") -- that stays n8n-nodes-base.if directly on the real input field, no AI step needed.
+
+QUALIFICATION POLICY CONTRACT -- RECOMMENDED whenever an aiClassifier node scores/qualifies a real business object (a lead, order, application, ticket) using multiple structured signals (budget, urgency, timeline, an exact enum value, etc.), not just free-text judgment: give the aiClassifier node an ADDITIONAL "qualificationPolicy" parameter so the business's own definition of what qualifies is explicit and deterministic, instead of leaving the entire policy to be silently invented by the model. This is OPTIONAL and purely additive -- omit it entirely for a genuinely free-text/semantic-only judgment call (e.g. pure sentiment/intent detection with no numeric or exact-match business rule at all); never force a policy onto a request that doesn't describe one. Shape, using ONLY field names the trigger/upstream data genuinely provides (never invented):
+{
+  "version": 1,
+  "allowedInputFields": [/* every field name any rule below reads -- an explicit allowlist; nothing outside it is ever visible to qualification, deterministic or AI */],
+  "fields": [
+    { "field": "<real field name>", "required": true|false, "kind": "numeric", "positiveMin": <number>, "negativeMax": <number> },
+    { "field": "<real field name>", "required": true|false, "kind": "enum", "positiveValues": ["..."], "negativeValues": ["..."] },
+    { "field": "<real field name>", "required": false, "kind": "text" }
+  ],
+  "contradictions": [{ "positiveField": "<field>", "negativeField": "<field>", "note": "<short description>" }]
+}
+Rules for building it: "required: true" ONLY for evidence the request states is genuinely necessary for a confident automatic classification (e.g. "budget is required to call it Hot") -- a field merely mentioned as relevant context (e.g. company name) stays "required: false". "kind: numeric" for a threshold/range comparison (budget, deal size), "kind: enum" for an exact-match business value (urgency, a fixed intent category) with real, request-derived positive/negative value lists, "kind: text" for genuinely free-text/semantic content (a description field) -- text fields are NEVER scored deterministically, only handed to the AI to interpret. Add a "contradictions" entry only for a genuinely plausible tension the request implies (e.g. high budget paired with low intent). Missing/absent evidence for a field is handled entirely by the runtime (lib/workflow-runtime/node-handlers/qualification-policy.ts) -- it is NEVER treated as a negative signal; do not try to encode "missing = negative" yourself. When a policy is present, the node's real output additionally includes "qualification_status" ("classified"|"needs_information"|"needs_review"), "positive_signals", "negative_signals", "missing_required_fields", and "contradictions" -- a needs_information or needs_review outcome routes through the SAME "needs_review" field the Needs-Review-IF/Human-Review topology already uses (see HUMAN REVIEW CONTRACT above), so no new routing/topology is ever required just because a policy exists.
 
 CRITICAL -- the aiClassifier node itself is ALWAYS LINEAR, exactly like n8n-nodes-base.set: it computes fields, it never decides a branch. Its "connections" entry MUST have exactly ONE entry in "main" (a single output-port array), regardless of how many downstream nodes it feeds -- list every one of them inside that one main[0] array. NEVER give an aiClassifier node a second port array (main[1], main[2], ...) to represent "the low-confidence case" or "the review case" -- the runtime has no way to know which port an aiClassifier node "chose" because it never chooses one; a graph shaped that way will run every port on every single execution and will be rejected before it can be saved.
 
@@ -982,6 +996,31 @@ export async function executeTool(
               type: 'error',
               label: 'Generated notification references an internal/sensitive field',
               detail: notificationContentCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.10 -- deterministic backstop matching the guards above:
+        // a generated aiClassifier node that CLAIMS a business qualification
+        // policy must actually carry a structurally valid one, or the
+        // generation is rejected rather than silently persisting a policy
+        // that would be ignored at runtime (see qualification-policy.ts's
+        // parseQualificationPolicy() fail-closed contract).
+        const qualificationPolicyCheck = validateQualificationPolicyShape(result.nodes);
+        if (!qualificationPolicyCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: qualificationPolicyCheck.reason,
+              invalid_qualification_policy: true,
+              node: qualificationPolicyCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated qualification policy is structurally invalid',
+              detail: qualificationPolicyCheck.reason,
               agent: 'planner',
             },
           };

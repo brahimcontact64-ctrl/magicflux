@@ -19,28 +19,11 @@
  */
 
 import { extractReferencedFields } from '@/lib/workflow-runtime/node-handlers/json-field-reference';
+import { isDenylistedFieldName } from '@/lib/security/field-denylist';
 
 export type NotificationContentValidation = { ok: true } | { ok: false; reason: string; node: string };
 
 const MESSAGE_PARAM_KEYS = ['subject', 'text', 'html', 'message', 'body'];
-
-// Exact internal execution-bookkeeping field names this platform writes
-// onto every node's output data -- never meaningful to a human recipient,
-// and never safe to display (routing internals, not business context).
-const DENYLISTED_EXACT_FIELDS = new Set(['_conditionbranch', '_conditionresult']);
-
-// Name-pattern denylist for credential/secret/token-shaped fields. Matched
-// against the referenced field name only (never its value, which this
-// guard never sees) -- a business field would need to be deliberately named
-// like a secret to false-positive here, which is itself a red flag worth
-// blocking generation over rather than silently allowing.
-const DENYLISTED_NAME_PATTERN = /token|secret|credential|password|passwd|api[_-]?key|client[_-]?id|webhook|header|authorization/i;
-
-function isDenylistedField(fieldName: string): boolean {
-  const lower = fieldName.toLowerCase();
-  if (DENYLISTED_EXACT_FIELDS.has(lower)) return true;
-  return DENYLISTED_NAME_PATTERN.test(fieldName);
-}
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -73,7 +56,7 @@ export function validateNotificationFieldAllowlist(nodes: unknown[]): Notificati
       if (typeof val !== 'string') continue;
 
       for (const field of extractReferencedFields(val)) {
-        if (isDenylistedField(field)) {
+        if (isDenylistedFieldName(field)) {
           return {
             ok: false,
             node: name,
