@@ -188,6 +188,9 @@ export async function aiClassifierHandler(
     const simulated: Record<string, unknown> = {
       [params.outputField]: params.allowedLabels[0],
       confidence: simulatedConfidence,
+      // Phase 9.9.9 -- Part F: additive alias, always equal to `confidence`
+      // -- see the real-mode branch below for why this exists.
+      ai_confidence: simulatedConfidence,
       reason: '[SIMULATED] Test-mode classification -- no real AI call was made.',
       needs_review: simulatedConfidence < params.confidenceThreshold,
     };
@@ -266,6 +269,24 @@ export async function aiClassifierHandler(
           ...data,
           [params.outputField]: validation.result.classification,
           confidence: validation.result.confidence,
+          // Phase 9.9.9 -- Part F: honest confidence semantics. `confidence`
+          // remains completely unchanged (every existing strict Airtable/
+          // notification mapping that reads it, e.g. the real, already-
+          // certified production Lead Classification workflow, keeps
+          // working exactly as before). `ai_confidence` is an ADDITIVE,
+          // always-equal alias meant for NEW notification generation: once
+          // a magicflux-nodes.humanReview node with "outputField" set
+          // overrides "classification" downstream, `confidence` becomes a
+          // stale number describing the AI's ORIGINAL (possibly-superseded)
+          // proposal, never confidence in whatever classification a
+          // notification ends up showing -- a template should reference
+          // `ai_confidence` (labeled "AI confidence"/"Original AI
+          // confidence") instead of `confidence` wherever the SAME node
+          // might fire after a human review, so the honest, original AI
+          // number is still shown without ever being mislabeled as
+          // confidence in the human's decision. humanReviewHandler never
+          // touches either field -- both pass through resume unchanged.
+          ai_confidence: validation.result.confidence,
           reason: validation.result.reason,
           needs_review: needsReview,
           ...validation.result.extracted,

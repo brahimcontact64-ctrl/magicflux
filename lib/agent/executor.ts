@@ -40,6 +40,7 @@ import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
 import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-guard';
 import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
+import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 import { validateAirtablePersistenceCompleteness } from '@/lib/agent/airtable-persistence-guard';
 
@@ -349,6 +350,9 @@ Never use "application"/"applicationId"/"base"/"table"/"tableName" as parameter 
 CRITICAL RULE -- concrete values are authoritative: if the raw request below contains an exact literal value the workflow needs -- a recipient email address, a subject line, a message/body, a Slack channel name, a webhook path, or any other concrete parameter -- that literal MUST be copied verbatim into the corresponding node parameter. This applies to every action type, not only email. NEVER invent, generalize, or replace a literal the user actually provided with placeholder/template text such as "recipient@example.com", "Your Subject Here", "Your message content here", "#channel", or similar -- those are only acceptable when the user genuinely did not specify a real value for that field.
 
 TEMPLATE EXPRESSION CONTRACT -- MANDATORY, applies to every subject/text/body/message parameter and every Airtable "fields" mapping value: only THREE shapes are ever resolved at runtime -- (1) a plain literal string with no "{{" in it at all, (2) an exact whole-value expression "={{$json[\"field\"]}}" (the entire parameter is nothing but this), or (3) one or more "{{$json[\"field\"]}}" references EMBEDDED inside a larger literal string, e.g. "New Hot lead: {{$json[\"name\"]}}" (no leading "=" on an embedded reference -- the "=" only ever marks shape 2). Every field name inside "{{$json[\"...\"]}}" MUST be a real field this same execution actually has (the trigger's raw payload, or a field an upstream node in this graph actually computes/writes -- e.g. "classification" from an aiClassifier node). NEVER use dot-path chains beyond a single field, function calls (e.g. ".toUpperCase()"), arithmetic, string concatenation operators, pipes, or any other n8n/JS expression syntax inside "{{ }}" -- none of that is executed; it would be rejected before this workflow can be saved.
+A FOURTH shape exists ONLY for subject/text/body/message parameters (never Airtable "fields"): "{{?field}}...{{/field}}" -- an optional block. If "field" is present in the execution data, the block is replaced by its own inner content (which may itself contain a normal "{{$json[\"...\"]}}" reference); if "field" is missing, the ENTIRE block is silently omitted -- no error, no blank line, no leftover separator. Use this ONLY for a field that is genuinely optional per execution (see NOTIFICATION CONTENT CONTRACT below) -- a field the automation truly cannot function without (e.g. a lead's name) must stay a normal, required "{{$json[\"field\"]}}" reference.
+
+NOTIFICATION CONTENT CONTRACT -- MANDATORY whenever a Gmail/email or Slack node's purpose is to notify a human about a business object/event (a new lead, order, ticket, signup, etc.) rather than send a purely generic message: build a genuinely USEFUL notification from whatever real context fields the trigger/upstream nodes actually make available -- do not settle for a one-line "New lead: {{$json[\"name\"]}}" when richer fields exist in the same input (company, budget, urgency, desired start date, purchase intent, a classifier's own output/confidence, a free-text description, etc. -- whatever the actual request/schema genuinely provides, never invented). For an EMAIL body: one clear "Label: {{$json[\"field\"]}}" line per field, a required/always-present field (e.g. name/email) as a normal reference, every genuinely optional field wrapped in its own "{{?field}}Label: {{$json[\"field\"]}}{{/field}}" line so a lead missing that one field never breaks or blanks the email. For a SLACK message: one concise line, NOT a duplicate of the email -- a few of the most decision-relevant fields separated by " | ", each optional segment (including its own leading " | " separator) wrapped inside its own "{{?field}} | Label: {{$json[\"field\"]}}{{/field}}" block so a missing field drops its whole segment cleanly. NEVER reference "_conditionBranch", "_conditionResult", a credential/token/secret-shaped field name, or dump the raw $json object -- a notification is built from an explicit, selected set of real business fields only, never everything available. CONFIDENCE HONESTY CONTRACT -- MANDATORY whenever a notification's action node can be reached from BOTH the confident AI path AND a magicflux-nodes.humanReview node (the normal shared-action-node shape -- see HUMAN REVIEW CONTRACT above): magicflux-nodes.aiClassifier always writes BOTH "confidence" and "ai_confidence" (identical values) -- prefer "ai_confidence" in a shared notification template, labeled plainly "AI confidence" (e.g. "{{?ai_confidence}}AI confidence: {{$json[\"ai_confidence\"]}}{{/ai_confidence}}"), NEVER as "confidence in this classification" or similar wording that implies it measures the classification currently shown. When Human Review precedes the same action node, it additionally writes "decision" (present ONLY on a reviewed execution, never on the direct AI path) -- include "{{?decision}}Human decision: {{$json[\"decision\"]}}{{/decision}}" in the same template so a reviewed lead visibly shows the human's decision distinctly from the AI's original (possibly-superseded) confidence figure; a non-reviewed lead simply omits that line since "decision" is absent. NEVER label the AI's confidence number as if it were confidence in a human's decision.
 
 ${rawUserIntent ? `Raw User Request (authoritative source for exact literals -- read this for the real recipient/subject/message/channel/etc.):\n"${rawUserIntent}"\n` : ''}
 Workflow Name: ${params.workflow_name}
@@ -951,6 +955,33 @@ export async function executeTool(
               type: 'error',
               label: 'Generated workflow uses unsupported template expression syntax',
               detail: templateSyntaxCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.9 -- Part G: deterministic backstop matching the
+        // template-syntax guard's placement. A generated Email/Slack
+        // notification must be built ONLY from real business fields --
+        // never internal execution bookkeeping (_conditionBranch,
+        // _conditionResult) or a credential/secret-shaped field name.
+        // Reject before persistence rather than silently generating a
+        // notification that would leak workflow internals to a real
+        // recipient.
+        const notificationContentCheck = validateNotificationFieldAllowlist(result.nodes);
+        if (!notificationContentCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: notificationContentCheck.reason,
+              unsafe_notification_field: true,
+              node: notificationContentCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Generated notification references an internal/sensitive field',
+              detail: notificationContentCheck.reason,
               agent: 'planner',
             },
           };

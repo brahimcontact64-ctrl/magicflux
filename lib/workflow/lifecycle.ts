@@ -11,6 +11,7 @@ import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import { validateAirtableMapping } from '@/lib/airtable/schema';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
+import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -210,11 +211,18 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     : [];
   const templateSyntaxResult = validateSupportedTemplateSyntax(templateSyntaxNodes);
   const templateSyntaxErrors = templateSyntaxResult.ok ? [] : [templateSyntaxResult.reason];
+  // Phase 9.9.9 -- Part G: same activation-time backstop as the template-
+  // syntax check above, for a hand-edited or pre-existing workflow whose
+  // Email/Slack node references an internal-metadata or credential-shaped
+  // field name.
+  const notificationContentResult = validateNotificationFieldAllowlist(templateSyntaxNodes);
+  const notificationContentErrors = notificationContentResult.ok ? [] : [notificationContentResult.reason];
   const errors = [
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
     ...airtableErrors,
     ...templateSyntaxErrors,
+    ...notificationContentErrors,
   ];
 
   if (errors.length > 0) {

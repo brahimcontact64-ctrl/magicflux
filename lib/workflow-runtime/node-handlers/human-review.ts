@@ -105,6 +105,23 @@ export async function humanReviewHandler(
   const data = asRecord(inputData);
   const params = parseParams(node);
 
+  // Phase 9.9.9 -- Part F: honest confidence semantics. This handler does
+  // NOT touch `confidence` or `ai_confidence` at all -- both are the AI
+  // classifier's own reserved output keys (see ai-classifier.ts, which
+  // additively emits both, always equal, on every classification), and
+  // deleting or renaming either here on resume would break any EXISTING,
+  // already-certified strict Airtable/notification mapping that reads
+  // `{{$json["confidence"]}}` (a real, live production mapping -- see
+  // Phase 9.9.4C). Instead, the distinguishing signal a notification
+  // template should use is `decision` (set below, ONLY on a resume through
+  // Human Review, never by the direct AI-only path) alongside
+  // `ai_confidence`: a template can safely say
+  // `{{?decision}}Human decision: {{$json["decision"]}}{{/decision}}` next
+  // to `{{?ai_confidence}}AI confidence: {{$json["ai_confidence"]}}{{/ai_confidence}}`
+  // -- the presence of `decision` alone makes it unambiguous that the
+  // adjacent AI-confidence figure describes the AI's ORIGINAL, possibly-
+  // superseded proposal, never confidence in the human's actual choice.
+
   if (context.mode === 'test') {
     logs.push('Human Review: simulated in test mode -- auto-approved, no durable review record created.');
     const simulatedDecision = params.allowedOutcomes[0];

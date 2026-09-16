@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import dns from 'node:dns';
 import net from 'node:net';
 import { redactText } from '@/lib/security/redact';
-import { asRecord, resolveFieldReference, resolveTemplateParamValue } from './json-field-reference';
+import { asRecord, resolveFieldReference, resolveNotificationTemplate } from './json-field-reference';
 
 /**
  * Phase 9.9.6 -- Part A: explicit, bounded SMTP timeouts.
@@ -213,7 +213,15 @@ export async function emailHandler(
   // expression. A reference to a field genuinely missing from this
   // execution's data fails the node rather than sending literal
   // "undefined"/unresolved template text to a real recipient.
-  const subjectResult = resolveTemplateParamValue(getParam(node, ['subject']), data);
+  //
+  // Phase 9.9.9 -- resolveNotificationTemplate() additionally supports the
+  // optional-block primitive ({{?field}}...{{/field}}) for genuinely
+  // optional business context (e.g. a lead's company/budget/desired start),
+  // which are safely omitted -- never a hard failure -- when a given
+  // execution's data doesn't include them. A plain {{$json["field"]}}
+  // reference (still used for required fields, e.g. name) is completely
+  // unaffected and still fails the node closed if missing.
+  const subjectResult = resolveNotificationTemplate(getParam(node, ['subject']), data);
   if (!subjectResult.ok) {
     const error = `Email subject: ${subjectResult.reason}`;
     logs.push(error);
@@ -221,7 +229,7 @@ export async function emailHandler(
   }
   const subject = subjectResult.value || `Message from ${node.name ?? 'MagicFlux'}`;
 
-  const bodyResult = resolveTemplateParamValue(getParam(node, ['text', 'html', 'message']), data);
+  const bodyResult = resolveNotificationTemplate(getParam(node, ['text', 'html', 'message']), data);
   if (!bodyResult.ok) {
     const error = `Email body: ${bodyResult.reason}`;
     logs.push(error);

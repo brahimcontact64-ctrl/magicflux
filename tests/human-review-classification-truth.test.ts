@@ -203,7 +203,10 @@ function withMockedClassifier(classification: string, confidence: number) {
       const data = (inputData && typeof inputData === 'object') ? inputData as Record<string, unknown> : {};
       return {
         status: 'success',
-        outputData: { ...data, classification, confidence, reason: 'mocked', needs_review: confidence < threshold },
+        // ai_confidence mirrors the real ai-classifier.ts handler's Phase
+        // 9.9.9 Part F addition -- always equal to confidence, never
+        // touched by humanReviewHandler on resume.
+        outputData: { ...data, classification, confidence, ai_confidence: confidence, reason: 'mocked', needs_review: confidence < threshold },
         logs: ['mocked classifier'],
       };
     },
@@ -334,5 +337,145 @@ describe('Human Review classification truth + Airtable Confidence mapping (Phase
     expect(slackCalls).toHaveLength(1);
     expect(emailCalls).toHaveLength(1);
     vi.doUnmock('../lib/workflow-runtime/node-handlers/ai-classifier');
+  });
+});
+
+// ─── Phase 9.9.9 -- Part E: the two specific override scenarios requested ──
+
+describe('Human Review outcome override -- Phase 9.9.9 Part E regression scenarios', () => {
+  beforeEach(async () => {
+    fakeDb.tables.clear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW', ok: true }));
+    vi.resetModules();
+    await seedIntegrations();
+  });
+
+  it('AI says Cold at low confidence -> Human selects Warm -> downstream classification === "Warm"', async () => {
+    withMockedClassifier('Cold', 0.2);
+    const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const started = await runWorkflowExecution({
+      workflowJson: topology(0.6), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+    });
+    expect(started.status).toBe('waiting');
+
+    const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
+    reviewRows[0].status = 'resume_pending';
+    reviewRows[0].decision_outcome = 'Warm';
+
+    const resumed = await resumeWorkflowExecution({
+      executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topology(0.9), mode: 'live', inputData: {},
+    });
+    expect(resumed.status).toBe('success');
+
+    const successNames = stepNames('success');
+    expect(successNames).toContain('Save to Airtable (Warm)');
+    expect(successNames).toContain('Send Email (Warm)');
+    expect(successNames).not.toContain('Save to Airtable (Cold)');
+    expect(successNames).not.toContain('Save to Airtable (Hot)');
+
+    const reviewOutput = stepOutputData('Human Review');
+    expect(reviewOutput?.classification).toBe('Warm');
+    expect(reviewOutput?._conditionBranch).toBe(1); // Warm is index 1 of ["Hot","Warm","Cold"]
+
+    const airtableCall = fetchMock.mock.calls.find(([url]) => String(url).includes('api.airtable.com'));
+    const body = JSON.parse(airtableCall![1].body);
+    expect(body.fields.Classification).toBe('Warm');
+    vi.doUnmock('../lib/workflow-runtime/node-handlers/ai-classifier');
+  });
+
+  it('AI says Warm at low confidence -> Human selects Hot -> downstream classification === "Hot"', async () => {
+    withMockedClassifier('Warm', 0.3);
+    const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const started = await runWorkflowExecution({
+      workflowJson: topology(0.6), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+    });
+    expect(started.status).toBe('waiting');
+
+    const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
+    reviewRows[0].status = 'resume_pending';
+    reviewRows[0].decision_outcome = 'Hot';
+
+    const resumed = await resumeWorkflowExecution({
+      executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topology(0.9), mode: 'live', inputData: {},
+    });
+    expect(resumed.status).toBe('success');
+
+    const successNames = stepNames('success');
+    expect(successNames).toContain('Save to Airtable (Hot)');
+    expect(successNames).toContain('Slack Notification (Hot)');
+    expect(successNames).toContain('Send Email (Hot)');
+    expect(successNames).not.toContain('Save to Airtable (Warm)');
+    expect(successNames).not.toContain('Save to Airtable (Cold)');
+
+    const reviewOutput = stepOutputData('Human Review');
+    expect(reviewOutput?.classification).toBe('Hot');
+    expect(reviewOutput?._conditionBranch).toBe(0); // Hot is index 0
+
+    const airtableCall = fetchMock.mock.calls.find(([url]) => String(url).includes('api.airtable.com'));
+    const body = JSON.parse(airtableCall![1].body);
+    expect(body.fields.Classification).toBe('Hot');
+    vi.doUnmock('../lib/workflow-runtime/node-handlers/ai-classifier');
+  });
+});
+
+// ─── Phase 9.9.9 -- Part F: honest confidence semantics ────────────────────
+
+describe('Confidence semantics after Human Review -- Phase 9.9.9 Part F', () => {
+  beforeEach(async () => {
+    fakeDb.tables.clear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'recNEW', ok: true }));
+    vi.resetModules();
+    await seedIntegrations();
+  });
+
+  it('a reviewed execution still carries BOTH the original ai_confidence and the human decision, distinctly -- never mislabels one as the other', async () => {
+    withMockedClassifier('Cold', 0.2);
+    const { runWorkflowExecution, resumeWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    const started = await runWorkflowExecution({
+      workflowJson: topology(0.6), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+    });
+
+    const reviewRows = fakeDb.tables.get('workflow_review_items') as Row[];
+    reviewRows[0].status = 'resume_pending';
+    reviewRows[0].decision_outcome = 'Warm';
+
+    await resumeWorkflowExecution({
+      executionId: started.executionId, userId: USER_ID, workflowId: WORKFLOW_ID, workflowJson: topology(0.9), mode: 'live', inputData: {},
+    });
+
+    const reviewOutput = stepOutputData('Human Review');
+    // The human's decision is the canonical classification.
+    expect(reviewOutput?.classification).toBe('Warm');
+    // A distinct, honestly-named field carries the AI's ORIGINAL confidence
+    // in its own (different, now-superseded) proposal -- never presented as
+    // confidence in "Warm".
+    expect(reviewOutput?.ai_confidence).toBe(0.2);
+    // `decision` is the discriminator a notification template uses to know
+    // a human was involved at all -- absent on the direct (non-reviewed) path.
+    expect(reviewOutput?.decision).toBe('Warm');
+    // The legacy `confidence` field is left completely untouched (backward
+    // compatible with the existing, already-certified strict Airtable
+    // "Confidence" mapping) -- humanReviewHandler never deletes or renames it.
+    expect(reviewOutput?.confidence).toBe(0.2);
+  });
+
+  it('the direct (non-reviewed, confident) AI path also gets ai_confidence, equal to confidence, and has no "decision" field', async () => {
+    withMockedClassifier('Hot', 0.95);
+    const { runWorkflowExecution } = await import('../lib/workflow-runtime/engine');
+    await runWorkflowExecution({
+      workflowJson: topology(0.6), inputData: { name: 'Acme Co' }, userId: USER_ID, workflowId: WORKFLOW_ID, mode: 'live',
+    });
+
+    const classifierOutput = stepOutputData('AI Classifier');
+    expect(classifierOutput?.confidence).toBe(0.95);
+    expect(classifierOutput?.ai_confidence).toBe(0.95);
+
+    const airtableCall = fetchMock.mock.calls.find(([url]) => String(url).includes('api.airtable.com'));
+    const body = JSON.parse(airtableCall![1].body);
+    // Confirms this exact scenario never produces a "decision" field a
+    // template could mistake for a human override.
+    expect(body.fields).not.toHaveProperty('decision');
   });
 });

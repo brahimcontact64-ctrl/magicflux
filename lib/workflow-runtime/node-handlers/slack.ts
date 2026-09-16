@@ -1,5 +1,5 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
-import { resolveTemplateParamValue } from './json-field-reference';
+import { resolveNotificationTemplate } from './json-field-reference';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -30,7 +30,13 @@ export async function slackHandler(
   // {{$json["field"]}} reference actually interpolates instead of being
   // sent to Slack as literal, unresolved template text. Credential
   // resolution below is untouched.
-  const textResult = resolveTemplateParamValue(getParam(node, ['text', 'message']), data);
+  //
+  // Phase 9.9.9 -- resolveNotificationTemplate() additionally supports the
+  // optional-block primitive for a concise summary line built from several
+  // genuinely-optional fields (e.g. service/budget/desired start) -- a
+  // missing one drops just its own " | "-delimited segment (when the
+  // separator is authored inside the block), never the whole message.
+  const textResult = resolveNotificationTemplate(getParam(node, ['text', 'message']), data);
   if (!textResult.ok) {
     const error = `Slack text: ${textResult.reason}`;
     logs.push(error);

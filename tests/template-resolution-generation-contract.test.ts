@@ -55,13 +55,19 @@ describe('the runtime handlers all funnel through the one shared resolver (lib/w
     expect(source).not.toMatch(/\.\.\.data,\s*_source:\s*['"]magicflux['"]/);
   });
 
-  it('email.ts uses resolveTemplateParamValue for subject/body', () => {
+  // Phase 9.9.9 -- email.ts/slack.ts now call resolveNotificationTemplate()
+  // (json-field-reference.ts) for subject/body/text -- a strict superset of
+  // resolveTemplateParamValue() that ALSO supports the notification-only
+  // {{?field}}...{{/field}} optional-block primitive; a raw string with no
+  // such block resolves identically to the plain strict resolver (verified
+  // in tests/notification-optional-template.test.ts).
+  it('email.ts uses resolveNotificationTemplate for subject/body', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'lib/workflow-runtime/node-handlers/email.ts'), 'utf8');
-    expect(source).toMatch(/resolveTemplateParamValue/);
+    expect(source).toMatch(/resolveNotificationTemplate/);
   });
 
-  it('slack.ts uses resolveTemplateParamValue for text', () => {
+  it('slack.ts uses resolveNotificationTemplate for text', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'lib/workflow-runtime/node-handlers/slack.ts'), 'utf8');
-    expect(source).toMatch(/resolveTemplateParamValue/);
+    expect(source).toMatch(/resolveNotificationTemplate/);
   });
 });

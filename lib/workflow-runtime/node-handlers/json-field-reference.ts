@@ -165,6 +165,81 @@ export function resolveTemplateParamValue(raw: string, data: Record<string, unkn
   return { ok: true, value: typeof v === 'string' ? v : String(v) };
 }
 
+// ─── Phase 9.9.9 -- Context-Aware Notification optional-field primitive ────
+//
+// Product problem this exists to fix: a lead-classification (or similar
+// business-object) notification is only genuinely useful when it includes
+// whatever real context fields the workflow's input actually carries --
+// company, budget, desired start date, and so on. But those fields are
+// OPTIONAL per individual execution (confirmed from real production
+// payloads: one lead has budget_max but not budget_min, another has
+// budget_min but not budget_max, another omits both) -- generation-time
+// alone cannot know which fields a given future lead will or won't include,
+// so the EXISTING strict resolver above (which fails the whole node closed
+// on any missing reference -- exactly the right behavior for a REQUIRED
+// field like an Airtable primary key) cannot be used for these fields
+// without breaking notifications on every lead missing even one optional
+// field. This is deliberately NOT a general conditional/expression engine:
+// exactly one named-field presence test per block, no boolean composition,
+// no nesting, no arithmetic -- and it is additive only. The existing
+// `={{$json["field"]}}` / embedded `{{$json["field"]}}` grammar and its
+// fail-closed missing-reference behavior are completely unchanged and are
+// still what a REQUIRED field (e.g. a lead's name) should use.
+//
+// Syntax: `{{?field}}...{{/field}}` -- if $json["field"] resolves to a
+// genuinely present, non-empty value, the block is replaced by its own
+// inner content (itself then resolved normally, including any strict
+// {{$json[...]}} references); if the field is missing/empty/null, the
+// ENTIRE block is dropped. When the block occupies its own line (the
+// intended authoring convention for an email body section), the whole
+// line -- including its trailing newline -- disappears too, so a missing
+// optional field never leaves an ugly blank section. When embedded inline
+// (the intended convention for a concise Slack summary, where the
+// separator belongs INSIDE the block, e.g. `{{?service}} | Service:
+// {{$json["service"]}}{{/service}}`), only the block's own span is
+// removed, never a surrounding separator that lives outside it.
+const LINE_OPTIONAL_BLOCK = /^[ \t]*\{\{\?([a-zA-Z0-9_]+)\}\}([\s\S]*?)\{\{\/\1\}\}[ \t]*\r?\n/gm;
+const INLINE_OPTIONAL_BLOCK = /\{\{\?([a-zA-Z0-9_]+)\}\}([\s\S]*?)\{\{\/\1\}\}/g;
+
+function isPresentValue(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== '';
+}
+
+/** Structurally strips well-formed optional blocks down to their inner content, regardless of field presence -- used both by the real resolver (with real presence checks) and by the generation-time guard (to detect any leftover, malformed `{{?`/`{{/` marker). */
+function stripOptionalBlockMarkers(raw: string, resolve: (field: string) => boolean): string {
+  const withLinesHandled = raw.replace(LINE_OPTIONAL_BLOCK, (_full, field: string, inner: string) =>
+    resolve(field) ? `${inner}\n` : ''
+  );
+  return withLinesHandled.replace(INLINE_OPTIONAL_BLOCK, (_full, field: string, inner: string) =>
+    resolve(field) ? inner : ''
+  );
+}
+
+/** True when `raw` contains a `{{?field}}`/`{{/field}}` marker that is NOT part of a well-formed, correctly-paired optional block -- an unpaired open, an unpaired close, or a mismatched field name between open and close. */
+export function hasMalformedOptionalBlockSyntax(raw: unknown): boolean {
+  if (typeof raw !== 'string' || !(raw.includes('{{?') || raw.includes('{{/'))) return false;
+  const stripped = stripOptionalBlockMarkers(raw, () => true);
+  return /\{\{[?/]/.test(stripped);
+}
+
+/**
+ * The notification-specific resolver: strips optional blocks (dropping
+ * whichever ones reference a field missing from `data`), then resolves
+ * whatever remains -- including any strict `{{$json[...]}}` references,
+ * whether they were outside a block or inside one that survived -- through
+ * the existing, UNCHANGED strict resolver. A required field referenced
+ * outside any optional block still fails the node closed exactly as before;
+ * only fields explicitly wrapped in `{{?field}}...{{/field}}` get the safe,
+ * omit-if-missing treatment. Empty raw input resolves to an empty string,
+ * never a failure -- same contract as resolveTemplateParamValue().
+ */
+export function resolveNotificationTemplate(raw: string, data: Record<string, unknown>): { ok: true; value: string } | { ok: false; reason: string } {
+  if (!raw) return { ok: true, value: '' };
+  if (!(raw.includes('{{?') || raw.includes('{{/'))) return resolveTemplateParamValue(raw, data);
+  const withoutOptionalBlocks = stripOptionalBlockMarkers(raw, (field) => isPresentValue(getNestedValue(data, field)));
+  return resolveTemplateParamValue(withoutOptionalBlocks, data);
+}
+
 /**
  * True when `raw` contains a `{{ ... }}` occurrence that is NOT the
  * supported `$json["field"]` / `$json.field` grammar -- used by the
@@ -199,6 +274,28 @@ export function referencesJsonField(value: unknown, fieldName: string): boolean 
   const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`\\$json\\s*(?:\\[\\\\?["']${escaped}\\\\?["']\\]|\\.${escaped}\\b)`);
   return pattern.test(text);
+}
+
+/**
+ * Phase 9.9.9 -- every field name a template string references, via EITHER
+ * grammar this module supports: a `$json["field"]`/`$json.field` reference
+ * (whole-value or embedded), or a `{{?field}}`/`{{/field}}` optional-block
+ * marker. Used by generation-time content guards that need to know exactly
+ * which business fields a notification actually surfaces -- e.g. to reject
+ * one that references an internal/sensitive field name -- without
+ * duplicating this module's grammar.
+ */
+export function extractReferencedFields(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  const fields = new Set<string>();
+  for (const m of raw.matchAll(/\$json(?:\[["']([^"']+)["']\]|\.([a-zA-Z0-9_]+))/g)) {
+    const f = m[1] ?? m[2];
+    if (f) fields.add(f);
+  }
+  for (const m of raw.matchAll(/\{\{[?/]([a-zA-Z0-9_]+)\}\}/g)) {
+    fields.add(m[1]);
+  }
+  return [...fields];
 }
 
 /**
