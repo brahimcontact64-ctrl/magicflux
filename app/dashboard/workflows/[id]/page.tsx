@@ -42,6 +42,12 @@ import type { WorkflowJson } from '@/lib/workflow-editor/types';
 import { validateWorkflow } from '@/lib/workflow-validator';
 import { AirtableConfigPanel, type AirtableNodeNeedingConfig } from '@/components/workflows/AirtableConfigPanel';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
+import { AiPolicyConfigPanel } from '@/components/workflows/AiPolicyConfigPanel';
+import { HumanReviewConfigPanel } from '@/components/workflows/HumanReviewConfigPanel';
+import { NotificationContentConfigPanel } from '@/components/workflows/NotificationContentConfigPanel';
+import { SlaConfigPanel } from '@/components/workflows/SlaConfigPanel';
+import { BranchOverviewPanel } from '@/components/workflows/BranchOverviewPanel';
+import { ReadinessSummaryPanel } from '@/components/workflows/ReadinessSummaryPanel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -422,11 +428,20 @@ export default function WorkflowDetailsPage() {
           prompt: promptInput,
           workflow_json: wf,
           status: 'draft',
+          // Phase 9.9.16 -- Part L: detect a concurrent edit elsewhere
+          // instead of silently overwriting it.
+          expectedUpdatedAt: workflow.updated_at,
         }),
       });
 
-      const payload = await res.json().catch(() => null) as { workflow?: Workflow; error?: string } | null;
-      if (!res.ok) throw new Error(payload?.error ?? 'Failed to save workflow');
+      const payload = await res.json().catch(() => null) as { workflow?: Workflow; error?: string; latestUpdatedAt?: string } | null;
+      if (!res.ok) {
+        if (res.status === 409) {
+          toast.error('This workflow was changed elsewhere since you loaded it. Reload the page to see the latest version before saving again.');
+          return;
+        }
+        throw new Error(payload?.error ?? 'Failed to save workflow');
+      }
 
       if (payload?.workflow) {
         setWorkflow(payload.workflow);
@@ -440,6 +455,43 @@ export default function WorkflowDetailsPage() {
       setSaving(false);
     }
   }, [workflow, withAuthHeaders, nameInput, descriptionInput, promptInput]);
+
+  // Phase 9.9.16 -- Part N: safe configuration preview. Reuses the EXISTING
+  // simulated-test route (POST .../test, "simulated: true", zero real
+  // provider calls -- see its own doc comment) rather than building a
+  // second execution/preview mechanism; this only adds sample-input
+  // presets derived from the AI classifier's own qualification policy so a
+  // non-technical owner can see how Hot/Cold/Needs-Information are each
+  // actually handled without hand-typing test JSON.
+  const previewScenarios = useMemo(() => {
+    const nodes = workflow?.workflow_json?.nodes;
+    const list = Array.isArray(nodes) ? (nodes as Array<Record<string, unknown>>) : [];
+    const classifier = list.find((n) => String(n.type ?? '').toLowerCase() === 'magicflux-nodes.aiclassifier');
+    const policy = (classifier?.parameters as Record<string, unknown> | undefined)?.qualificationPolicy as
+      | { fields?: Array<{ field: string; required?: boolean; kind: string; positiveMin?: number; negativeMax?: number; positiveValues?: string[]; negativeValues?: string[] }> }
+      | undefined;
+    if (!policy || !Array.isArray(policy.fields) || policy.fields.length === 0) return null;
+
+    const hot: Record<string, unknown> = {};
+    const cold: Record<string, unknown> = {};
+    const missingInfo: Record<string, unknown> = {};
+    for (const f of policy.fields) {
+      if (f.kind === 'numeric') {
+        if (typeof f.positiveMin === 'number') hot[f.field] = f.positiveMin;
+        if (typeof f.negativeMax === 'number') cold[f.field] = f.negativeMax;
+      } else if (f.kind === 'enum') {
+        if (f.positiveValues?.[0]) hot[f.field] = f.positiveValues[0];
+        if (f.negativeValues?.[0]) cold[f.field] = f.negativeValues[0];
+      }
+      if (!f.required) {
+        missingInfo[f.field] = hot[f.field] ?? cold[f.field] ?? 'sample value';
+      }
+      // Required fields are simply omitted from missingInfo -- that's the
+      // whole point of this preset (Part C: absence is "missing
+      // information", proven here rather than only described).
+    }
+    return { hot, cold, missingInfo };
+  }, [workflow]);
 
   const nodesCount = useMemo(() => {
     const nodes = workflow?.workflow_json?.nodes;
@@ -624,11 +676,22 @@ export default function WorkflowDetailsPage() {
           workflow_json: parsedJson,
           integrations: nextIntegrations,
           status: 'draft',
+          // Phase 9.9.16 -- Part L: this raw-JSON editor is the path most
+          // likely to sit open a long time before saving -- the exact
+          // scenario a stale save can silently clobber someone else's
+          // (or another tab's) newer edit.
+          expectedUpdatedAt: workflow.updated_at,
         }),
       });
 
-      const payload = await res.json().catch(() => null) as { workflow?: Workflow; error?: string } | null;
-      if (!res.ok) throw new Error(payload?.error ?? 'Failed to save workflow');
+      const payload = await res.json().catch(() => null) as { workflow?: Workflow; error?: string; latestUpdatedAt?: string } | null;
+      if (!res.ok) {
+        if (res.status === 409) {
+          toast.error('This workflow was changed elsewhere since you loaded it. Reload the page to see the latest version before saving again.');
+          return;
+        }
+        throw new Error(payload?.error ?? 'Failed to save workflow');
+      }
 
       if (payload?.workflow) {
         setWorkflow(payload.workflow);
@@ -789,7 +852,7 @@ export default function WorkflowDetailsPage() {
     }
   }, [workflow, withAuthHeaders, router]);
 
-  const handleRunTest = useCallback(async () => {
+  const handleRunTest = useCallback(async (sampleData?: Record<string, unknown>) => {
     if (!workflow) return;
 
     setRunningTest(true);
@@ -802,7 +865,7 @@ export default function WorkflowDetailsPage() {
       const res = await fetch(`/api/workflows/${workflow.id}/test`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({}),
+        body: JSON.stringify(sampleData ? { sampleData } : {}),
       });
 
       const payload = await res.json().catch(() => null) as {
@@ -1052,7 +1115,7 @@ export default function WorkflowDetailsPage() {
               {duplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
               Duplicate
             </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunTest} disabled={runningTest}>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void handleRunTest()} disabled={runningTest}>
               {runningTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               Run Simulated Test
             </Button>
@@ -1283,6 +1346,18 @@ export default function WorkflowDetailsPage() {
             />
           )}
 
+          {/* Phase 9.9.16 -- Part C/E/F/H/I/M: configuration UX for
+              capabilities that previously had no editor at all besides raw
+              JSON. Each panel is self-sufficient (fetches its own fresh
+              draft, Part L-safe on save) and renders nothing when this
+              workflow has no node of the relevant type. */}
+          {workflow && <ReadinessSummaryPanel workflowId={workflow.id} refreshToken={editorKey} />}
+          {workflow && <BranchOverviewPanel workflowId={workflow.id} />}
+          {workflow && <AiPolicyConfigPanel workflowId={workflow.id} />}
+          {workflow && <HumanReviewConfigPanel workflowId={workflow.id} />}
+          {workflow && <NotificationContentConfigPanel workflowId={workflow.id} />}
+          {workflow && <SlaConfigPanel workflowId={workflow.id} />}
+
           {schedules.length > 0 && (
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
               <p className="text-xs font-medium flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Schedules</p>
@@ -1483,7 +1558,7 @@ export default function WorkflowDetailsPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">Test Runtime</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRunTest} disabled={runningTest}>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void handleRunTest()} disabled={runningTest}>
                 {runningTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                 Run Simulated Test
               </Button>
@@ -1493,6 +1568,15 @@ export default function WorkflowDetailsPage() {
               </Button>
             </div>
           </div>
+
+          {previewScenarios && (
+            <div className="flex flex-wrap items-center gap-2 -mt-1">
+              <span className="text-[11px] text-muted-foreground">Preview a scenario (no real APIs called):</span>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => void handleRunTest(previewScenarios.hot)} disabled={runningTest}>Likely Hot</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => void handleRunTest(previewScenarios.cold)} disabled={runningTest}>Likely Cold</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => void handleRunTest(previewScenarios.missingInfo)} disabled={runningTest}>Missing required info</Button>
+            </div>
+          )}
 
           <SetupRequiredAlert missingIntegrations={missingIntegrations} />
 

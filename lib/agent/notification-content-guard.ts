@@ -20,6 +20,7 @@
 
 import { extractReferencedFields } from '@/lib/workflow-runtime/node-handlers/json-field-reference';
 import { isDenylistedFieldName } from '@/lib/security/field-denylist';
+import { PROVIDER_EXACT_TYPES } from '@/lib/workflow-runtime/node-capabilities';
 
 export type NotificationContentValidation = { ok: true } | { ok: false; reason: string; node: string };
 
@@ -29,11 +30,22 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
-const NOTIFICATION_NODE_TYPES = new Set([
-  'n8n-nodes-base.gmail',
-  'n8n-nodes-base.email',
-  'n8n-nodes-base.slack',
-]);
+// Phase 9.9.16/9.9.16A -- fixed a real gap found during the Part F/T
+// product-config audit: this set previously hand-listed 'n8n-nodes-base.email'
+// (a type nothing in this codebase ever generates or executes -- the real
+// type is 'n8n-nodes-base.emailSend'), so every real Email node silently
+// bypassed this denylist check entirely -- the exact class of
+// guard-never-actually-runs bug Phase 9.9.9 was written to prevent.
+//
+// 9.9.16A Part I: rather than maintain a second hand-written type list that
+// could drift from reality again the same way, this now DERIVES the
+// notification-relevant subset directly from PROVIDER_EXACT_TYPES
+// (lib/workflow-runtime/node-capabilities.ts) -- the single authoritative
+// registry every node handler dispatch and generation guard in this
+// codebase already shares. Never guessed, never hand-maintained twice.
+const NOTIFICATION_NODE_TYPES = new Set(
+  [...PROVIDER_EXACT_TYPES].filter((t) => t.includes('slack') || t.includes('email') || t.includes('gmail')),
+);
 
 /**
  * Rejects any Email/Slack node whose message-style parameters reference an

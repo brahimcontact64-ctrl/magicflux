@@ -175,13 +175,26 @@ function NodeConfigCard({
     const headers = await authHeaders();
     if (!headers) { setError('Session expired.'); setSaving(false); return; }
     try {
+      // Phase 9.9.16A -- Part J/K: read the workflow's CURRENT updated_at
+      // immediately before saving (never a value cached from when this card
+      // first expanded, which could be arbitrarily stale by the time the
+      // founder finishes picking a base/table/mapping) so the save below
+      // can detect -- rather than silently overwrite -- a concurrent edit
+      // made elsewhere in the meantime.
+      const freshRes = await fetch(`/api/workflows/${workflowId}`, { headers, cache: 'no-store' });
+      const freshBody = await freshRes.json().catch(() => null);
+      const expectedUpdatedAt: string | undefined = freshRes.ok ? freshBody?.workflow?.updated_at : undefined;
+
       const res = await fetch(`/api/workflows/${workflowId}/airtable-config`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ nodeId: node.nodeId, baseId, tableId, fieldMapping: mapping }),
+        body: JSON.stringify({ nodeId: node.nodeId, baseId, tableId, fieldMapping: mapping, expectedUpdatedAt }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Failed to save Airtable configuration');
+      if (!res.ok) {
+        if (res.status === 409) throw new Error('This workflow was changed elsewhere since you loaded it. Reload the page to see the latest version before saving again.');
+        throw new Error(body.error ?? 'Failed to save Airtable configuration');
+      }
       setJustSaved(true);
       onConfigured();
     } catch (err) {

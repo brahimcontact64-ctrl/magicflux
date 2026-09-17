@@ -83,4 +83,44 @@ describe('validateNotificationFieldAllowlist', () => {
     const result = validateNotificationFieldAllowlist([gmailNode('Value: {{$json["ACCESS_TOKEN"]}}')]);
     expect(result.ok).toBe(false);
   });
+
+  // Phase 9.9.16 -- regression test for a real gap found during the Part
+  // F/T product-config audit: this guard's own node-type list previously
+  // said 'n8n-nodes-base.email' (a type nothing in this codebase ever
+  // generates or executes), while every real Email node uses
+  // 'n8n-nodes-base.emailSend' (lib/node-registry/nodes/messaging.ts,
+  // lib/workflow-runtime/node-handlers/index.ts) -- meaning this denylist
+  // check silently never ran against any real, executable Email node.
+  it.each(['n8n-nodes-base.emailSend', 'n8n-nodes-base.emailReadImap', 'n8n-nodes-base.gmailTrigger'])(
+    'checks the REAL email node type "%s", not only the never-generated "n8n-nodes-base.email"',
+    (type) => {
+      const result = validateNotificationFieldAllowlist([{ id: '1', name: 'Email', type, parameters: { subject: 'x', body: 'Token: {{$json["api_key"]}}' } }]);
+      expect(result.ok).toBe(false);
+    },
+  );
+
+  it('checks the REAL Slack trigger node type "n8n-nodes-base.slackTrigger" too', () => {
+    const result = validateNotificationFieldAllowlist([{ id: '1', name: 'Slack', type: 'n8n-nodes-base.slackTrigger', parameters: { message: 'Secret: {{$json["client_secret"]}}' } }]);
+    expect(result.ok).toBe(false);
+  });
+
+  // Phase 9.9.16A Part I -- this guard's node-type set is now DERIVED from
+  // PROVIDER_EXACT_TYPES (the single authoritative registry), not a second
+  // hand-maintained list -- this proves the derivation can never silently
+  // drift back to missing a real node/email/slack type the way the
+  // original hand-written list did.
+  it('never omits a real email/slack type from PROVIDER_EXACT_TYPES', async () => {
+    const { PROVIDER_EXACT_TYPES } = await import('../lib/workflow-runtime/node-capabilities');
+    const expectedNotificationTypes = [...PROVIDER_EXACT_TYPES].filter((t) => t.includes('slack') || t.includes('email') || t.includes('gmail'));
+    expect(expectedNotificationTypes.length).toBeGreaterThan(0);
+    for (const type of expectedNotificationTypes) {
+      const result = validateNotificationFieldAllowlist([{ id: '1', name: 'n', type, parameters: { subject: 'x', body: 'y', message: 'z' } }]);
+      // Every one of these types must be RECOGNIZED by the guard (i.e. it
+      // actually inspects the node) -- proven by feeding it a denylisted
+      // reference and confirming it gets caught, not silently skipped.
+      const rejected = validateNotificationFieldAllowlist([{ id: '1', name: 'n', type, parameters: { subject: 'Ref: {{$json["_qualificationDecisionId"]}}' } }]);
+      expect(rejected.ok).toBe(false);
+      expect(result).toBeDefined();
+    }
+  });
 });

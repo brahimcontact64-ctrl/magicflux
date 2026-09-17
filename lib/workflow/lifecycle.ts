@@ -39,6 +39,7 @@ type WorkflowRow = {
   user_id: string;
   workflow_json: unknown;
   status: string;
+  updated_at: string;
 };
 
 // Exported (Phase 9.1.5) so callers — specifically the lifecycle route's
@@ -51,7 +52,7 @@ export async function loadWorkflow(userId: string, workflowId: string): Promise<
   const db = createServiceClient();
   const { data } = await db
     .from('workflows')
-    .select('id, user_id, workflow_json, status')
+    .select('id, user_id, workflow_json, status, updated_at')
     .eq('id', workflowId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -82,7 +83,11 @@ function stableJson(value: unknown): string {
  *     Airtable itself since configuring it.
  * Returns a list of human-readable errors (empty = fully configured and verified).
  */
-async function validateAirtableConfiguration(userId: string, workflowJson: unknown): Promise<string[]> {
+// Phase 9.9.16 -- Part M: exported (logic unchanged) so the new read-only
+// /api/workflows/[id]/readiness route can run the exact same checks
+// activation runs, before the user ever clicks Activate, without
+// duplicating this logic a second time.
+export async function validateAirtableConfiguration(userId: string, workflowJson: unknown): Promise<string[]> {
   const nodes = Array.isArray((workflowJson as { nodes?: unknown })?.nodes)
     ? ((workflowJson as { nodes: unknown[] }).nodes as Array<{ id?: string; name?: string; type?: string; parameters?: unknown }>)
     : [];
@@ -138,7 +143,7 @@ async function validateAirtableConfiguration(userId: string, workflowJson: unkno
  * excluded here since validateAirtableConfiguration above already gives a
  * more specific, schema-verified error for it.
  */
-async function validateRequiredIntegrationsConnected(userId: string, workflowJson: unknown): Promise<string[]> {
+export async function validateRequiredIntegrationsConnected(userId: string, workflowJson: unknown): Promise<string[]> {
   const status = await getWorkflowIntegrationStatus(userId, workflowJson);
   const missing = status.missing_integrations.filter((p) => p !== 'airtable');
   return missing.map((provider) => `This workflow requires a connected "${provider}" integration, but none is connected -- connect it in Settings before activating.`);

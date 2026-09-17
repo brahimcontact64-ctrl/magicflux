@@ -13,6 +13,15 @@ type AirtableConfigBody = {
   tableId?: unknown;
   /** Maps the node's EXISTING semantic field key -> the real Airtable field name/id chosen for it. */
   fieldMapping?: unknown;
+  /**
+   * Phase 9.9.16A -- Part K/J: optional, opt-in optimistic concurrency
+   * (same pattern as PATCH /api/workflows/[id]). AirtableConfigPanel.tsx
+   * (the one first-party interactive caller of this route) always sends
+   * the `updated_at` it read immediately before saving; a caller that
+   * omits it keeps this route's pre-existing blind-write behavior
+   * unchanged (no regression to any other/legacy caller).
+   */
+  expectedUpdatedAt?: unknown;
 };
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -38,6 +47,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const body = await req.json().catch(() => ({})) as AirtableConfigBody;
   const nodeId = typeof body.nodeId === 'string' ? body.nodeId.trim() : '';
   const baseId = typeof body.baseId === 'string' ? body.baseId.trim() : '';
+  const expectedUpdatedAt = typeof body.expectedUpdatedAt === 'string' && body.expectedUpdatedAt.trim() ? body.expectedUpdatedAt.trim() : null;
   const tableId = typeof body.tableId === 'string' ? body.tableId.trim() : '';
   const fieldMapping = asRecord(body.fieldMapping);
 
@@ -114,15 +124,26 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const updatedWorkflowJson = { ...workflowJson, nodes: updatedNodes };
 
   const db = createServiceClient();
-  const { error: updateError } = await db
+  let updateQuery = db
     .from('workflows')
     .update({ workflow_json: updatedWorkflowJson, updated_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('user_id', user.id);
+  if (expectedUpdatedAt) updateQuery = updateQuery.eq('updated_at', expectedUpdatedAt);
+
+  const { data: updated, error: updateError } = await updateQuery.select('id').maybeSingle();
 
   if (updateError) {
     const safe = classifyError(updateError);
     return NextResponse.json({ error: safe.message }, { status: safe.httpStatus });
+  }
+
+  if (expectedUpdatedAt && !updated) {
+    const { data: fresh } = await db.from('workflows').select('updated_at').eq('id', params.id).eq('user_id', user.id).maybeSingle();
+    return NextResponse.json(
+      { error: 'This workflow was changed elsewhere since you loaded it. Reload to see the latest version before saving again.', latestUpdatedAt: fresh?.updated_at ?? null },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({ ok: true, node: updatedNode, table: validation.table });

@@ -66,11 +66,24 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 
   const db = createServiceClient();
-  const { data, error } = await db
+
+  // Phase 9.9.16 -- Part L: optimistic concurrency, OPT-IN so no existing
+  // caller of this route regresses. A caller that read this workflow's
+  // `updated_at` and passes it back as `expectedUpdatedAt` gets the save
+  // conditioned on nothing else having written in between; a caller that
+  // doesn't pass it (every pre-existing call site) keeps today's exact
+  // blind-overwrite behavior. The raw-JSON dashboard editor was updated to
+  // always send this (see app/dashboard/workflows/[id]/page.tsx).
+  const expectedUpdatedAt = typeof body.expectedUpdatedAt === 'string' && body.expectedUpdatedAt.trim() ? body.expectedUpdatedAt.trim() : null;
+
+  let query = db
     .from('workflows')
     .update(patch)
     .eq('id', params.id)
-    .eq('user_id', user.id)
+    .eq('user_id', user.id);
+  if (expectedUpdatedAt) query = query.eq('updated_at', expectedUpdatedAt);
+
+  const { data, error } = await query
     .select('id, user_id, name, description, prompt, workflow_json, integrations, status, n8n_workflow_id, deployed_at, created_at, updated_at')
     .maybeSingle();
 
@@ -78,7 +91,19 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const safe = classifyError(error);
     return NextResponse.json({ error: safe.code, message: safe.message, retryable: safe.retryable }, { status: safe.httpStatus });
   }
-  if (!data) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
+
+  if (!data) {
+    if (expectedUpdatedAt) {
+      const { data: fresh } = await db.from('workflows').select('updated_at').eq('id', params.id).eq('user_id', user.id).maybeSingle();
+      if (fresh) {
+        return NextResponse.json(
+          { error: 'This workflow was changed elsewhere since you loaded it. Reload to see the latest version before saving again.', latestUpdatedAt: fresh.updated_at },
+          { status: 409 },
+        );
+      }
+    }
+    return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
+  }
 
   return NextResponse.json({ success: true, workflow: data });
 }

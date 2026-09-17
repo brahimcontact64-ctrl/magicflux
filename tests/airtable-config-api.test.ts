@@ -226,4 +226,39 @@ describe('PATCH /api/workflows/[id]/airtable-config', () => {
     expect(params.application).toBeUndefined();
     expect(params.applicationId).toBeUndefined();
   });
+
+  // Phase 9.9.16A -- Part J/K: opt-in optimistic concurrency. The one
+  // first-party interactive caller (components/workflows/
+  // AirtableConfigPanel.tsx) always sends expectedUpdatedAt; a caller that
+  // omits it (every test above) keeps this route's pre-existing blind-write
+  // behavior exactly, proven unchanged by every test above still passing.
+  it('Part L: a stale expectedUpdatedAt is rejected with 409 and the current updated_at, never silently overwritten', async () => {
+    tables.workflows[0].updated_at = '2026-01-02T00:00:00.000Z'; // someone else already saved
+    fetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+    const { PATCH } = await import('../app/api/workflows/[id]/airtable-config/route');
+    const res = await PATCH(
+      makeReq({ nodeId: 'n1', baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA', fieldMapping: { Name: 'Full Name', Email: 'Email Address' }, expectedUpdatedAt: '2026-01-01T00:00:00.000Z' }),
+      { params: { id: WORKFLOW_ID } },
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.latestUpdatedAt).toBe('2026-01-02T00:00:00.000Z');
+    const savedNode = (tables.workflows[0].workflow_json as { nodes: Array<Record<string, unknown>> }).nodes[0];
+    expect((savedNode.parameters as Record<string, unknown>).baseId).toBeUndefined();
+  });
+
+  it('a matching expectedUpdatedAt succeeds', async () => {
+    tables.workflows[0].updated_at = '2026-01-01T00:00:00.000Z';
+    fetchMock.mockResolvedValueOnce(jsonResponse(TABLES_RESPONSE));
+    const { getUserFromRequest } = await import('@/lib/supabase-server');
+    vi.mocked(getUserFromRequest).mockResolvedValue({ id: OWNER_ID } as never);
+    const { PATCH } = await import('../app/api/workflows/[id]/airtable-config/route');
+    const res = await PATCH(
+      makeReq({ nodeId: 'n1', baseId: 'appAAAAAAAAAAAAAA', tableId: 'tblAAAAAAAAAAAAAA', fieldMapping: { Name: 'Full Name', Email: 'Email Address' }, expectedUpdatedAt: '2026-01-01T00:00:00.000Z' }),
+      { params: { id: WORKFLOW_ID } },
+    );
+    expect(res.status).toBe(200);
+  });
 });
