@@ -45,6 +45,7 @@ function decisionRow(overrides: Partial<Row>): Row {
     ai_classification: 'Hot', ai_confidence: 0.9, final_classification: 'Hot',
     human_classification: null, human_review_occurred: false, overridden: false,
     qualification_status: 'classified', contradictions: [], classification_policy_hash: 'hash-1',
+    outcome_status: null, outcome_revenue: null, outcome_currency: null,
     ...overrides,
   };
 }
@@ -231,5 +232,151 @@ describe('GET /api/analytics/qualification', () => {
       { range: '0.6-0.8', count: 1 }, // just 0.6
       { range: '0.8-1.0', count: 2 }, // 0.8 AND 1.0 (last bucket is inclusive on both ends)
     ]);
+  });
+
+  // Phase 9.9.15 -- Part I: business outcome analytics, a THIRD, separate
+  // dimension from AI classification/Human Review agreement above.
+  it('Part I: outcome counts and rates use `total` as their denominator, never humanReviewCount', async () => {
+    tables.workflow_qualification_decisions = [
+      decisionRow({ outcome_status: 'contacted' }),
+      decisionRow({ outcome_status: 'won', outcome_revenue: 100, outcome_currency: 'USD' }),
+      decisionRow({ outcome_status: 'lost' }),
+      decisionRow({}), // no outcome yet
+    ];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.total).toBe(4);
+    expect(body.outcomes).toEqual({
+      contacted: { count: 1, rate: 0.25 },
+      won: { count: 1, rate: 0.25 },
+      lost: { count: 1, rate: 0.25 },
+      noOutcome: { count: 1, rate: 0.25 },
+    });
+  });
+
+  it('Part H: revenue is grouped by currency, never summed across currencies into one misleading total', async () => {
+    tables.workflow_qualification_decisions = [
+      decisionRow({ outcome_status: 'won', outcome_revenue: 1000, outcome_currency: 'USD' }),
+      decisionRow({ outcome_status: 'won', outcome_revenue: 500, outcome_currency: 'USD' }),
+      decisionRow({ outcome_status: 'won', outcome_revenue: 2000, outcome_currency: 'EUR' }),
+    ];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.revenueByCurrency).toEqual(expect.arrayContaining([
+      { currency: 'USD', totalRevenue: 1500, wonCount: 2 },
+      { currency: 'EUR', totalRevenue: 2000, wonCount: 1 },
+    ]));
+    // Never a single blended number mixing USD and EUR.
+    expect(JSON.stringify(body.revenueByCurrency)).not.toContain('3500');
+  });
+
+  it('Part I: outcomesByAiClassification breaks down contacted/won/lost/pending per AI label, distinct from human-reviewed distribution', async () => {
+    tables.workflow_qualification_decisions = [
+      decisionRow({ ai_classification: 'Hot', final_classification: 'Hot', outcome_status: 'won', outcome_revenue: 100, outcome_currency: 'USD' }),
+      decisionRow({ ai_classification: 'Hot', final_classification: 'Warm', human_review_occurred: true, human_classification: 'Warm', overridden: true, outcome_status: 'lost' }),
+      decisionRow({ ai_classification: 'Cold', final_classification: 'Cold' }),
+    ];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+
+    const hotByAi = body.outcomesByAiClassification.find((b: { label: string }) => b.label === 'Hot');
+    expect(hotByAi).toEqual({ label: 'Hot', total: 2, contacted: 0, won: 1, lost: 1, noOutcome: 0 });
+
+    // A Hot lead that a human overrode to Warm now counts under "Warm" in
+    // the FINAL-classification breakdown, not under "Hot" -- proving the
+    // two breakdowns are genuinely independent views.
+    const warmByFinal = body.outcomesByFinalClassification.find((b: { label: string }) => b.label === 'Warm');
+    expect(warmByFinal).toEqual({ label: 'Warm', total: 1, contacted: 0, won: 0, lost: 1, noOutcome: 0 });
+  });
+
+  it('a Hot AI lead that later became Lost is counted correctly -- a Hot classification never implies Won (Part B)', async () => {
+    tables.workflow_qualification_decisions = [decisionRow({ ai_classification: 'Hot', outcome_status: 'lost' })];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+    const hot = body.outcomesByAiClassification.find((b: { label: string }) => b.label === 'Hot');
+    expect(hot.lost).toBe(1);
+    expect(hot.won).toBe(0);
+  });
+
+  it('never labels outcome/agreement metrics as "accuracy" anywhere in the response', async () => {
+    tables.workflow_qualification_decisions = [decisionRow({ outcome_status: 'won', outcome_revenue: 100, outcome_currency: 'USD' })];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+    expect(JSON.stringify(body).toLowerCase()).not.toContain('accuracy');
+  });
+
+  it('zero-outcome workflow: outcome rates are all zero-but-defined (denominator is `total`, never null when total > 0)', async () => {
+    tables.workflow_qualification_decisions = [decisionRow({}), decisionRow({})];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+    expect(body.outcomes.won).toEqual({ count: 0, rate: 0 });
+    expect(body.outcomes.noOutcome).toEqual({ count: 2, rate: 1 });
+  });
+
+  // Phase 9.9.15A Part B/N -- the literal example from the certification
+  // request: 125000 DZD and 900 EUR must remain separate analytics groups,
+  // never blended, never FX-converted, never assumed to be a common unit.
+  it('Part B: 125000 DZD and 900 EUR remain separate revenue groups, never blended or FX-converted', async () => {
+    tables.workflow_qualification_decisions = [
+      decisionRow({ outcome_status: 'won', outcome_revenue: 125000, outcome_currency: 'DZD' }),
+      decisionRow({ outcome_status: 'won', outcome_revenue: 900, outcome_currency: 'EUR' }),
+    ];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.revenueByCurrency).toEqual(expect.arrayContaining([
+      { currency: 'DZD', totalRevenue: 125000, wonCount: 1 },
+      { currency: 'EUR', totalRevenue: 900, wonCount: 1 },
+    ]));
+    expect(body.revenueByCurrency).toHaveLength(2);
+    // No blended/summed figure (125900) appears anywhere in the response.
+    expect(JSON.stringify(body)).not.toContain('125900');
+  });
+
+  // Phase 9.9.15A Part G -- revenue summation must not accumulate binary
+  // floating-point error across many rows (0.1 + 0.2 !== 0.3 in JS). Ten
+  // rows of 0.10 must sum to EXACTLY 1, not 0.9999999999999999.
+  it('Part G: revenue summation across many rows is exact, no floating-point accumulation error', async () => {
+    tables.workflow_qualification_decisions = Array.from({ length: 10 }, () =>
+      decisionRow({ outcome_status: 'won', outcome_revenue: 0.1, outcome_currency: 'USD' }),
+    );
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    const body = await res.json();
+    const usd = body.revenueByCurrency.find((r: { currency: string }) => r.currency === 'USD');
+    expect(usd.totalRevenue).toBe(1);
+  });
+
+  // Phase 9.9.15A Part C -- a historical/future 'qualified' row (the DB's
+  // old CHECK constraint still allows it; V1 never writes it) must not
+  // crash analytics and must not be miscounted as contacted/won/lost, nor
+  // silently folded into "no outcome yet" by naive subtraction.
+  it("Part C: a historical outcome_status='qualified' row is handled safely -- not miscounted, not crashing, not equated with AI qualification", async () => {
+    tables.workflow_qualification_decisions = [
+      decisionRow({ outcome_status: 'qualified' as unknown as null }),
+      decisionRow({ outcome_status: 'won', outcome_revenue: 100, outcome_currency: 'USD' }),
+      decisionRow({}), // genuinely no outcome yet
+    ];
+    const { GET } = await import('../app/api/analytics/qualification/route');
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.total).toBe(3);
+    expect(body.outcomes.won).toEqual({ count: 1, rate: 1 / 3 });
+    expect(body.outcomes.contacted).toEqual({ count: 0, rate: 0 });
+    expect(body.outcomes.lost).toEqual({ count: 0, rate: 0 });
+    // The 'qualified' row must NOT be folded into noOutcome (it has an
+    // outcome_status, just not a V1 one) -- only the genuinely-null row is.
+    expect(body.outcomes.noOutcome).toEqual({ count: 1, rate: 1 / 3 });
   });
 });

@@ -38,6 +38,11 @@ export type ExecutionEventType =
   // indeterminate side effect after confirming its real outcome directly
   // with the provider (see recordOperatorVerifiedOutcome()).
   | 'side_effect_verified'
+  // Phase 9.9.15 -- Part E: a workflow owner recorded/changed a lead's
+  // BUSINESS outcome (contacted/won/lost) -- see lib/runtime/lead-lifecycle.ts.
+  // Deliberately distinct from every AI classification / Human Review /
+  // SLA acknowledgment event -- those histories are never touched by this.
+  | 'lead_lifecycle_changed'
   // Replay
   | 'replay_started'
   | 'replay_completed';

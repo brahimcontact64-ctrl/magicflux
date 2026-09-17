@@ -14,6 +14,11 @@ type AgreementStat = { count: number; denominator: number; rate: number | null }
 type OverrideDirection = { from: string; to: string; count: number };
 type ConfidenceBucket = { range: string; count: number };
 type PolicyVersion = { hash: string; count: number };
+// Phase 9.9.15 -- Part I: business outcome, a THIRD dimension entirely
+// separate from AI classification/Human Review agreement above -- never
+// folded into or described using the same "accuracy" language.
+type OutcomeBreakdown = { label: string; total: number; contacted: number; won: number; lost: number; noOutcome: number };
+type RevenueByCurrency = { currency: string; totalRevenue: number; wonCount: number };
 
 type QualificationMetrics = {
   workflowId: string;
@@ -30,6 +35,10 @@ type QualificationMetrics = {
   needsInformation: RateStat;
   contradictions: RateStat;
   policyVersions: PolicyVersion[];
+  outcomes: { contacted: RateStat; won: RateStat; lost: RateStat; noOutcome: RateStat };
+  outcomesByAiClassification: OutcomeBreakdown[];
+  outcomesByFinalClassification: OutcomeBreakdown[];
+  revenueByCurrency: RevenueByCurrency[];
 };
 
 // Fixed categorical hue order (never cycled/reassigned by data) -- up to 5
@@ -226,6 +235,52 @@ export function QualificationAnalyticsPanel({ workflowId }: { workflowId: string
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Business Outcomes</h2>
+        <p className="text-xs text-muted-foreground">
+          A separate dimension from AI classification and Human Review above -- an SLA breach does not mean Lost, and a Hot lead can still end up Lost. Recorded only by an explicit owner action, never inferred.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard title="Contacted" value={String(metrics.outcomes.contacted.count)} sub={`${formatPct(metrics.outcomes.contacted.rate)} of ${metrics.total}`} />
+          <StatCard title="Won" value={String(metrics.outcomes.won.count)} sub={`${formatPct(metrics.outcomes.won.rate)} of ${metrics.total}`} />
+          <StatCard title="Lost" value={String(metrics.outcomes.lost.count)} sub={`${formatPct(metrics.outcomes.lost.rate)} of ${metrics.total}`} />
+          <StatCard title="No Outcome Yet" value={String(metrics.outcomes.noOutcome.count)} sub={`${formatPct(metrics.outcomes.noOutcome.rate)} of ${metrics.total}`} />
+        </div>
+
+        {metrics.revenueByCurrency.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Won revenue (never summed across currencies)</p>
+            {metrics.revenueByCurrency.map((r) => (
+              <div key={r.currency} className="flex items-center justify-between text-xs">
+                <span>{r.currency}</span>
+                <span className="tabular-nums">{r.totalRevenue.toLocaleString()} {r.currency} ({r.wonCount} deal{r.wonCount === 1 ? '' : 's'})</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">Outcomes by AI classification</p>
+            {metrics.outcomesByAiClassification.map((b) => (
+              <div key={b.label} className="flex items-center justify-between text-xs">
+                <span>{b.label}</span>
+                <span className="text-muted-foreground">{b.contacted}c · {b.won}w · {b.lost}l · {b.noOutcome} pending</span>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">Outcomes by final (human-reviewed) classification</p>
+            {metrics.outcomesByFinalClassification.map((b) => (
+              <div key={b.label} className="flex items-center justify-between text-xs">
+                <span>{b.label}</span>
+                <span className="text-muted-foreground">{b.contacted}c · {b.won}w · {b.lost}l · {b.noOutcome} pending</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {metrics.policyVersions.length > 1 ? (

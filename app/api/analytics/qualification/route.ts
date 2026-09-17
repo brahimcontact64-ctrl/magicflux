@@ -37,6 +37,9 @@ type DecisionRow = {
   qualification_status: string | null;
   contradictions: unknown;
   classification_policy_hash: string;
+  outcome_status: string | null;
+  outcome_revenue: number | null;
+  outcome_currency: string | null;
 };
 
 function rate(count: number, denominator: number): number | null {
@@ -78,7 +81,7 @@ export async function GET(req: NextRequest) {
   const db = createServiceClient();
   const { data, error } = await db
     .from('workflow_qualification_decisions')
-    .select('ai_classification, ai_confidence, final_classification, human_classification, human_review_occurred, overridden, qualification_status, contradictions, classification_policy_hash')
+    .select('ai_classification, ai_confidence, final_classification, human_classification, human_review_occurred, overridden, qualification_status, contradictions, classification_policy_hash, outcome_status, outcome_revenue, outcome_currency')
     .eq('user_id', user.id)
     .eq('workflow_id', workflowId)
     .order('created_at', { ascending: false })
@@ -122,6 +125,60 @@ export async function GET(req: NextRequest) {
   const confidences = rows.map((r) => r.ai_confidence).filter((c) => typeof c === 'number' && Number.isFinite(c));
   const avgConfidence = confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null;
 
+  // Part I -- outcome analytics. Deliberately a SEPARATE dimension from AI
+  // classification/Human Review agreement above (Part B/F): outcome counts
+  // are never folded into or confused with the agreement/override
+  // computation, and outcome rates use their OWN explicit denominators
+  // (always `total`, since every decision -- reviewed or not -- is
+  // eligible for a business outcome).
+  const contactedCount = rows.filter((r) => r.outcome_status === 'contacted').length;
+  const wonCount = rows.filter((r) => r.outcome_status === 'won').length;
+  const lostCount = rows.filter((r) => r.outcome_status === 'lost').length;
+  // Phase 9.9.15A Part C -- counted directly by its own null-ness, never by
+  // subtraction from `total`: a legacy/historical 'qualified' row (the old
+  // CHECK constraint still allows it; V1 never writes it) is neither
+  // contacted/won/lost NOR "no outcome yet" -- subtraction would silently
+  // and incorrectly fold it into noOutcome. It's excluded from all four V1
+  // buckets here, which is the safe behavior (not miscounted, not crashing).
+  const noOutcomeCount = rows.filter((r) => r.outcome_status == null).length;
+
+  function outcomeBreakdown(byLabel: (r: DecisionRow) => string): Array<{ label: string; total: number; contacted: number; won: number; lost: number; noOutcome: number }> {
+    const groups = new Map<string, DecisionRow[]>();
+    for (const r of rows) {
+      const label = byLabel(r);
+      const list = groups.get(label) ?? [];
+      list.push(r);
+      groups.set(label, list);
+    }
+    return Array.from(groups.entries()).map(([label, group]) => ({
+      label,
+      total: group.length,
+      contacted: group.filter((r) => r.outcome_status === 'contacted').length,
+      won: group.filter((r) => r.outcome_status === 'won').length,
+      lost: group.filter((r) => r.outcome_status === 'lost').length,
+      noOutcome: group.filter((r) => r.outcome_status == null).length,
+    })).sort((a, b) => b.total - a.total);
+  }
+
+  // Part H/G -- revenue is NEVER summed across currencies into one
+  // misleading total; grouped by currency, and NEVER accumulated as JS
+  // floating-point decimals (binary floats cannot represent most 2-decimal
+  // amounts exactly, e.g. 0.1 + 0.2 !== 0.3 -- repeated += across many rows
+  // would let that error accumulate). Each amount is converted to an exact
+  // integer number of cents first, summed as integers, then divided back --
+  // the same technique used for currency math in payment systems generally.
+  const revenueByCurrencyMap = new Map<string, { totalRevenueCents: number; wonCount: number }>();
+  for (const r of rows) {
+    if (r.outcome_status !== 'won' || r.outcome_revenue == null || !r.outcome_currency) continue;
+    const entry = revenueByCurrencyMap.get(r.outcome_currency) ?? { totalRevenueCents: 0, wonCount: 0 };
+    entry.totalRevenueCents += Math.round(r.outcome_revenue * 100);
+    entry.wonCount += 1;
+    revenueByCurrencyMap.set(r.outcome_currency, entry);
+  }
+  const revenueByCurrency = Array.from(revenueByCurrencyMap.entries())
+    .map(([currency, v]) => ({ currency, totalRevenue: v.totalRevenueCents / 100, wonCount: v.wonCount }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue);
+
   return NextResponse.json({
     workflowId,
     total,
@@ -140,5 +197,22 @@ export async function GET(req: NextRequest) {
     needsInformation: { count: needsInformationCount, rate: rate(needsInformationCount, total) },
     contradictions: { count: contradictionCount, rate: rate(contradictionCount, total) },
     policyVersions,
+    // Part I/H -- business outcome analytics. `total` is the explicit
+    // denominator for every rate here (never humanReviewCount -- that
+    // denominator belongs ONLY to agreement/override above, a genuinely
+    // different question). outcomesByAiClassification/
+    // outcomesByFinalClassification let an owner see e.g. "how many Hot
+    // leads became Won" WITHOUT that ever being described as "AI accuracy"
+    // -- a business outcome is not a verified ground-truth label for the
+    // classification task itself.
+    outcomes: {
+      contacted: { count: contactedCount, rate: rate(contactedCount, total) },
+      won: { count: wonCount, rate: rate(wonCount, total) },
+      lost: { count: lostCount, rate: rate(lostCount, total) },
+      noOutcome: { count: noOutcomeCount, rate: rate(noOutcomeCount, total) },
+    },
+    outcomesByAiClassification: outcomeBreakdown((r) => r.ai_classification),
+    outcomesByFinalClassification: outcomeBreakdown((r) => r.final_classification),
+    revenueByCurrency,
   });
 }

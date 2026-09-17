@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getUserFromRequest } from '@/lib/supabase-server';
 import { BarChart2 } from 'lucide-react';
 import { QualificationAnalyticsPanel } from '@/components/analytics/QualificationAnalyticsPanel';
+import { LeadListPanel } from '@/components/analytics/LeadListPanel';
 
 /**
  * Phase 9.9.13 -- Part I: minimal-viable AI qualification feedback/analytics
@@ -29,6 +30,7 @@ export default async function QualificationAnalyticsPage({
         </div>
       </div>
       <QualificationAnalyticsPanel workflowId={workflowId} />
+      <LeadListPanel workflowId={workflowId} />
     </div>
   );
 }
