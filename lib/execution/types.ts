@@ -54,6 +54,17 @@ export interface ExecutionRecord {
   failed_step_count: number;
   error_message: string | null;
   retry_count: number;
+  /**
+   * Phase 9.9.14 -- Part B/M/N: the derived operational-state taxonomy
+   * (lib/runtime/operational-state.ts), distinguishing e.g.
+   * waiting_human/waiting_acknowledgment/configuration_blocked/
+   * indeterminate/recovery_required from the raw 7-value DB status alone.
+   * Optional so existing call sites that don't compute it (e.g. a
+   * lightweight list view) remain valid without every caller needing an
+   * update.
+   */
+  operational_state?: string;
+  operational_state_reason?: string;
 }
 
 export interface ExecutionDetail extends ExecutionRecord {

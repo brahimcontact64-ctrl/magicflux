@@ -880,6 +880,15 @@ export class WorkflowEngine {
     };
     } finally {
       clearInterval(lockRenewTimer);
+      // Phase 9.9.14 -- best-effort correction for an unhandled exception
+      // that skipped every normal return path above (see
+      // RuntimeStateStore.forceFailIfStillRunning's own doc comment for the
+      // full root-cause). A no-op on every clean exit.
+      await this.state.forceFailIfStillRunning(
+        executionId,
+        opts.userId,
+        'Execution crashed with an unhandled error before it could reach a terminal state -- recovery_required.'
+      );
       await releaseExecutionLock({
         executionId,
         userId: opts.userId,

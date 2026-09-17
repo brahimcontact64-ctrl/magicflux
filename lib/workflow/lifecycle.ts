@@ -6,7 +6,7 @@ import { DeploymentManager } from '@/lib/deployment/deployment-manager';
 import { validateWorkflow } from '@/lib/workflow-validator';
 import { validateScheduleTriggers, syncWorkflowSchedules, disableWorkflowSchedules, enableWorkflowSchedules } from '@/lib/runtime/scheduler';
 import { assertTrustedUserId } from '@/lib/credentials/storage';
-import { getConnectedAirtableToken } from '@/lib/user-integrations';
+import { getConnectedAirtableToken, getWorkflowIntegrationStatus } from '@/lib/user-integrations';
 import { ensureWebhookSecret } from '@/lib/workflow/webhook-secret';
 import { extractAirtableNodeConfig, isAirtableNodeType } from '@/lib/airtable/node-params';
 import { validateAirtableMapping } from '@/lib/airtable/schema';
@@ -125,6 +125,26 @@ async function validateAirtableConfiguration(userId: string, workflowJson: unkno
 }
 
 /**
+ * Phase 9.9.14 -- Part J: closes a gap Airtable already closed for itself
+ * (validateAirtableConfiguration above) but every OTHER provider (Slack,
+ * Gmail, etc.) did not have at all -- a workflow with a Slack or Gmail node
+ * could activate successfully with NO integration connected, and the very
+ * first live execution would fail at runtime with no way this could have
+ * been caught earlier. Reuses getWorkflowIntegrationStatus() (the SAME
+ * generic, provider-agnostic function the Builder/deploy/live-test routes
+ * already use to compute "what does this workflow need vs. what's
+ * connected") rather than inventing a second, Slack/Gmail-specific check --
+ * this covers every current and future provider uniformly. Airtable is
+ * excluded here since validateAirtableConfiguration above already gives a
+ * more specific, schema-verified error for it.
+ */
+async function validateRequiredIntegrationsConnected(userId: string, workflowJson: unknown): Promise<string[]> {
+  const status = await getWorkflowIntegrationStatus(userId, workflowJson);
+  const missing = status.missing_integrations.filter((p) => p !== 'airtable');
+  return missing.map((provider) => `This workflow requires a connected "${provider}" integration, but none is connected -- connect it in Settings before activating.`);
+}
+
+/**
  * Validates and activates a workflow: freezes the current workflow_json into
  * a new deployment_versions row (status='active', superseding any prior
  * active version), points workflows.active_deployment_version_id at it, and
@@ -204,6 +224,7 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
   const structuralResult = validateWorkflow(workflow.workflow_json);
   const scheduleErrors = validateScheduleTriggers(workflow.workflow_json);
   const airtableErrors = await validateAirtableConfiguration(userId, workflow.workflow_json);
+  const requiredIntegrationErrors = await validateRequiredIntegrationsConnected(userId, workflow.workflow_json);
   // Phase 9.9.4A -- reject unsupported {{ ... }} expression syntax before
   // activation too (not only at generation time), so a hand-edited or
   // pre-existing workflow can't reach a live run with a message/field
@@ -233,6 +254,7 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     ...structuralResult.errors.map((e) => e.message),
     ...scheduleErrors,
     ...airtableErrors,
+    ...requiredIntegrationErrors,
     ...templateSyntaxErrors,
     ...notificationContentErrors,
     ...qualificationPolicyErrors,

@@ -39,6 +39,7 @@ import {
   type QualificationEvaluation,
 } from './qualification-policy';
 import { computeClassificationPolicyHash, recordQualificationDecision } from './qualification-decision-store';
+import { configBlockedFailure } from './provider-outcome';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_INPUT_CHARS = 4000;
@@ -438,6 +439,21 @@ export async function aiClassifierHandler(
       const msg = redactText(err instanceof Error ? err.message : String(err));
       logs.push(`AI Classifier: API call failed: ${msg}`);
       await recordUsage();
+      // Phase 9.9.14 -- Part C: "AI provider unavailable" (a timeout,
+      // connection failure, 429, or 5xx -- transient, safe to retry via the
+      // normal execution-retry mechanism) must never be confused with "AI
+      // uncertain about the lead" (a genuine, completed classification with
+      // low confidence -- see the needs_information/contradiction branches
+      // elsewhere in this file, which never reach this catch block at all).
+      // A 401 (invalid/revoked platform API key) is a THIRD, distinct case:
+      // not ambiguous, not a low-confidence judgment -- a definitive
+      // configuration failure that retrying cannot fix. classification
+      // never happened at all in any of these cases; nothing here ever
+      // fabricates a Hot/Warm/Cold label.
+      const statusCode = (err as { status?: number } | null)?.status;
+      if (statusCode === 401) {
+        return { status: 'failed', outputData: null, logs, ...configBlockedFailure('AI classification (platform OpenAI key)', 401, msg) };
+      }
       return { status: 'failed', outputData: null, logs, error: msg };
     }
 

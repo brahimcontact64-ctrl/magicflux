@@ -10,6 +10,21 @@ import type { ExecutionDetail, ExecutionStep } from '@/lib/execution/types';
 
 const RETRYABLE_STATUSES = new Set(['failed', 'cancelled', 'paused']);
 
+// Phase 9.9.14 -- Part H: an indeterminate outcome means a prior side
+// effect may have already reached the provider -- a generic "Retry" here
+// would blindly repeat it and risk a real duplicate (a second Airtable
+// row, a second email). This is the one operational state where the
+// retry affordance must never be offered at all; the owner needs the
+// dedicated recovery flow (verify externally, then decide) instead.
+const OPERATIONAL_STATE_LABEL: Record<string, string> = {
+  waiting_human: 'waiting for human',
+  waiting_acknowledgment: 'waiting for acknowledgment',
+  configuration_blocked: 'configuration blocked',
+  indeterminate: 'indeterminate',
+  recovery_required: 'recovery required',
+  succeeded: 'success',
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
@@ -154,14 +169,19 @@ export function RunDetails({ executionId, onBack, className }: Props) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <StatusIcon status={detail.status} />
-            <p className="text-sm font-semibold text-foreground capitalize">{detail.status}</p>
+            <p className="text-sm font-semibold text-foreground capitalize">
+              {OPERATIONAL_STATE_LABEL[detail.operational_state ?? ''] ?? detail.status}
+            </p>
             <span className="text-xs text-muted-foreground">
               · {detail.mode} · {formatDuration(detail.duration_ms)}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">{formatDate(detail.started_at)}</p>
+          {detail.operational_state_reason && (
+            <p className="text-xs text-muted-foreground mt-0.5">{detail.operational_state_reason}</p>
+          )}
         </div>
-        {RETRYABLE_STATUSES.has(detail.status) && (
+        {RETRYABLE_STATUSES.has(detail.status) && detail.operational_state !== 'indeterminate' && (
           <Button
             variant="outline"
             size="sm"
@@ -174,8 +194,13 @@ export function RunDetails({ executionId, onBack, className }: Props) {
             ) : (
               <RotateCcw className="mr-1.5 h-3 w-3" />
             )}
-            Retry
+            {detail.operational_state === 'configuration_blocked' ? 'Retry after reconnecting' : 'Retry'}
           </Button>
+        )}
+        {detail.operational_state === 'indeterminate' && (
+          <span className="text-xs text-amber-700 dark:text-amber-400 flex-shrink-0">
+            Needs manual verification -- see Recovery
+          </span>
         )}
       </div>
 

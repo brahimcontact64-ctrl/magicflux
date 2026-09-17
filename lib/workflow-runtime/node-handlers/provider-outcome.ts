@@ -51,9 +51,37 @@ export async function fetchWithOutcome(input: string | URL, init?: RequestInit):
  * automatically retried at any layer, exactly like emailHandler's DATA-
  * command case.
  */
-export function indeterminateFailure(operationLabel: string, message: string): { error: string; nonRetryable: true } {
+export function indeterminateFailure(operationLabel: string, message: string): { error: string; nonRetryable: true; failureClass: 'indeterminate' } {
   return {
     error: `INDETERMINATE: ${operationLabel} may have already succeeded remotely -- ${message}. Not retrying automatically to avoid a duplicate; this requires manual verification.`,
     nonRetryable: true,
+    failureClass: 'indeterminate',
   };
+}
+
+/**
+ * Phase 9.9.14 -- Part C/J: a DEFINITIVE provider rejection proving nothing
+ * was created (a revoked/invalid credential, a permission error) is a
+ * completely different situation from indeterminateFailure() above: the
+ * provider explicitly responded, so there is zero ambiguity about whether
+ * the side effect happened -- it did not. Retrying immediately cannot
+ * possibly succeed (the same bad credential will fail identically every
+ * time) and just wastes the node's retry budget hammering the provider, so
+ * this is nonRetryable too -- but unlike an indeterminate outcome, it is
+ * safe to retry LATER, once an operator actually fixes the configuration,
+ * which is why failureClass is 'blocked_configuration' (ledgered 'failed',
+ * reclaimable) rather than 'indeterminate' (the ledger's CAS rules never
+ * allow reclaiming that).
+ */
+export function configBlockedFailure(operationLabel: string, statusCode: number, providerMessage: string): { error: string; nonRetryable: true; failureClass: 'blocked_configuration' } {
+  return {
+    error: `CONFIG_BLOCKED: ${operationLabel} was rejected by the provider (HTTP ${statusCode}) -- ${providerMessage}. This is a configuration problem (revoked/invalid credential or missing permission), not a transient failure -- retrying now cannot succeed. Reconnect the integration, then retry.`,
+    nonRetryable: true,
+    failureClass: 'blocked_configuration',
+  };
+}
+
+/** True for the HTTP status codes that unambiguously mean "the credential/authorization itself is invalid," never a transient provider condition. */
+export function isAuthRejectionStatus(status: number): boolean {
+  return status === 401 || status === 403;
 }

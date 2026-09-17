@@ -194,6 +194,77 @@ export async function getSideEffectStatus(params: { executionId: string; nodeId:
   return data ? toRow(data) : null;
 }
 
+export type OperatorVerificationResult =
+  | { ok: true; previousStatus: SideEffectStatus }
+  | { ok: false; reason: string };
+
+/**
+ * Phase 9.9.14 -- Part H/I: the ONE mutation that lets an operator resolve
+ * a genuinely indeterminate side effect -- the recovery control plane this
+ * phase's own audit found was entirely missing (getSideEffectStatus()
+ * existed for exactly this purpose per its own doc comment but nothing
+ * ever called it). Deliberately narrow and deterministic, matching Part
+ * H's explicit instruction to implement ONLY actions whose semantics can
+ * be made auditable: this NEVER calls the provider again itself and NEVER
+ * guesses -- it records what a human has ALREADY manually confirmed by
+ * checking the provider directly (a real Airtable record, a real Slack
+ * message, a real sent email). Marking 'failed' does not itself retry
+ * anything; it only makes the row claimable again (claimSideEffect's own
+ * CAS rules already allow re-claiming a 'failed' row) so a SEPARATE,
+ * explicit resume/retry action can proceed safely -- 'succeeded' can never
+ * be retried at all, by the same existing CAS rules.
+ *
+ * CAS-guarded: only ever transitions a row that is STILL 'indeterminate'
+ * at the moment of the update, never a blind overwrite -- a concurrent
+ * duplicate verification attempt loses the race harmlessly. The ORIGINAL
+ * attempts/provider_ref/created_at are never altered -- this appends an
+ * attributed note to last_error, it does not erase history (Part I: "No
+ * destructive editing of historical execution evidence").
+ */
+export async function recordOperatorVerifiedOutcome(params: {
+  executionId: string;
+  nodeId: string;
+  effectKey?: string;
+  verifiedStatus: 'succeeded' | 'failed';
+  verifiedBy: string;
+  note: string;
+}): Promise<OperatorVerificationResult> {
+  const db = createServiceClient();
+  const effectKey = params.effectKey ?? DEFAULT_EFFECT_KEY;
+
+  const { data: existing } = await db
+    .from('workflow_side_effects')
+    .select('id, status, provider_ref, attempts, last_error, updated_at')
+    .eq('execution_id', params.executionId)
+    .eq('node_id', params.nodeId)
+    .eq('effect_key', effectKey)
+    .maybeSingle();
+
+  if (!existing) return { ok: false, reason: 'No side-effect ledger row found for this execution/node.' };
+  const row = toRow(existing);
+  if (row.status !== 'indeterminate') {
+    return { ok: false, reason: `This side effect is not indeterminate (currently '${row.status}') -- nothing to verify.` };
+  }
+
+  const { data: updated } = await db
+    .from('workflow_side_effects')
+    .update({
+      status: params.verifiedStatus,
+      last_error: `Operator-verified '${params.verifiedStatus}' by ${params.verifiedBy}: ${params.note}`.slice(0, 500),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', row.id)
+    .eq('status', 'indeterminate')
+    .select('id')
+    .maybeSingle();
+
+  if (!updated) {
+    return { ok: false, reason: 'This side effect was already resolved by a concurrent action -- refresh and check its current state.' };
+  }
+
+  return { ok: true, previousStatus: row.status };
+}
+
 export type ReconciliationResult = { scanned: number; markedIndeterminate: number };
 
 /**

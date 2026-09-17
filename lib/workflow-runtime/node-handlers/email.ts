@@ -4,7 +4,7 @@ import dns from 'node:dns';
 import net from 'node:net';
 import { redactText } from '@/lib/security/redact';
 import { asRecord, resolveFieldReference, resolveNotificationTemplate } from './json-field-reference';
-import { fetchWithOutcome } from './provider-outcome';
+import { fetchWithOutcome, configBlockedFailure, isAuthRejectionStatus } from './provider-outcome';
 
 /**
  * Phase 9.9.6 -- Part A: explicit, bounded SMTP timeouts.
@@ -99,7 +99,7 @@ type SmtpErrorLike = Error & { code?: string; command?: string; responseCode?: n
  * nonRetryable instead -- a safe delivery_unknown/manual-review-required
  * outcome rather than a blind assumption that "failed" means "unsent."
  */
-function classifySmtpFailure(error: unknown): { nonRetryable: boolean; message: string } {
+function classifySmtpFailure(error: unknown): { nonRetryable: boolean; message: string; failureClass?: 'blocked_configuration' } {
   const err = error as SmtpErrorLike | undefined;
   const originalMessage = err instanceof Error ? err.message : 'Email delivery failed';
 
@@ -111,6 +111,20 @@ function classifySmtpFailure(error: unknown): { nonRetryable: boolean; message: 
         `(command: DATA) -- the receiving server may already have accepted this email. Not ` +
         `retrying automatically to avoid duplicate delivery; this requires manual verification ` +
         `before resending. Original error: ${originalMessage}`,
+    };
+  }
+
+  // Phase 9.9.14 -- Part C/J: an SMTP AUTH rejection (invalid password/
+  // revoked app password) fails at the AUTH command, always BEFORE DATA --
+  // definitively nothing was sent, so this is the opposite of the ambiguous
+  // case above, but retrying immediately still cannot succeed with the same
+  // bad credential. err.code === 'EAUTH' is nodemailer's own classification
+  // for this; responseCode 535 is the SMTP-protocol-level signal.
+  if (err?.code === 'EAUTH' || err?.responseCode === 535) {
+    return {
+      nonRetryable: true,
+      failureClass: 'blocked_configuration',
+      message: `CONFIG_BLOCKED: SMTP authentication was rejected -- ${originalMessage}. This is a configuration problem (revoked/invalid credential), not a transient failure -- retrying now cannot succeed. Reconnect the integration, then retry.`,
     };
   }
 
@@ -161,7 +175,7 @@ function encodeHeaderWord(value: string): string {
 type GmailSendResult =
   | { ok: true; id: string }
   | { ok: false; indeterminate: true; message: string }
-  | { ok: false; indeterminate: false; message: string };
+  | { ok: false; indeterminate: false; message: string; statusCode: number };
 
 /**
  * Phase 9.9.11 -- Part E/H: the Gmail API has no caller-supplied idempotency
@@ -210,7 +224,7 @@ async function sendViaGmailApi(
   const res = attempt.response;
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
-    return { ok: false, indeterminate: false, message: `Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}` };
+    return { ok: false, indeterminate: false, statusCode: res.status, message: `Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}` };
   }
 
   const result = (await res.json()) as { id?: string };
@@ -306,6 +320,9 @@ export async function emailHandler(
         nonRetryable: true,
       };
     }
+    if (isAuthRejectionStatus(info.statusCode)) {
+      return { status: 'failed', outputData: null, logs, ...configBlockedFailure('Gmail send', info.statusCode, info.message) };
+    }
     return { status: 'failed', outputData: null, logs, error: info.message };
   }
 
@@ -368,6 +385,7 @@ export async function emailHandler(
       logs,
       error: classification.message,
       nonRetryable: classification.nonRetryable,
+      failureClass: classification.failureClass,
     };
   }
 }

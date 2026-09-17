@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import type { ExecutionRecord, PaginatedExecutions } from '@/lib/execution/types';
+import { computeExecutionOperationalStates } from '@/lib/runtime/operational-state';
 
 const PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -63,7 +64,12 @@ export async function GET(req: NextRequest) {
   }
 
   type Row = Record<string, unknown>;
-  const executions: ExecutionRecord[] = ((data ?? []) as unknown as Row[]).map(r => ({
+  const rawRows = (data ?? []) as unknown as Row[];
+  // Phase 9.9.14 -- one batched query instead of N sequential ones for a
+  // page of results (see computeExecutionOperationalStates's own doc comment).
+  const operationalStates = await computeExecutionOperationalStates(rawRows.map((r) => String(r.id))).catch(() => new Map());
+
+  const executions: ExecutionRecord[] = rawRows.map(r => ({
     id:                 String(r.id),
     workflow_id:        String(r.workflow_id ?? ''),
     workflow_name:      String(r.workflow_name ?? 'Unknown'),
@@ -76,6 +82,8 @@ export async function GET(req: NextRequest) {
     failed_step_count:  Number(r.failed_step_count ?? 0),
     error_message:      (r.error_message as string) ?? null,
     retry_count:        Number(r.retry_count ?? 0),
+    operational_state:        operationalStates.get(String(r.id))?.state,
+    operational_state_reason: operationalStates.get(String(r.id))?.reason,
   }));
 
   const total = count ?? 0;

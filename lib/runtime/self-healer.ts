@@ -2,7 +2,9 @@ import "server-only";
 
 import { detectAnomalies, writeAnomalyAlerts, type AnomalyAlert } from './anomaly-detector';
 import { computeRuntimeMetrics, type RuntimeMetrics } from './metrics';
-import { markOrphanExecutionsFailed, cleanupExpiredRuntimeLocks, recoverOrphanExecutions } from '@/runtime/hardening-layer';
+import { markOrphanExecutionsFailed, cleanupExpiredRuntimeLocks, recoverOrphanExecutions, markOrphanQueuedExecutionsFailed } from '@/runtime/hardening-layer';
+import { reconcileStaleSideEffects } from './side-effect-ledger';
+import { reclaimOrphanedIdempotencyLocks } from './idempotency';
 import { cleanupStaleWorkers, cleanupHistoricalWorkers } from './worker-registry';
 import { recoverStuckQueueJobs } from './worker';
 import { pauseRuntimeQueue, resumeRuntimeQueue, RUNTIME_QUEUE_NAMES, type RuntimeQueueName } from './queue';
@@ -249,6 +251,28 @@ export async function runSelfHeal(params?: {
   const maintenanceActions = await Promise.all([
     safeRun('mark_orphan_executions_failed', () =>
       markOrphanExecutionsFailed({ staleAfterMinutes: orphanStaleMinutes, limit })
+    ),
+    // Phase 9.9.14 -- closes the "crash between execution-row insert and
+    // enqueue" gap: markOrphanExecutionsFailed only ever scanned
+    // status='running'; a row that crashed before ever being enqueued sits
+    // at 'queued' forever with no ownership row for recoverOrphanExecutions
+    // to find either. Same staleness window as the 'running' sweep.
+    safeRun('mark_orphan_queued_executions_failed', () =>
+      markOrphanQueuedExecutionsFailed({ staleAfterMinutes: orphanStaleMinutes, limit })
+    ),
+    // Phase 9.9.14 -- this function existed, was fully tested, and was
+    // never actually wired to anything that runs (dead code) -- a stale
+    // in_progress side-effect ledger row never reached 'indeterminate' for
+    // an operator to see. Same lease window the ledger itself already uses.
+    safeRun('reconcile_stale_side_effects', async () => {
+      const result = await reconcileStaleSideEffects({ batchSize: limit });
+      return result.markedIndeterminate;
+    }),
+    // Phase 9.9.14 -- see reclaimOrphanedIdempotencyLocks()'s own doc
+    // comment: closes the crash-before-execution-row-insert window that
+    // would otherwise permanently poison a webhook idempotency key.
+    safeRun('reclaim_orphaned_idempotency_locks', () =>
+      reclaimOrphanedIdempotencyLocks({ limit })
     ),
     safeRun('recover_orphan_executions', async () => {
       if (await isOnCooldown('recover_orphan_executions', 'global')) return 0;

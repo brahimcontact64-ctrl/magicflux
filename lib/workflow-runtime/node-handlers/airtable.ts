@@ -2,7 +2,24 @@ import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types
 import { redactText } from '@/lib/security/redact';
 import { extractAirtableNodeConfig } from '@/lib/airtable/node-params';
 import { resolveFieldMapping } from './json-field-reference';
-import { fetchWithOutcome, indeterminateFailure } from './provider-outcome';
+import { fetchWithOutcome, indeterminateFailure, configBlockedFailure, isAuthRejectionStatus } from './provider-outcome';
+
+/**
+ * Phase 9.9.14 -- Part C/J: a 401/403 from Airtable is a DEFINITIVE
+ * rejection proving nothing was created -- a revoked/invalid personal
+ * access token or a missing base/table permission. Classified
+ * blocked_configuration (nonRetryable, but safely reclaimable once fixed)
+ * rather than being thrown into the generic catch below, which would
+ * otherwise let node-runner's outer retry loop hammer the same dead
+ * credential up to maxRetries times.
+ */
+async function classifyAirtableRejection(operationLabel: string, res: Response): Promise<{ error: string; nonRetryable?: true; failureClass?: 'blocked_configuration' }> {
+  const bodyExcerpt = redactText((await res.text().catch(() => '')).slice(0, 200));
+  if (isAuthRejectionStatus(res.status)) {
+    return configBlockedFailure(operationLabel, res.status, bodyExcerpt);
+  }
+  return { error: `Airtable returned ${res.status}: ${bodyExcerpt}` };
+}
 import { parseAirtableDedupePolicy, buildIdentityFilterFormula } from './airtable-dedupe';
 
 function getParam(node: EngineNode, keys: string[]): string {
@@ -134,7 +151,11 @@ export async function airtableHandler(
           return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable list', attempt.message) };
         }
         const res = attempt.response;
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
+        if (!res.ok) {
+          const rejection = await classifyAirtableRejection(`Airtable ${operation}`, res);
+          logs.push(`Airtable ${operation}: ${rejection.error}`);
+          return { status: 'failed', outputData: null, logs, ...rejection };
+        }
         const body = await res.json() as { records?: unknown[] };
         logs.push(`Airtable listed ${body.records?.length ?? 0} record(s).`);
         return { status: 'success', outputData: { ...data, airtable_records: body.records ?? [] }, logs };
@@ -147,7 +168,11 @@ export async function airtableHandler(
           return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable get', attempt.message) };
         }
         const res = attempt.response;
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
+        if (!res.ok) {
+          const rejection = await classifyAirtableRejection(`Airtable ${operation}`, res);
+          logs.push(`Airtable ${operation}: ${rejection.error}`);
+          return { status: 'failed', outputData: null, logs, ...rejection };
+        }
         const record = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record fetched: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_record: record }, logs };
@@ -164,7 +189,11 @@ export async function airtableHandler(
           return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable update', attempt.message) };
         }
         const res = attempt.response;
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
+        if (!res.ok) {
+          const rejection = await classifyAirtableRejection(`Airtable ${operation}`, res);
+          logs.push(`Airtable ${operation}: ${rejection.error}`);
+          return { status: 'failed', outputData: null, logs, ...rejection };
+        }
         const updated = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record updated: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_id: updated.id }, logs };
@@ -180,7 +209,11 @@ export async function airtableHandler(
           return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable delete', attempt.message) };
         }
         const res = attempt.response;
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
+        if (!res.ok) {
+          const rejection = await classifyAirtableRejection(`Airtable ${operation}`, res);
+          logs.push(`Airtable ${operation}: ${rejection.error}`);
+          return { status: 'failed', outputData: null, logs, ...rejection };
+        }
         logs.push(`Airtable record deleted: ${recordId}.`);
         return { status: 'success', outputData: { ...data, airtable_deleted_id: recordId }, logs };
       }
@@ -210,7 +243,11 @@ export async function airtableHandler(
               return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable dedupe lookup', searchAttempt.message) };
             }
             const searchRes = searchAttempt.response;
-            if (!searchRes.ok) throw new Error(`Airtable dedupe lookup returned ${searchRes.status}: ${redactText((await searchRes.text().catch(() => '')).slice(0, 200))}`);
+            if (!searchRes.ok) {
+              const rejection = await classifyAirtableRejection('Airtable dedupe lookup', searchRes);
+              logs.push(`Airtable dedupe lookup: ${rejection.error}`);
+              return { status: 'failed', outputData: null, logs, ...rejection };
+            }
             const searchBody = await searchRes.json() as { records?: Array<{ id: string }> };
             matchedRecordId = searchBody.records?.[0]?.id ?? null;
             if (matchedRecordId) {
@@ -230,7 +267,11 @@ export async function airtableHandler(
             return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable dedupe update', updateAttempt.message) };
           }
           const updateRes = updateAttempt.response;
-          if (!updateRes.ok) throw new Error(`Airtable returned ${updateRes.status}: ${redactText((await updateRes.text().catch(() => '')).slice(0, 200))}`);
+          if (!updateRes.ok) {
+            const rejection = await classifyAirtableRejection('Airtable dedupe update', updateRes);
+            logs.push(`Airtable dedupe update: ${rejection.error}`);
+            return { status: 'failed', outputData: null, logs, ...rejection };
+          }
           const updated = await updateRes.json() as Record<string, unknown>;
           logs.push(`Airtable record updated (business dedupe match): ${matchedRecordId}.`);
           return { status: 'success', outputData: { ...data, airtable_id: updated.id, airtable_dedupe_matched: true, airtable_dedupe_action: 'update' }, logs };
@@ -253,7 +294,11 @@ export async function airtableHandler(
           return { status: 'failed', outputData: null, logs, ...indeterminateFailure('Airtable create', attempt.message) };
         }
         const res = attempt.response;
-        if (!res.ok) throw new Error(`Airtable returned ${res.status}: ${redactText((await res.text().catch(() => '')).slice(0, 200))}`);
+        if (!res.ok) {
+          const rejection = await classifyAirtableRejection(`Airtable ${operation}`, res);
+          logs.push(`Airtable ${operation}: ${rejection.error}`);
+          return { status: 'failed', outputData: null, logs, ...rejection };
+        }
         const created = await res.json() as Record<string, unknown>;
         logs.push(`Airtable record created: ${String(created.id ?? 'unknown')}.`);
         return {

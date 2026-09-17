@@ -27,6 +27,27 @@ import type { UserIntegration } from '../lib/user-integrations';
 
 vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
 
+// Phase 9.9.14 -- required for the new http.ts tests below: without this,
+// checkUrlSafe() performs a REAL dns.lookup() against api.example.com,
+// which is unreliable/blocked in the test sandbox. Mirrors
+// tests/node-handlers-real.test.ts's own setup exactly.
+vi.mock('../lib/workflow-runtime/node-handlers/ssrf-guard', () => ({
+  checkUrlSafe: vi.fn().mockResolvedValue({ allowed: true }),
+}));
+
+// Phase 9.9.14 -- required for the new AI Classifier tests below. vi.mock
+// calls are hoisted to the top of the module regardless of where they are
+// written, so createMock must be declared here (top level), not inside a
+// nested describe block, or the mock factory sees it as undefined.
+const openAiCreateMock = vi.fn();
+vi.mock('openai', () => ({
+  default: class FakeOpenAI {
+    chat = { completions: { create: openAiCreateMock } };
+    constructor(_opts: { apiKey: string }) {}
+  },
+}));
+vi.mock('@/lib/agent/observability', () => ({ recordAiUsage: vi.fn().mockResolvedValue({ estimatedCostUsd: 0 }) }));
+
 // The node-runner.ts integration test below constructs a real RuntimeStateStore
 // (to prove the ACTUAL retry loop respects nonRetryable, not just the handler's
 // own return value) -- its persistence/control methods are spied on the
@@ -113,6 +134,30 @@ describe('Airtable create -- indeterminate vs. definite-failure classification',
     expect(result.status).toBe('success');
     expect((result.outputData as Record<string, unknown>).airtable_id).toBe('recNEW123');
   });
+
+  it('Phase 9.9.14 -- a 401 (revoked token) is classified blocked_configuration, distinct from an indeterminate/ordinary failure', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'AUTHENTICATION_REQUIRED' }, { ok: false, status: 401 }));
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    const node: EngineNode = { id: '1', name: 'Airtable', type: 'n8n-nodes-base.airtable', parameters: { baseId: 'app1', tableId: 'tbl1', operation: 'create', fields: { Name: '={{$json["name"]}}' } } };
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat1' })] });
+
+    const result = await airtableHandler(node, { name: 'Acme' }, ctx);
+
+    expect(result.status).toBe('failed');
+    expect(result.nonRetryable).toBe(true);
+    expect(result.failureClass).toBe('blocked_configuration');
+    expect(result.error).toMatch(/CONFIG_BLOCKED/);
+  });
+
+  it('Phase 9.9.14 -- a 403 (missing base permission) is also classified blocked_configuration', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'NOT_AUTHORIZED' }, { ok: false, status: 403 }));
+    const { airtableHandler } = await import('../lib/workflow-runtime/node-handlers/airtable');
+    const node: EngineNode = { id: '1', name: 'Airtable', type: 'n8n-nodes-base.airtable', parameters: { baseId: 'app1', tableId: 'tbl1', operation: 'create', fields: { Name: '={{$json["name"]}}' } } };
+    const ctx = baseContext({ integrations: [integration('airtable', { personal_access_token: 'pat1' })] });
+
+    const result = await airtableHandler(node, { name: 'Acme' }, ctx);
+    expect(result.failureClass).toBe('blocked_configuration');
+  });
 });
 
 describe('Slack -- indeterminate vs. definite-failure classification', () => {
@@ -151,6 +196,29 @@ describe('Slack -- indeterminate vs. definite-failure classification', () => {
 
     expect(result.nonRetryable).toBe(true);
   });
+
+  it('Phase 9.9.14 -- Slack\'s own "invalid_auth" error code (HTTP 200, {ok:false}) is classified blocked_configuration -- isAuthRejectionStatus alone would miss this', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: false, error: 'invalid_auth' }));
+    const { slackHandler } = await import('../lib/workflow-runtime/node-handlers/slack');
+    const node: EngineNode = { id: '1', name: 'Slack', type: 'n8n-nodes-base.slack', parameters: { channel: '#leads', text: 'Hot lead' } };
+    const ctx = baseContext({ integrations: [integration('slack', { bot_token: 'xoxb-revoked' })] });
+
+    const result = await slackHandler(node, {}, ctx);
+
+    expect(result.status).toBe('failed');
+    expect(result.nonRetryable).toBe(true);
+    expect(result.failureClass).toBe('blocked_configuration');
+  });
+
+  it('Phase 9.9.14 -- a 403 on the incoming-webhook-URL path is classified blocked_configuration', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse('invalid_token', { ok: false, status: 403 }));
+    const { slackHandler } = await import('../lib/workflow-runtime/node-handlers/slack');
+    const node: EngineNode = { id: '1', name: 'Slack', type: 'n8n-nodes-base.slack', parameters: { channel: '#leads', text: 'Hot lead' } };
+    const ctx = baseContext({ integrations: [integration('slack', { webhook_url: 'https://hooks.slack.com/services/T/B/X' })] });
+
+    const result = await slackHandler(node, {}, ctx);
+    expect(result.failureClass).toBe('blocked_configuration');
+  });
 });
 
 describe('Gmail API send -- indeterminate vs. definite-failure classification', () => {
@@ -179,6 +247,20 @@ describe('Gmail API send -- indeterminate vs. definite-failure classification', 
     expect(result.nonRetryable ?? false).toBe(false);
   });
 
+  it('Phase 9.9.14 -- a 401 (revoked OAuth grant) is classified blocked_configuration', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: () => Promise.resolve('{"error":"invalid_grant"}') } as unknown as Response);
+    const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
+    const node: EngineNode = { id: '1', name: 'Gmail', type: 'n8n-nodes-base.gmail', parameters: { to: 'lead@example.com', subject: 'Hi', message: 'New lead' } };
+    const ctx = baseContext({ integrations: [integration('gmail', { access_token: 'ya29-revoked' })] });
+
+    const result = await emailHandler(node, {}, ctx);
+
+    expect(result.status).toBe('failed');
+    expect(result.nonRetryable).toBe(true);
+    expect(result.failureClass).toBe('blocked_configuration');
+    expect(result.error).toMatch(/CONFIG_BLOCKED/);
+  });
+
   it('a genuine Gmail success is completely unaffected', async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ id: 'msg123' }) } as unknown as Response);
     const { emailHandler } = await import('../lib/workflow-runtime/node-handlers/email');
@@ -189,6 +271,82 @@ describe('Gmail API send -- indeterminate vs. definite-failure classification', 
 
     expect(result.status).toBe('success');
     expect((result.outputData as Record<string, unknown>).messageId).toBe('msg123');
+  });
+});
+
+describe('Phase 9.9.14 -- generic HTTP node: 401/403 classified blocked_configuration, a retryable-status exhaustion stays retryable at the outer layer', () => {
+  // http.ts reads res.headers.get(...) and res.body (a ReadableStream) --
+  // the shared jsonResponse() helper above (built for airtable.ts/slack.ts,
+  // which only ever call .json()/.text()) has neither, so a real fetch
+  // Response is used here instead.
+  function httpResponse(body: unknown, status: number): Response {
+    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  }
+
+  it('a 401 is classified blocked_configuration and stops the outer retry loop', async () => {
+    fetchMock.mockResolvedValue(httpResponse({ error: 'unauthorized' }, 401));
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const node: EngineNode = { id: '1', name: 'HTTP', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://api.example.com/x', method: 'GET' } };
+    const result = await httpHandler(node, {}, baseContext());
+
+    expect(result.status).toBe('failed');
+    expect(result.nonRetryable).toBe(true);
+    expect(result.failureClass).toBe('blocked_configuration');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // never retried internally for a non-retryable status
+  });
+
+  it('an exhausted 500 (this handler\'s OWN internal retry budget) is NOT marked nonRetryable -- the outer node-runner retry loop, with much longer backoff, still gets a chance (an existing, deliberate two-layer design)', async () => {
+    fetchMock.mockResolvedValue(httpResponse({}, 500));
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const node: EngineNode = { id: '1', name: 'HTTP', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://api.example.com/x', method: 'GET' } };
+    const result = await httpHandler(node, {}, baseContext());
+
+    expect(result.status).toBe('failed');
+    expect(result.nonRetryable ?? false).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3); // this handler's own internal retry budget
+  }, 10000);
+
+  it('a plain 404 (not a credential problem) is deliberately left retryable at the outer layer too -- the nonRetryable narrowing applies ONLY to 401/403, not every definitive rejection', async () => {
+    fetchMock.mockResolvedValue(httpResponse({ error: 'not found' }, 404));
+    const { httpHandler } = await import('../lib/workflow-runtime/node-handlers/http');
+    const node: EngineNode = { id: '1', name: 'HTTP', type: 'n8n-nodes-base.httpRequest', parameters: { url: 'https://api.example.com/x', method: 'GET' } };
+    const result = await httpHandler(node, {}, baseContext());
+
+    expect(result.nonRetryable ?? false).toBe(false);
+    expect(result.failureClass).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // not a retryable STATUS, so no internal retry either -- but the outer layer may still retry with fresh data/context later
+  });
+});
+
+describe('Phase 9.9.14 -- AI Classifier: OpenAI 401 (invalid platform key) is blocked_configuration, distinct from 429/5xx/timeout and from a genuine low-confidence classification', () => {
+  beforeEach(() => {
+    openAiCreateMock.mockReset();
+    process.env.OPENAI_API_KEY = 'sk-test';
+  });
+
+  it('a 401 from OpenAI is classified blocked_configuration -- never a fabricated classification', async () => {
+    const err = Object.assign(new Error('Incorrect API key provided'), { status: 401 });
+    openAiCreateMock.mockRejectedValueOnce(err);
+    const { aiClassifierHandler } = await import('../lib/workflow-runtime/node-handlers/ai-classifier');
+    const node: EngineNode = { id: '1', name: 'AI Classifier', type: 'magicflux-nodes.aiClassifier', parameters: { instruction: 'Classify.', allowedLabels: ['Hot', 'Warm'], confidenceThreshold: 0.6 } };
+    const result = await aiClassifierHandler(node, { name: 'Acme' }, baseContext());
+
+    expect(result.status).toBe('failed');
+    expect(result.outputData).toBeNull(); // never a fabricated classification
+    expect(result.nonRetryable).toBe(true);
+    expect(result.failureClass).toBe('blocked_configuration');
+  });
+
+  it('a 429 (rate limit) is a plain retryable failure -- never confused with blocked_configuration', async () => {
+    const err = Object.assign(new Error('Rate limit exceeded'), { status: 429 });
+    openAiCreateMock.mockRejectedValueOnce(err);
+    const { aiClassifierHandler } = await import('../lib/workflow-runtime/node-handlers/ai-classifier');
+    const node: EngineNode = { id: '1', name: 'AI Classifier', type: 'magicflux-nodes.aiClassifier', parameters: { instruction: 'Classify.', allowedLabels: ['Hot', 'Warm'], confidenceThreshold: 0.6 } };
+    const result = await aiClassifierHandler(node, { name: 'Acme' }, baseContext());
+
+    expect(result.status).toBe('failed');
+    expect(result.failureClass).toBeUndefined();
+    expect(result.nonRetryable ?? false).toBe(false);
   });
 });
 

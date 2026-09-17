@@ -1,6 +1,16 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { resolveNotificationTemplate } from './json-field-reference';
-import { fetchWithOutcome, indeterminateFailure } from './provider-outcome';
+import { fetchWithOutcome, indeterminateFailure, configBlockedFailure, isAuthRejectionStatus } from './provider-outcome';
+
+/**
+ * Phase 9.9.14 -- Part C/J: Slack's Web API quirk -- an auth failure often
+ * comes back as HTTP 200 with `{ok:false, error:'invalid_auth'}` rather
+ * than a 401/403 status, so isAuthRejectionStatus() alone would miss most
+ * real Slack credential failures. These specific error codes are Slack's
+ * own documented permanent-auth-failure vocabulary (never a transient
+ * condition) -- see https://api.slack.com/methods/chat.postMessage#errors.
+ */
+const SLACK_AUTH_ERROR_CODES = new Set(['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired', 'missing_scope']);
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -97,6 +107,9 @@ export async function slackHandler(
     if (!res.ok || !body?.ok) {
       const msg = body?.error ? `Slack API error: ${body.error}` : `Slack returned ${res.status}`;
       logs.push(`Slack delivery failed: ${msg}`);
+      if (isAuthRejectionStatus(res.status) || (body?.error && SLACK_AUTH_ERROR_CODES.has(body.error))) {
+        return { status: 'failed', outputData: null, logs, ...configBlockedFailure('Slack message', res.status, msg) };
+      }
       return { status: 'failed', outputData: null, logs, error: msg };
     }
 
@@ -124,6 +137,9 @@ export async function slackHandler(
   if (!res.ok) {
     const msg = `Slack returned ${res.status}`;
     logs.push(`Slack delivery failed: ${msg}`);
+    if (isAuthRejectionStatus(res.status)) {
+      return { status: 'failed', outputData: null, logs, ...configBlockedFailure('Slack message', res.status, msg) };
+    }
     return { status: 'failed', outputData: null, logs, error: msg };
   }
 

@@ -211,6 +211,46 @@ export class RuntimeStateStore {
     }
   }
 
+  /**
+   * Phase 9.9.14 -- last-resort safety net for WorkflowEngine.execute()'s
+   * own `finally` block. Root cause: releaseExecutionLock() (called from
+   * that same finally) only ever updates runtime_execution_locks.last_status
+   * -- an unhandled exception mid-execution (e.g. a transient Supabase
+   * write failure from persistNodeState() itself, which explicitly throws
+   * RuntimeNodeStatePersistenceError) leaves workflow_executions_v2.status
+   * stuck at whatever it was last explicitly set to (typically 'running',
+   * set right before node dispatch) with NOTHING in the engine itself ever
+   * correcting it -- recovery depended entirely on the external self-heal
+   * cron's staleness sweep, which could take up to 10 minutes and requires
+   * that cron to actually be running.
+   *
+   * Deliberately guarded by `.eq('status', 'running')`: every NORMAL return
+   * path (success/waiting/cancelled/failed) already transitions status away
+   * from 'running' via setExecutionState() BEFORE returning, so this WHERE
+   * clause matches zero rows and is a harmless no-op on every clean exit --
+   * it only ever does something on the exception path this is meant for.
+   * Best-effort and swallows its own errors: this runs inside a `finally`
+   * block and must never mask or replace the original exception.
+   */
+  async forceFailIfStillRunning(executionId: string, userId: string, reason: string): Promise<void> {
+    try {
+      await this.db
+        .from('workflow_executions_v2')
+        .update({
+          status: 'failed',
+          error_message: reason,
+          completed_at: nowIso(),
+          updated_at: nowIso(),
+        })
+        .eq('id', executionId)
+        .eq('user_id', userId)
+        .eq('status', 'running');
+    } catch {
+      // Best-effort -- the external self-heal sweep (markOrphanExecutionsFailed)
+      // remains the backstop if even this correction fails.
+    }
+  }
+
   async persistNodeState(input: RuntimeNodeStateInput): Promise<void> {
     const startedAt = input.startedAt ?? nowIso();
     const completedAt = input.completedAt ?? (input.status === 'running' || input.status === 'queued' || input.status === 'retrying' ? null : nowIso());

@@ -73,11 +73,13 @@ export async function POST(req: NextRequest) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const perms = await getUserPermissions(user.id).catch(() => null);
   try {
     await requirePermission(user.id, 'manage_incidents');
   } catch {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+  const isAdmin = perms?.includes('admin_runtime') ?? false;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== 'object') {
@@ -93,6 +95,20 @@ export async function POST(req: NextRequest) {
 
   // Safe for non-bulk single-action handlers — validated above.
   const singleId = (incidentId ?? '') as string;
+
+  // Phase 9.9.14 -- Part-of-audit tenant-isolation fix: resolveIncident/
+  // escalateIncident/appendIncidentEvent take no ownership-scoping
+  // parameter at all -- a non-admin operator holding manage_incidents
+  // could otherwise resolve/escalate/comment on ANOTHER tenant's incident
+  // by guessing its UUID. Ownership confirmed first, via the SAME scoped
+  // getIncidentById() the GET handler above already uses, for every
+  // single-incident action (bulk actions are intentionally left to
+  // resolveIncident/escalateIncident's own existing all-or-nothing
+  // per-id result, matching their current admin-oriented bulk semantics).
+  if (!isBulkAction && !isAdmin) {
+    const owned = await getIncidentById(singleId, user.id);
+    if (!owned) return NextResponse.json({ error: 'Incident not found' }, { status: 404 });
+  }
 
   if (action === 'resolve') {
     const comment = typeof (body as Record<string, unknown>).comment === 'string'

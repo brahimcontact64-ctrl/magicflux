@@ -640,3 +640,51 @@ export async function markOrphanExecutionsFailed(params?: {
 
   return rows.length;
 }
+
+/**
+ * Phase 9.9.14 -- closes a distinct orphan window from markOrphanExecutionsFailed
+ * above: that function only ever scans status='running' (a worker actively
+ * claimed the job at some point). If the process dies between the
+ * execution-row INSERT (execution-dispatch.ts) and the BullMQ enqueue call
+ * that follows it, the row is left at status='queued' with NO
+ * runtime_execution_ownership row ever created (ownership is only claimed
+ * once a worker picks the job up) -- invisible to recoverOrphanExecutions()
+ * too, since that scans ownership rows, not raw execution status. A
+ * synchronous enqueue failure is already handled inline by
+ * execution-dispatch.ts itself (which flips the row to 'failed' in the same
+ * request) -- this sweep only ever catches the process-crash case that
+ * inline handling cannot.
+ */
+export async function markOrphanQueuedExecutionsFailed(params?: {
+  staleAfterMinutes?: number;
+  limit?: number;
+}): Promise<number> {
+  const db = createServiceClient();
+  const staleAfterMinutes = params?.staleAfterMinutes ?? 10;
+  const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000).toISOString();
+
+  const { data } = await db
+    .from('workflow_executions_v2')
+    .select('id, user_id')
+    .eq('status', 'queued')
+    .lt('updated_at', cutoff)
+    .limit(params?.limit ?? 50);
+
+  const rows = (data ?? []) as Array<{ id: string; user_id: string }>;
+  if (rows.length === 0) return 0;
+
+  for (const row of rows) {
+    await db
+      .from('workflow_executions_v2')
+      .update({
+        status: 'failed',
+        error_message: 'Execution never reached the queue -- the process that created it likely crashed before dispatch. This is a recovery_required case, not a transient provider failure.',
+        updated_at: nowIso(),
+      })
+      .eq('id', row.id)
+      .eq('user_id', row.user_id)
+      .eq('status', 'queued');
+  }
+
+  return rows.length;
+}

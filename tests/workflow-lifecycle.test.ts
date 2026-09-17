@@ -413,6 +413,56 @@ describe('activateWorkflow', () => {
   });
 });
 
+// Phase 9.9.14 -- Part J: Airtable already had validateAirtableConfiguration
+// above; every OTHER provider (Slack, Gmail, etc.) had NO activation-time
+// connectivity check at all -- a workflow with a Slack/Gmail node could
+// activate successfully with nothing connected, and the first live
+// execution would fail at runtime with no earlier warning possible.
+describe('activateWorkflow -- required integration connectivity (Phase 9.9.14)', () => {
+  function slackWorkflow() {
+    return {
+      name: 'Notify Slack',
+      nodes: [
+        { id: 't1', name: 'Trigger', type: 'n8n-nodes-base.webhook', parameters: { path: '/x' } },
+        { id: 'n1', name: 'Notify', type: 'n8n-nodes-base.slack', parameters: { channel: '#leads', text: 'Hi' } },
+      ],
+      connections: { Trigger: { main: [[{ node: 'Notify' }]] } },
+    };
+  }
+
+  it('rejects activation of a workflow with a Slack node when Slack is not connected', async () => {
+    seedWorkflow('wf-1', slackWorkflow());
+    fakeDb.tables.set('user_integrations', []);
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.errors.some((e) => e.toLowerCase().includes('slack'))).toBe(true);
+  });
+
+  it('activates cleanly when Slack IS connected', async () => {
+    seedWorkflow('wf-1', slackWorkflow());
+    fakeDb.tables.set('user_integrations', [{
+      id: 'i1', user_id: USER_A, provider: 'slack', name: null,
+      credentials: { bot_token: 'xoxb-test' }, status: 'connected', last_verified_at: null, created_at: null,
+    }]);
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(true);
+  });
+
+  it('a workflow with no third-party provider nodes at all is never blocked by this check', async () => {
+    seedWorkflow('wf-1', validWorkflow());
+    fakeDb.tables.set('user_integrations', []);
+    const { activateWorkflow } = await import('../lib/workflow/lifecycle');
+    const result = await activateWorkflow(USER_A, 'wf-1');
+
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('pause / resume / deactivate / archive', () => {
   it('pause stops future triggers by disabling schedules and setting status=paused', async () => {
     seedWorkflow('wf-1', validWorkflow(), 'active');

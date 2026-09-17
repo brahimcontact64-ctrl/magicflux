@@ -124,6 +124,13 @@ function definiteFailure(): NodeHandlerResult {
 function indeterminateFailure(): NodeHandlerResult {
   return { status: 'failed', outputData: null, logs: ['ambiguous'], error: 'INDETERMINATE: may have already succeeded remotely', nonRetryable: true };
 }
+// Phase 9.9.14 -- Part C/D/J: a DEFINITIVE rejection (revoked credential)
+// proving nothing was created -- must ledger as 'failed' (reclaimable once
+// fixed), never 'indeterminate' (which the ledger's own CAS rules never
+// allow reclaiming at all).
+function configBlockedFailure(): NodeHandlerResult {
+  return { status: 'failed', outputData: null, logs: ['rejected'], error: 'CONFIG_BLOCKED: Airtable rejected the request (HTTP 401) -- invalid token.', nonRetryable: true, failureClass: 'blocked_configuration' };
+}
 
 function baseInput(node: EngineNode, overrides: Record<string, unknown> = {}) {
   return {
@@ -214,6 +221,24 @@ describe('NodeRunner + side-effect ledger -- Airtable path', () => {
     expect(retryAttempt.status).toBe('failed');
     expect(retryAttempt.error).toMatch(/INDETERMINATE/);
     expect(dispatchNodeMock).toHaveBeenCalledTimes(1); // still exactly once, ever
+  });
+
+  it('Phase 9.9.14 -- a revoked credential (blocked_configuration) is ledgered as "failed", NOT "indeterminate" -- it is safe to retry once fixed, unlike a genuinely ambiguous outcome', async () => {
+    dispatchNodeMock.mockResolvedValueOnce(configBlockedFailure());
+    runner = makeRunner();
+    const result = await runner.run(baseInput(airtableNode(), { maxRetries: 3 }));
+
+    expect(result.status).toBe('failed');
+    expect(dispatchNodeMock).toHaveBeenCalledTimes(1); // nonRetryable -- no immediate hammering with the same bad credential
+    expect(ledgerRows[0].status).toBe('failed'); // NOT 'indeterminate'
+
+    // Once "fixed" (simulated here by the next attempt simply succeeding),
+    // the ledger's own CAS rules already allow reclaiming a 'failed' row --
+    // proving this is genuinely retryable, unlike the indeterminate case above.
+    dispatchNodeMock.mockResolvedValueOnce(successResult({ airtable_id: 'recFIXED' }));
+    const second = await runner.run(baseInput(airtableNode(), { maxRetries: 0 }));
+    expect(second.status).toBe('success');
+    expect(ledgerRows[0].status).toBe('succeeded');
   });
 
   it('crash immediately before provider call: claimed row stays in_progress, provider never invoked in that attempt -- a later attempt sees it as unclaimed (fresh) and refuses to guess', async () => {

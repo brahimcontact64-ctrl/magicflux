@@ -187,3 +187,56 @@ export async function releaseIdempotencyKey(params: { executionId: string; userI
     .eq('execution_id', params.executionId)
     .eq('user_id', params.userId);
 }
+
+/**
+ * Phase 9.9.14 -- closes a distinct orphan window from releaseIdempotencyKey
+ * above: that function is only ever called from the SAME process, on the
+ * SAME request, when a later step (concurrency reservation, the execution
+ * row insert) fails cleanly. If the process instead CRASHES between
+ * reserveIdempotencyKey's insert and the execution-row insert that follows
+ * it in execution-dispatch.ts, the lock row is left pointing at an
+ * execution_id that was never actually written to workflow_executions_v2 --
+ * no in-process cleanup ever runs. Every future delivery of that exact
+ * event (a webhook provider's own retry) permanently resolves to
+ * `{isDuplicate: true, existing: null}` (reserveIdempotencyKey's "winner
+ * lock exists, but no execution row" branch) and is rejected forever,
+ * unlike runtime_concurrency_reservations which already has
+ * reclaimExpiredConcurrencyReservations() for the equivalent window.
+ *
+ * Only ever deletes a lock row whose lease has expired AND whose
+ * execution_id resolves to NO row in workflow_executions_v2 -- a lock
+ * pointing at a real (even failed) execution is never touched, since it
+ * legitimately protects against re-processing that already-handled event.
+ */
+export async function reclaimOrphanedIdempotencyLocks(params?: { limit?: number }): Promise<number> {
+  const db = createServiceClient();
+  const nowIso = new Date().toISOString();
+
+  const { data: expired } = await db
+    .from('runtime_execution_locks')
+    .select('execution_id, user_id')
+    .lt('lease_expires_at', nowIso)
+    .limit(params?.limit ?? 50);
+
+  const rows = (expired ?? []) as Array<{ execution_id: string; user_id: string }>;
+  let reclaimed = 0;
+
+  for (const row of rows) {
+    const { data: exec } = await db
+      .from('workflow_executions_v2')
+      .select('id')
+      .eq('id', row.execution_id)
+      .maybeSingle();
+
+    if (exec) continue; // a real execution exists -- this lock is legitimate, never reclaim it.
+
+    await db
+      .from('runtime_execution_locks')
+      .delete()
+      .eq('execution_id', row.execution_id)
+      .eq('user_id', row.user_id);
+    reclaimed += 1;
+  }
+
+  return reclaimed;
+}

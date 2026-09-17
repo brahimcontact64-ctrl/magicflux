@@ -33,6 +33,8 @@ export type NodeRunResult = {
   attempts: number;
   /** Phase 9.9.11A -- propagated from the terminal NodeHandlerResult so callers (the side-effect ledger gate) can distinguish a network-ambiguous outcome from an ordinary, safely-retryable failure without string-matching the error message. Always false/absent for a genuine "retries exhausted" exit. */
   nonRetryable?: boolean;
+  /** Phase 9.9.14 -- propagated alongside nonRetryable; see NodeHandlerResult's own doc comment. */
+  failureClass?: 'indeterminate' | 'blocked_configuration';
 };
 
 function retryDelay(attempt: number): number {
@@ -51,7 +53,14 @@ function classifyRunResultForLedger(result: NodeRunResult): 'succeeded' | 'faile
   }
   if (result.status === 'cancelled') return 'failed';
   // status === 'failed'
-  return result.nonRetryable ? 'indeterminate' : 'failed';
+  if (!result.nonRetryable) return 'failed';
+  // Phase 9.9.14 -- a definitive provider rejection (blocked_configuration)
+  // PROVES nothing was created -- ledgering it 'failed' (reclaimable once
+  // the operator fixes the credential) is correct; only a genuinely
+  // ambiguous outcome (the default when failureClass is absent, e.g. a
+  // network-level throw) may ever become 'indeterminate', since the
+  // ledger's own CAS rules never allow reclaiming an indeterminate row.
+  return result.failureClass === 'blocked_configuration' ? 'failed' : 'indeterminate';
 }
 
 export class NodeRunner {
@@ -342,6 +351,7 @@ export class NodeRunner {
           error,
           attempts: attempt,
           nonRetryable: result.nonRetryable,
+          failureClass: result.failureClass,
         };
       }
 

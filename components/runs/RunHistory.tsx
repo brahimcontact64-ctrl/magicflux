@@ -11,17 +11,47 @@ import type { ExecutionRecord } from '@/lib/execution/types';
 
 const STATUS_CLS: Record<string, string> = {
   success:  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  succeeded:'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   failed:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   running:  'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  queued:   'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300',
   waiting:  'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  waiting_human: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  waiting_acknowledgment: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  retrying: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   paused:   'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   cancelled:'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+  // Phase 9.9.14 -- Part N: these three states did not exist before this
+  // phase (an indeterminate/config-blocked/recovery-required outcome was
+  // previously indistinguishable from a plain 'failed' anywhere in the UI).
+  configuration_blocked: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  indeterminate:         'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  recovery_required:     'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
 };
 
-function StatusBadge({ status }: { status: string }) {
+const STATUS_LABEL: Record<string, string> = {
+  waiting_human: 'waiting for human',
+  waiting_acknowledgment: 'waiting for acknowledgment',
+  configuration_blocked: 'configuration blocked',
+  recovery_required: 'recovery required',
+};
+
+/**
+ * Phase 9.9.14 -- Part N: prefers the derived operational_state (see
+ * lib/runtime/operational-state.ts) over the raw 7-value DB status when
+ * present, so a workflow owner can tell "waiting for a human to decide"
+ * apart from "waiting for an SLA acknowledgment," and a definitive
+ * configuration failure or an indeterminate side effect apart from an
+ * ordinary retryable failure -- distinctions the raw status column cannot
+ * express at all. Falls back to the raw status for any caller that hasn't
+ * computed it (never a breaking change to an existing consumer).
+ */
+function StatusBadge({ status, operationalState }: { status: string; operationalState?: string }) {
+  const key = operationalState ?? status;
+  const label = STATUS_LABEL[key] ?? key;
   return (
-    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium capitalize', STATUS_CLS[status] ?? STATUS_CLS.paused)}>
-      {status}
+    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium capitalize', STATUS_CLS[key] ?? STATUS_CLS.paused)}>
+      {label}
     </span>
   );
 }
@@ -108,7 +138,7 @@ export function RunHistory({ workflowId, onSelect, className }: Props) {
                 onSelect ? 'cursor-pointer' : 'cursor-default',
               )}
             >
-              <StatusBadge status={ex.status} />
+              <StatusBadge status={ex.status} operationalState={ex.operational_state} />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">
                   {ex.mode === 'test' ? 'Test run' : 'Live run'}

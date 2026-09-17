@@ -23,6 +23,7 @@ import { ReplayVisualizer }     from '@/components/control/ReplayVisualizer';
 import { SlaPanel }             from '@/components/control/SlaPanel';
 import { CostPanel }            from '@/components/control/CostPanel';
 import { AlertsPanel }          from '@/components/control/AlertsPanel';
+import { SideEffectRecoveryPanel } from '@/components/control/SideEffectRecoveryPanel';
 
 export default function ControlPage() {
   const router = useRouter();
@@ -93,6 +94,7 @@ export default function ControlPage() {
             <TabsTrigger value='sla'            className='text-xs px-4'>SLA</TabsTrigger>
             <TabsTrigger value='cost'           className='text-xs px-4'>Cost</TabsTrigger>
             <TabsTrigger value='alerts'         className='text-xs px-4'>Alerts</TabsTrigger>
+            <TabsTrigger value='recovery'       className='text-xs px-4'>Recovery</TabsTrigger>
           </TabsList>
 
           <TabsContent value='overview'>
@@ -177,6 +179,14 @@ export default function ControlPage() {
               <p className='text-xs text-muted-foreground'>Configure alert rules for queue overload, worker crashes, incident spikes, and SLA violations. Delivers to dashboard, email, webhook, Slack, and Telegram.</p>
             </div>
             <AlertsPanel />
+          </TabsContent>
+
+          <TabsContent value='recovery'>
+            <div className='mb-4'>
+              <h1 className='text-lg font-semibold'>Recovery</h1>
+              <p className='text-xs text-muted-foreground'>Resolve side effects MagicFlux could not prove the outcome of. Never a blind retry -- each action records what you confirmed directly with the provider.</p>
+            </div>
+            <SideEffectRecoveryPanel />
           </TabsContent>
         </Tabs>
       </main>

@@ -34,6 +34,10 @@ export type ExecutionEventType =
   | 'side_effect_requested'
   | 'side_effect_completed'
   | 'side_effect_failed'
+  // Phase 9.9.14 -- Part H/I: an operator manually resolved a genuinely
+  // indeterminate side effect after confirming its real outcome directly
+  // with the provider (see recordOperatorVerifiedOutcome()).
+  | 'side_effect_verified'
   // Replay
   | 'replay_started'
   | 'replay_completed';

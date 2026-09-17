@@ -3,6 +3,7 @@ import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { assertExecutionOwnership } from '@/lib/security/ownership';
 import { redact } from '@/lib/security/redact';
 import type { ExecutionDetail, ExecutionStep } from '@/lib/execution/types';
+import { computeExecutionOperationalState } from '@/lib/runtime/operational-state';
 
 type Ctx = { params: { id: string } };
 
@@ -98,6 +99,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     min_started_at:(r.min_started_at as string) ?? null,
   }));
 
+  // Phase 9.9.14 -- ownership was already confirmed above (assertExecutionOwnership).
+  const operationalState = await computeExecutionOperationalState(params.id).catch(() => null);
+
   const execution: ExecutionDetail = {
     id:                 String(exec.id),
     workflow_id:        String(exec.workflow_id ?? ''),
@@ -111,6 +115,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     failed_step_count:  Number(exec.failed_step_count ?? 0),
     error_message:      (exec.error_message as string) ?? null,
     retry_count:        Number(exec.retry_count ?? 0),
+    operational_state:        operationalState?.state,
+    operational_state_reason: operationalState?.reason,
     input_data:         redact(rawExec?.input_data) as Record<string, unknown> | null,
     output_data:        redact(rawExec?.output_data) as Record<string, unknown> | null,
     steps,

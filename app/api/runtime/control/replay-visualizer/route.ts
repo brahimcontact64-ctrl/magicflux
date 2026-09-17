@@ -2,15 +2,32 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 import { listActiveIncidents } from '@/lib/runtime/incident-manager';
+import { getUserPermissions } from '@/lib/runtime/rbac';
 
 // GET — structured replay data for the ReplayVisualizer component.
 //
 // Query params:
 //   ?execution_id=<uuid>   — required
 //   ?include_incidents=true — include active incidents for the execution
+//
+// Phase 9.9.14 -- Part-of-audit tenant-isolation fix: this route previously
+// had NO RBAC permission check at all (not even view_runtime) and NO
+// ownership check on the execution row -- any authenticated user who knew
+// or guessed an executionId could view another tenant's full replay data,
+// and every related query ran BEFORE the (missing) ownership check could
+// have gated anything. Ownership is now confirmed FIRST, sequentially,
+// before any event/snapshot/command data is ever queried -- mirrors
+// traces/route.ts's own pattern.
 export async function GET(req: NextRequest) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const perms = await getUserPermissions(user.id).catch(() => null);
+  if (!perms) return NextResponse.json({ error: 'Authorization service unavailable' }, { status: 503 });
+  if (!perms.includes('view_runtime') && !perms.includes('admin_runtime')) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+  const isAdmin = perms.includes('admin_runtime');
 
   const sp          = req.nextUrl.searchParams;
   const executionId = sp.get('execution_id')?.trim();
@@ -21,12 +38,18 @@ export async function GET(req: NextRequest) {
 
   const db = createServiceClient();
 
-  const [execRes, eventsRes, snapshotsRes, commandsRes] = await Promise.all([
-    db
-      .from('workflow_executions_v2')
-      .select('id, workflow_id, user_id, status, started_at, completed_at, retry_count, error_message, created_at')
-      .eq('id', executionId)
-      .single(),
+  let execQuery = db
+    .from('workflow_executions_v2')
+    .select('id, workflow_id, user_id, status, started_at, completed_at, retry_count, error_message, created_at')
+    .eq('id', executionId);
+  if (!isAdmin) execQuery = execQuery.eq('user_id', user.id);
+  const execRes = await execQuery.maybeSingle();
+
+  if (execRes.error || !execRes.data) {
+    return NextResponse.json({ error: 'Execution not found' }, { status: 404 });
+  }
+
+  const [eventsRes, snapshotsRes, commandsRes] = await Promise.all([
     db
       .from('runtime_execution_events')
       .select(
@@ -57,10 +80,6 @@ export async function GET(req: NextRequest) {
       .limit(200),
   ]);
 
-  if (execRes.error || !execRes.data) {
-    return NextResponse.json({ error: 'Execution not found' }, { status: 404 });
-  }
-
   // Build replay checkpoints: pair each snapshot with the events leading to it
   const events    = (eventsRes.data    ?? []) as unknown as Array<Record<string, unknown>>;
   const snapshots = (snapshotsRes.data ?? []) as unknown as Array<Record<string, unknown>>;
@@ -89,7 +108,7 @@ export async function GET(req: NextRequest) {
   const includeIncidents = sp.get('include_incidents') === 'true';
   let incidents: unknown[] = [];
   if (includeIncidents) {
-    const all = await listActiveIncidents({ limit: 50 });
+    const all = await listActiveIncidents({ limit: 50, userId: isAdmin ? undefined : user.id });
     incidents = all.filter(i => i.executionId === executionId);
   }
 

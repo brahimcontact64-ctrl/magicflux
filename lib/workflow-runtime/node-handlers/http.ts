@@ -1,6 +1,7 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { checkUrlSafe } from './ssrf-guard';
 import { redact } from '@/lib/security/redact';
+import { configBlockedFailure, isAuthRejectionStatus } from './provider-outcome';
 
 function getParam(node: EngineNode, keys: string[]): string {
   const params = node.parameters ?? {};
@@ -235,6 +236,22 @@ export async function httpHandler(
           : JSON.stringify(redact(responseBody)).slice(0, 200);
         lastError = `HTTP ${res.status}: ${safeBodyPreview}`;
         logs.push(`HTTP ${method} ${finalUrl} failed: ${lastError}`);
+        // Phase 9.9.14 -- Part C/J: a 401/403 is a DEFINITIVE, unambiguous
+        // rejection proving the credential itself is invalid -- retrying
+        // the SAME credential via the outer node-runner retry loop cannot
+        // succeed, so it is nonRetryable at that layer too (previously
+        // missing here, so even a conclusively-rejected 401 was retried up
+        // to maxRetries times pointlessly). Deliberately narrower than "any
+        // definitive rejection": a 5xx/429 that merely exhausted THIS
+        // handler's own short internal retry budget above is intentionally
+        // left retryable at the outer layer, which uses much longer
+        // backoff intervals and may succeed where the tight internal loop
+        // did not -- an existing, deliberate two-layer retry design (see
+        // tests/runtime-e2e-mocked.test.ts's own "exhausts its OWN internal
+        // retry budget" case) that this fix must not narrow.
+        if (isAuthRejectionStatus(res.status)) {
+          return { status: 'failed', outputData: { status: res.status, body: responseBody }, logs, ...configBlockedFailure(`HTTP ${method} ${finalUrl}`, res.status, lastError) };
+        }
         return { status: 'failed', outputData: { status: res.status, body: responseBody }, logs, error: lastError };
       }
 

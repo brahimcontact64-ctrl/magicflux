@@ -78,6 +78,20 @@ export type NodeHandlerResult = {
    * normal, safely-retryable one (nothing external was sent).
    */
   nonRetryable?: boolean;
+  /**
+   * Phase 9.9.14 -- disambiguates WHY a nonRetryable failure must not be
+   * retried, for the side-effect ledger and operational-state reporting.
+   * 'indeterminate' (the default when absent, preserving every existing
+   * caller's behavior unchanged): the provider's actual outcome cannot be
+   * proven -- a network-level throw/timeout where the request may or may
+   * not have reached the provider. 'blocked_configuration': the provider
+   * gave a DEFINITIVE rejection proving nothing was created (e.g. a 401/403
+   * from a revoked credential) -- safe to retry once the underlying
+   * configuration is fixed, so the side-effect ledger records this as
+   * 'failed' (reclaimable), never 'indeterminate' (which the ledger's own
+   * CAS rules never allow reclaiming).
+   */
+  failureClass?: 'indeterminate' | 'blocked_configuration';
 };
 
 export type NodeHandler = (
