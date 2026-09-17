@@ -177,3 +177,34 @@ export function redactText(message: string, maxLength = 180): string {
     .replace(/\b(token|password|passwd|pwd|secret|api[_-]?key|access[_-]?key|auth)\s*[:=]\s*[^\s&,;]+/gi, '$1=[REDACTED]')
     .slice(0, maxLength);
 }
+
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+// Deliberately broad (10-digit with common separators/parens/country code,
+// AND a bare 7-digit local xxx-xxxx shape) -- a false positive just replaces
+// an innocuous number with a placeholder in free text, which is a much
+// cheaper mistake than under-redacting a real phone number.
+const PHONE_PATTERN = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b|\b\d{3}[-.\s]\d{4}\b/g;
+
+/**
+ * Phase 9.9.13A Part F -- scrubs PII SHAPES (email addresses, phone
+ * numbers) out of free-text a MODEL generated from data that may itself
+ * contain PII (e.g. a lead's own email/phone handed to an AI classifier as
+ * qualification evidence). This is a DIFFERENT problem from redact()'s own
+ * key-based matching above: redact() protects a value because of the KEY
+ * it's stored under (an object shape it can walk), but a model's free-text
+ * "reason" has no keys at all -- if a lead's email/phone was part of the
+ * input the model reasoned over, nothing stops the model from echoing it
+ * back verbatim into its own prose. Field-name redaction alone cannot catch
+ * this; the TEXT ITSELF must be scanned. Deliberately conservative in the
+ * other direction from redactText() (which targets credential shapes in
+ * error messages) -- this targets PII shapes in model-generated business
+ * prose, and is applied specifically to fields like a qualification
+ * decision's stored "reason", never to values in a key-based object that
+ * isSensitiveKey()/isDenylistedFieldName() already protect at the key
+ * level.
+ */
+export function redactPiiPatterns(text: string): string {
+  return text
+    .replace(EMAIL_PATTERN, '[EMAIL_REDACTED]')
+    .replace(PHONE_PATTERN, '[PHONE_REDACTED]');
+}

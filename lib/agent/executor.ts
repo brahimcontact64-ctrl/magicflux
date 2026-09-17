@@ -39,12 +39,14 @@ import { validateAiClassificationClaim } from '@/lib/agent/ai-classification-gua
 import { validateHumanReviewClaim } from '@/lib/agent/human-review-guard';
 import { validateAiReviewRoutingContract } from '@/lib/agent/ai-review-routing-guard';
 import { validateHumanReviewOutcomeRouting } from '@/lib/agent/human-review-routing-guard';
+import { validateSlaAcknowledgmentGating } from '@/lib/agent/sla-acknowledgment-gating-guard';
 import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression-guard';
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
 import { validateAirtableDedupeClaim } from '@/lib/agent/airtable-dedupe-guard';
 import { validateNoInventedAirtableIds } from '@/lib/agent/airtable-config-guard';
 import { validateAirtablePersistenceCompleteness } from '@/lib/agent/airtable-persistence-guard';
+import { validateAirtableFieldDenylist } from '@/lib/agent/airtable-field-denylist-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -360,6 +362,7 @@ SLA ACKNOWLEDGMENT CONTRACT -- MANDATORY whenever this automation needs a real p
   - "escalationLevel": optional (defaults to 0) -- purely observational; only set a higher number when this is a SECOND (or later) chained waitForAcknowledgment node representing a further escalation step (see below).
 Exactly two output ports, in this fixed order: main[0] = acknowledged (e.g. "mark handled, no further action"), main[1] = timed_out/escalation (e.g. a further Slack/Gmail notification to another channel/person, and/or a second waitForAcknowledgment node with a longer slaMinutes and escalationLevel: 1 for a further escalation level -- chaining multiple instances is how multiple escalation levels are composed; never invent a single node that tries to represent more than one deadline itself). Both ports must be present as their own array even if one is empty.
 ACKNOWLEDGMENT URL AVAILABILITY -- MANDATORY whenever the request wants the FIRST/initial notification (not just a later reminder/escalation) to contain a working "acknowledge this" link or action: a plain waitForAcknowledgment node positioned AFTER that notification cannot supply one -- its acknowledgment_url is only created the moment IT runs, which is after the notification already sent. In that case, insert a real node with type EXACTLY "magicflux-nodes.createAcknowledgmentChallenge" BEFORE the notification action(s) instead (never in place of the later waitForAcknowledgment node -- both are needed together). It never pauses or branches (exactly one output port, like Set) -- it creates the SAME durable record immediately (the SLA clock starts here) and writes "acknowledgment_url" (and, under "acknowledgment_challenge_id" by default, the record's own id) into the data every downstream node -- including the notifications -- can reference, e.g. a Gmail/Slack template using "{{$json[\"acknowledgment_url\"]}}". Its parameters: "slaMinutes" (same meaning/requirement as above -- both nodes must be given the SAME value), "escalationLevel" (optional, same meaning as above), "outputIdField" (optional, defaults to "acknowledgment_challenge_id"). The LATER waitForAcknowledgment node in this shape must set its own "challengeIdField" parameter to the SAME field name createAcknowledgmentChallenge wrote the id under (both default to "acknowledgment_challenge_id", so omit both when using the defaults) -- it will then wait on that already-created record instead of creating a new one of its own; do NOT give it its own "slaMinutes" duplicate meaning in this shape, since the deadline was already fixed at creation time by the challenge node. Only use this two-node shape when the request genuinely needs the link in the initial notification; the simpler single waitForAcknowledgment node (no createAcknowledgmentChallenge, no challengeIdField) remains correct whenever the acknowledgment action is expected via the dashboard, or only needs to appear in a later reminder/escalation notification that already fires after waitForAcknowledgment exists.
+SLA GATING CONTRACT -- MANDATORY, Phase 9.9.13 Part J: when an upstream magicflux-nodes.aiClassifier can produce MULTIPLE labels (e.g. "Hot"/"Warm"/"Cold") and only SOME of them require an SLA acknowledgment (the normal case -- e.g. only a "Hot" lead needs guaranteed human ownership within a deadline; a "Warm" or "Cold" one does not), every magicflux-nodes.createAcknowledgmentChallenge and magicflux-nodes.waitForAcknowledgment node for that SLA MUST be placed ONLY on the branch(es) the request actually says need it -- reached exclusively through an "If"-style node that checks the classifier's own output field against that specific label (e.g. "={{$json[\"classification\"]}}" equals "Hot"), never wired so it is reachable unconditionally from every classification outcome. Do NOT add an SLA acknowledgment to a label the request never asked to guarantee ownership for, even "just in case" or "for consistency" -- a Warm or Cold branch gets one ONLY if the request explicitly asks for SLA/acknowledgment tracking on that tier too. When Human Review can override the classifier's label, route each of Human Review's own outcome ports to the SAME per-label terminal chain the confident path uses for that label (per the HUMAN DECISION AUTHORITY CONTRACT's PREFERRED shape above) -- e.g. Human Review's "Hot" port leads into the SAME createAcknowledgmentChallenge/notification/waitForAcknowledgment chain the confident Hot path uses, never a separate duplicate chain and never bypassing the SLA gate that label requires.
 
 AIRTABLE CONFIGURATION CONTRACT -- MANDATORY for every n8n-nodes-base.airtable node: you have NO knowledge of the founder's real Airtable base/table/field schema, so you MUST NOT invent a base id (e.g. "appXXXXXXXXXXXXXX"), a table id (e.g. "tblXXXXXXXXXXXXXX"), or guess that a made-up id is real. Parameters must be exactly:
   - "baseId": leave this an EMPTY STRING "" -- real base selection happens in a separate, real schema-picker step in the Builder after Airtable is connected, never here.
@@ -902,6 +905,31 @@ export async function executeTool(
           };
         }
 
+        // Phase 9.9.13 Part J -- product-truth backstop: an SLA
+        // acknowledgment node (createAcknowledgmentChallenge/
+        // waitForAcknowledgment) downstream of a multi-label AI Classifier
+        // must be gated behind a conditional checking that classifier's
+        // field -- never reachable unconditionally from every classification
+        // outcome. See SLA GATING CONTRACT above.
+        const slaGatingCheck = validateSlaAcknowledgmentGating(result.nodes, result.connections);
+        if (!slaGatingCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: slaGatingCheck.reason,
+              ungated_sla_acknowledgment: true,
+              node: slaGatingCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'SLA acknowledgment must be gated to the classification outcome(s) that need it',
+              detail: slaGatingCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
         // Phase 9.9.3 -- deterministic backstop: an Airtable node's
         // baseId/tableId must be empty (needs configuration) or a
         // real-shaped id (already verified/surviving a regeneration) --
@@ -951,6 +979,30 @@ export async function executeTool(
               type: 'error',
               label: 'Airtable mapping is missing a required field',
               detail: airtablePersistenceCheck.reason,
+              agent: 'planner',
+            },
+          };
+        }
+
+        // Phase 9.9.13A Part B -- same denylist notification-content-guard.ts
+        // already enforces for Gmail/Slack, extended to Airtable "fields"
+        // mappings: an internal/execution-metadata field (e.g.
+        // _qualificationDecisionId, _conditionBranch) or a credential-shaped
+        // name must never be written into a business record.
+        const airtableDenylistCheck = validateAirtableFieldDenylist(result.nodes);
+        if (!airtableDenylistCheck.ok) {
+          return {
+            tool: toolName,
+            success: false,
+            output: {
+              error: airtableDenylistCheck.reason,
+              internal_field_in_airtable_mapping: true,
+              node: airtableDenylistCheck.node,
+            },
+            event: {
+              type: 'error',
+              label: 'Airtable mapping cannot reference internal/credential-shaped fields',
+              detail: airtableDenylistCheck.reason,
               agent: 'planner',
             },
           };

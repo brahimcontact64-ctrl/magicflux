@@ -31,12 +31,14 @@ import OpenAI from 'openai';
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { redact, redactText } from '@/lib/security/redact';
 import { recordAiUsage } from '@/lib/agent/observability';
+import { createServiceClient } from '@/lib/supabase-server';
 import {
   parseQualificationPolicy,
   evaluateQualificationPolicy,
   type QualificationPolicy,
   type QualificationEvaluation,
 } from './qualification-policy';
+import { computeClassificationPolicyHash, recordQualificationDecision } from './qualification-decision-store';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_INPUT_CHARS = 4000;
@@ -222,13 +224,82 @@ function validateModelOutput(raw: string, params: ClassifierParams): ValidationR
   return { ok: true, result: { classification: matchedLabel, confidence, reason, extracted, semanticContradictions } };
 }
 
+/**
+ * Phase 9.9.13 -- best-effort durable qualification feedback record. Never
+ * throws and never blocks classification: analytics bookkeeping must not be
+ * the reason a workflow execution fails (same principle already applied to
+ * recordAiUsage() above). Skips silently (no row, no error) when the
+ * execution context is incomplete (e.g. a direct unit-test call with no
+ * userId/workflowId/executionId) -- there is nothing tenant-scoped to
+ * attach a row to in that case.
+ */
+async function persistQualificationDecision(
+  node: EngineNode,
+  context: NodeHandlerContext,
+  params: ClassifierParams,
+  evaluation: QualificationEvaluation | null,
+  outcome: {
+    classification: string;
+    confidence: number;
+    reason: string;
+    qualificationStatus: 'classified' | 'needs_review' | 'needs_information' | null;
+    needsReview: boolean;
+    contradictions: string[];
+  },
+): Promise<string | null> {
+  if (context.mode === 'test') return null;
+  if (!context.userId || !context.workflowId || !context.executionId) return null;
+  const nodeId = String(node.id ?? node.name ?? '').trim();
+  if (!nodeId) return null;
+
+  try {
+    const db = createServiceClient();
+    const policyHash = computeClassificationPolicyHash({
+      instruction: params.instruction,
+      allowedLabels: params.allowedLabels,
+      confidenceThreshold: params.confidenceThreshold,
+      qualificationPolicy: params.qualificationPolicy,
+    });
+    const result = await recordQualificationDecision(db, {
+      userId: context.userId,
+      workflowId: context.workflowId,
+      executionId: context.executionId,
+      classifierNodeId: nodeId,
+      classifierNodeName: node.name ?? null,
+      deploymentVersionId: context.deploymentVersionId ?? null,
+      mode: 'live',
+      classificationPolicyHash: policyHash,
+      aiClassification: outcome.classification,
+      aiConfidence: outcome.confidence,
+      aiReason: outcome.reason,
+      positiveSignals: evaluation?.positiveSignals ?? [],
+      negativeSignals: evaluation?.negativeSignals ?? [],
+      missingRequiredFields: evaluation?.missingRequiredFields ?? [],
+      contradictions: outcome.contradictions,
+      qualificationStatus: outcome.qualificationStatus,
+      needsReview: outcome.needsReview,
+    });
+    return result.ok ? result.id : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function aiClassifierHandler(
   node: EngineNode,
   inputData: unknown,
   context: NodeHandlerContext,
 ): Promise<NodeHandlerResult> {
   const logs: string[] = [];
-  const data = asRecord(inputData);
+  // Phase 9.9.13A Part B -- _qualificationDecisionId is runtime-internal
+  // metadata this handler alone assigns (never read back from upstream
+  // data). Stripped here, before any `...data` spread below, so a webhook
+  // payload or an earlier node cannot inject/forge a trusted-looking value
+  // that would otherwise survive untouched on a path where this handler
+  // itself fails to create a fresh one (e.g. missing execution context) --
+  // the field is always either freshly computed by THIS invocation or
+  // entirely absent, never a passthrough of untrusted input.
+  const { _qualificationDecisionId: _discardedUpstreamId, ...data } = asRecord(inputData);
 
   const parsedParams = parseParams(node);
   if (!parsedParams.ok) {
@@ -260,6 +331,14 @@ export async function aiClassifierHandler(
   if (evaluation && evaluation.missingRequiredFields.length > 0) {
     const reason = `Missing required qualification field(s): ${evaluation.missingRequiredFields.join(', ')}. Routed to Human Review rather than guessed.`;
     logs.push(`AI Classifier: ${reason}`);
+    const qualificationDecisionId = await persistQualificationDecision(node, context, params, evaluation, {
+      classification: params.allowedLabels[0],
+      confidence: 0,
+      reason,
+      qualificationStatus: 'needs_information',
+      needsReview: true,
+      contradictions: evaluation.deterministicContradictions,
+    });
     const outputData = {
       ...data,
       [params.outputField]: params.allowedLabels[0],
@@ -270,6 +349,7 @@ export async function aiClassifierHandler(
       qualification_status: 'needs_information',
       contradictions: evaluation.deterministicContradictions,
       ...qualificationOutputBase,
+      ...(qualificationDecisionId ? { _qualificationDecisionId: qualificationDecisionId } : {}),
     };
     return {
       status: context.mode === 'test' ? 'simulated_success' : 'success',
@@ -379,6 +459,17 @@ export async function aiClassifierHandler(
           `${needsReview ? ' -- flagged for review.' : '.'}` +
           (allContradictions.length > 0 ? ` Contradictions: ${allContradictions.join('; ')}` : '')
       );
+      const qualificationStatus: 'classified' | 'needs_review' | null = evaluation
+        ? (allContradictions.length > 0 ? 'needs_review' : (needsReview ? 'needs_review' : 'classified'))
+        : null;
+      const qualificationDecisionId = await persistQualificationDecision(node, context, params, evaluation, {
+        classification: validation.result.classification,
+        confidence: validation.result.confidence,
+        reason: validation.result.reason,
+        qualificationStatus,
+        needsReview,
+        contradictions: allContradictions,
+      });
       return {
         status: 'success',
         outputData: {
@@ -408,11 +499,12 @@ export async function aiClassifierHandler(
           ...validation.result.extracted,
           ...(evaluation
             ? {
-                qualification_status: allContradictions.length > 0 ? 'needs_review' : (needsReview ? 'needs_review' : 'classified'),
+                qualification_status: qualificationStatus,
                 contradictions: allContradictions,
                 ...qualificationOutputBase,
               }
             : {}),
+          ...(qualificationDecisionId ? { _qualificationDecisionId: qualificationDecisionId } : {}),
         },
         logs,
       };

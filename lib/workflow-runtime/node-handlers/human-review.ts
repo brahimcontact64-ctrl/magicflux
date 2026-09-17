@@ -37,6 +37,7 @@
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { createServiceClient } from '@/lib/supabase-server';
 import { redact } from '@/lib/security/redact';
+import { linkHumanReviewToQualificationDecision } from './qualification-decision-store';
 
 const DEFAULT_OUTCOMES = ['approve', 'reject'];
 const MAX_CONTEXT_CHARS = 4000;
@@ -94,7 +95,14 @@ function buildSafeReviewContext(data: Record<string, unknown>, inputFields: stri
   return safe as Record<string, unknown>;
 }
 
-type ReviewItemRow = { id: string; status: string; decision_outcome: string | null; allowed_outcomes: string[] | null };
+type ReviewItemRow = {
+  id: string;
+  status: string;
+  decision_outcome: string | null;
+  allowed_outcomes: string[] | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+};
 
 export async function humanReviewHandler(
   node: EngineNode,
@@ -151,7 +159,7 @@ export async function humanReviewHandler(
 
   const { data: existing, error: lookupError } = await db
     .from('workflow_review_items')
-    .select('id, status, decision_outcome, allowed_outcomes')
+    .select('id, status, decision_outcome, allowed_outcomes, reviewed_by, reviewed_at')
     .eq('execution_id', context.executionId)
     .eq('node_id', nodeId)
     .maybeSingle();
@@ -195,6 +203,29 @@ export async function humanReviewHandler(
         // Best-effort -- lib/runtime/review-resume.ts's recovery paths
         // will catch this up if this update didn't land.
       }
+    }
+
+    // Phase 9.9.13 -- Part C: when this review is resuming a decision about
+    // an upstream AI Classifier's qualification (signaled ONLY by
+    // `_qualificationDecisionId` threaded through this execution's own data
+    // flow -- see qualification-decision-store.ts's module doc for why that,
+    // not a node-id lookup, is how the two are linked), best-effort record
+    // the human override audit trail on that SAME row. Absent for any
+    // unrelated Human Review use (e.g. refund approval), which never
+    // touches workflow_qualification_decisions at all. Guarded internally
+    // by `human_review_occurred = false` -- safe to call on every resume,
+    // including a duplicate one (Part L).
+    const qualificationDecisionId = typeof data._qualificationDecisionId === 'string' ? data._qualificationDecisionId : null;
+    if (qualificationDecisionId && row.decision_outcome && row.reviewed_by && row.reviewed_at) {
+      await linkHumanReviewToQualificationDecision(db, {
+        qualificationDecisionId,
+        workflowId: context.workflowId,
+        executionId: context.executionId,
+        humanReviewNodeId: nodeId,
+        humanClassification: row.decision_outcome,
+        reviewedBy: row.reviewed_by,
+        reviewedAt: row.reviewed_at,
+      });
     }
 
     return {

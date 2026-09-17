@@ -26,6 +26,7 @@ import {
   CalendarClock,
   Webhook,
   RefreshCw,
+  BarChart2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -1013,6 +1014,14 @@ export default function WorkflowDetailsPage() {
             ellipsize, which also makes the separate flex-1 spacer div
             unnecessary. */}
         <span className="flex-1 min-w-0 text-xs font-medium truncate">{workflow.name}</span>
+        {/* Phase 9.9.13 -- qualification feedback/analytics view, scoped to
+            THIS workflow (owner-only, see app/api/analytics/qualification). */}
+        <Link href={`/analytics/${workflow.id}`} className="flex-shrink-0">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <BarChart2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Analytics</span>
+          </Button>
+        </Link>
         <ThemeToggle />
       </header>
 

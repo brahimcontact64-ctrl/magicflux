@@ -9,7 +9,12 @@
  * Matched against a FIELD NAME only, never a value.
  */
 
-const DENYLISTED_EXACT_FIELDS = new Set(['_conditionbranch', '_conditionresult']);
+// Phase 9.9.13A -- Part B: _qualificationDecisionId is runtime-internal
+// metadata (the durable qualification-decision row's own id, threaded
+// through ordinary execution data so a later Human Review node can find it
+// -- see qualification-decision-store.ts), never a business field a
+// notification or Airtable mapping should ever surface.
+const DENYLISTED_EXACT_FIELDS = new Set(['_conditionbranch', '_conditionresult', '_qualificationdecisionid']);
 
 const DENYLISTED_NAME_PATTERN = /token|secret|credential|password|passwd|api[_-]?key|client[_-]?id|webhook|header|authorization/i;
 

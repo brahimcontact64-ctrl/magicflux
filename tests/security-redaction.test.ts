@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { redact, redactText, isSensitiveKey, REDACTED } from '@/lib/security/redact';
+import { redact, redactText, redactPiiPatterns, isSensitiveKey, REDACTED } from '@/lib/security/redact';
 import { classifyError, makeSafeError } from '@/lib/security/safe-error';
 
 const SYNTHETIC_SECRET = 'sk_test_FAKE_SECRET_DO_NOT_USE';
@@ -170,6 +170,28 @@ describe('redactText() — free-text sanitization', () => {
   it('truncates to the given max length', () => {
     const out = redactText('a'.repeat(500), 50);
     expect(out.length).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('redactPiiPatterns() — Phase 9.9.13A Part F: PII shapes in model-generated free text', () => {
+  it('redacts an email address', () => {
+    const out = redactPiiPatterns('Contact at jane.doe@example.com for details.');
+    expect(out).not.toContain('jane.doe@example.com');
+    expect(out).toContain('[EMAIL_REDACTED]');
+  });
+
+  it('redacts a 10-digit phone number with common separators', () => {
+    expect(redactPiiPatterns('Call 555-867-5309 now.')).not.toContain('555-867-5309');
+    expect(redactPiiPatterns('Call (555) 867-5309 now.')).toContain('[PHONE_REDACTED]');
+  });
+
+  it('redacts a bare 7-digit local phone number', () => {
+    expect(redactPiiPatterns('Reach us at 867-5309.')).toContain('[PHONE_REDACTED]');
+  });
+
+  it('leaves ordinary business prose with no PII shape untouched', () => {
+    const text = 'High budget and strong urgency signals support a Hot classification.';
+    expect(redactPiiPatterns(text)).toBe(text);
   });
 });
 
