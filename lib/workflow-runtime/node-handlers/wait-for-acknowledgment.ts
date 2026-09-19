@@ -60,6 +60,7 @@
 import { randomBytes, createHash } from 'crypto';
 import type { EngineNode, NodeHandlerContext, NodeHandlerResult } from '../types';
 import { createServiceClient } from '@/lib/supabase-server';
+import { getPublicOrigin } from '@/lib/config/public-origin';
 
 const DEFAULT_OUTPUT_FIELD = 'acknowledgment_status';
 const DEFAULT_CHALLENGE_ID_FIELD = 'acknowledgment_challenge_id';
@@ -306,7 +307,11 @@ function generateToken(): string {
 }
 
 export function acknowledgmentUrl(id: string, token: string): string {
-  const site = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  // Incident 9.9.17E -- never a silent localhost fallback in production; see
+  // lib/config/public-origin.ts. Takes no request object, so there is no
+  // Host header (or anything else client-controlled) anywhere in this path
+  // that could redirect a real customer's acknowledgment link.
+  const site = getPublicOrigin();
   return `${site}/api/acknowledgments/${id}/ack?token=${token}`;
 }
 
