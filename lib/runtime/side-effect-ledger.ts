@@ -1,4 +1,8 @@
-import 'server-only';
+// Incident 9.9.17C -- this module is reachable from scripts/runtime-worker.ts
+// (the standalone Railway worker), which has no bundler to special-case the
+// bare 'server-only' package -- see lib/runtime/server-only-guard.ts for why
+// that import alone crashed the worker during module resolution.
+import '@/lib/runtime/server-only-guard';
 
 import { createServiceClient } from '@/lib/supabase-server';
 
