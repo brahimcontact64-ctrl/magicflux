@@ -39,11 +39,13 @@ for (const [label, viewport] of [
 
       // Exercise each dropdown -- selecting a real filter, then returning to
       // "All ..." must not throw either (the reverse of the crash path).
-      await page.getByText('All statuses').click();
+      const statusTrigger = page.getByRole('combobox').filter({ hasText: 'All statuses' }).first();
+      await statusTrigger.click();
       await page.getByRole('option', { name: 'Failed' }).click();
       await expect(page.getByText('Application error')).toHaveCount(0);
 
-      await page.getByText('Failed', { exact: true }).click();
+      const statusTriggerNowFailed = page.getByRole('combobox').filter({ hasText: 'Failed' });
+      await statusTriggerNowFailed.click();
       await page.getByRole('option', { name: 'All statuses' }).click();
       await expect(page.getByText('Application error')).toHaveCount(0);
 
