@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient, getUserFromRequest } from '@/lib/supabase-server';
 import { requiredProvidersFromWorkflow } from '@/lib/integrations';
 import { classifyError } from '@/lib/security/safe-error';
+import { isExecutableStatus, stableJson } from '@/lib/workflow/lifecycle';
 
 type Ctx = { params: { id: string } };
 
@@ -25,13 +26,22 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!data) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   let deployedVersion: number | null = null;
+  // Phase 9.9.17A -- Part G: whether the live draft actually differs from
+  // what's currently deployed, for an ALREADY-active/deployed workflow only
+  // (a draft that's never been activated has no "published" baseline to
+  // compare against, so this stays null there -- the Dashboard's existing
+  // Activate button already covers that case).
+  let hasUnpublishedChanges: boolean | null = null;
   if (data.active_deployment_version_id) {
     const { data: version } = await db
       .from('deployment_versions')
-      .select('version')
+      .select('version, workflow_data')
       .eq('id', data.active_deployment_version_id)
       .maybeSingle();
     deployedVersion = version?.version ?? null;
+    if (version && isExecutableStatus(data.status)) {
+      hasUnpublishedChanges = stableJson(version.workflow_data) !== stableJson(data.workflow_json);
+    }
   }
 
   const { data: schedules } = await db
@@ -40,7 +50,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .eq('workflow_id', params.id)
     .eq('user_id', user.id);
 
-  return NextResponse.json({ success: true, workflow: { ...data, deployed_version: deployedVersion }, schedules: schedules ?? [] });
+  return NextResponse.json({ success: true, workflow: { ...data, deployed_version: deployedVersion, has_unpublished_changes: hasUnpublishedChanges }, schedules: schedules ?? [] });
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {

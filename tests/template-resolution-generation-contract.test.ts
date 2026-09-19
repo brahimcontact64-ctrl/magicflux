@@ -42,9 +42,14 @@ describe('activateWorkflow() rejects unsupported template syntax before activati
   });
 
   it('folds the guard result into the same errors array as the other activation checks', () => {
-    const idx = source.indexOf('const errors = [');
-    const section = source.slice(idx, idx + 400);
+    // Phase 9.9.17A -- this collection now lives in the shared
+    // runActivationGuards() helper (reused by both activateWorkflow() and
+    // publishNewVersion()) rather than inline in activateWorkflow() itself.
+    const idx = source.indexOf('async function runActivationGuards');
+    expect(idx).toBeGreaterThan(-1);
+    const section = source.slice(idx, idx + 1600);
     expect(section).toMatch(/templateSyntaxErrors/);
+    expect(section).toMatch(/return \[/);
   });
 });
 

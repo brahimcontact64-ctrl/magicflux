@@ -16,6 +16,7 @@ import {
   Save,
   FileJson,
   CircleAlert,
+  CheckCircle2,
   ExternalLink,
   History,
   Clock,
@@ -75,6 +76,7 @@ type Workflow = {
   activated_at?: string | null;
   deployment_error?: string | null;
   deployed_version?: number | null;
+  has_unpublished_changes?: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -828,6 +830,45 @@ export default function WorkflowDetailsPage() {
     }
   }, [workflow, withAuthHeaders, loadWorkflow, router]);
 
+  // Phase 9.9.17A -- Part G/H: publishes the current draft as a new
+  // immutable version for a workflow that is ALREADY active/deployed,
+  // without ever pausing/deactivating it first. Deliberately a separate
+  // action from handleLifecycleAction('activate') above -- that action's
+  // brief non-executable window is fine for a first-ever activation but
+  // would be a real (if brief) production outage here.
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const handlePublish = useCallback(async () => {
+    if (!workflow) return;
+    setLifecycleBusy('publish');
+    setLifecycleErrors([]);
+    try {
+      const headers = await withAuthHeaders();
+      if (!headers) return;
+
+      const res = await fetch(`/api/workflows/${workflow.id}/publish`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ expectedUpdatedAt: workflow.updated_at }),
+      });
+      const payload = await res.json().catch(() => null) as { success?: boolean; errors?: string[]; error?: string; message?: string; version?: number; alreadyUpToDate?: boolean } | null;
+
+      if (!res.ok || !payload?.success) {
+        const errors = payload?.errors ?? [payload?.error ?? payload?.message ?? 'Publish failed'];
+        setLifecycleErrors(errors);
+        toast.error(errors[0]);
+        await loadWorkflow();
+        return;
+      }
+
+      toast.success(payload.alreadyUpToDate ? 'Already up to date' : `Published version ${payload.version}`);
+      await loadWorkflow();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Publish failed');
+    } finally {
+      setLifecycleBusy(null);
+    }
+  }, [workflow, withAuthHeaders, loadWorkflow]);
+
   const handleDelete = useCallback(async () => {
     if (!workflow) return;
 
@@ -1231,6 +1272,43 @@ export default function WorkflowDetailsPage() {
             )}
             {workflow.status === 'active' && (
               <>
+                {/* Phase 9.9.17A -- Part G: never tell the user to Deactivate
+                    first. "Up to date" when the draft matches what's live;
+                    "Unpublished changes" + Publish changes when it doesn't --
+                    both derived from the SAME comparison publishNewVersion()
+                    itself uses, never a separately-guessed diff. */}
+                {workflow.has_unpublished_changes === false && (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                    <CheckCircle2 className="w-3 h-3" /> Up to date
+                  </span>
+                )}
+                {workflow.has_unpublished_changes === true && (
+                  <>
+                    <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                      <CircleAlert className="w-3 h-3" /> Unpublished changes
+                    </span>
+                    <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" className="gap-1.5" disabled={lifecycleBusy !== null}>
+                          {lifecycleBusy === 'publish' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                          Publish changes
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Publish these changes?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            The current production version (v{workflow.deployed_version ?? 1}) stays live and keeps handling real traffic while this publishes. A new, immutable version is created only after validation succeeds -- if validation fails, production is left completely unchanged and this draft stays editable.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => { setPublishConfirmOpen(false); void handlePublish(); }}>Publish</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
+                )}
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLifecycleAction('pause')} disabled={lifecycleBusy !== null}>
                   {lifecycleBusy === 'pause' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
                   Pause

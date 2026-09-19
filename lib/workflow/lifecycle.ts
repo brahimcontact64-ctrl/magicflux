@@ -14,6 +14,7 @@ import { validateSupportedTemplateSyntax } from '@/lib/agent/template-expression
 import { validateNotificationFieldAllowlist } from '@/lib/agent/notification-content-guard';
 import { validateQualificationPolicyShape } from '@/lib/agent/qualification-policy-guard';
 import { validateAirtableDedupeClaim } from '@/lib/agent/airtable-dedupe-guard';
+import { validateSlaAcknowledgmentGating } from '@/lib/agent/sla-acknowledgment-gating-guard';
 
 /**
  * Production workflow lifecycle: draft -> validating -> active -> paused /
@@ -60,7 +61,12 @@ export async function loadWorkflow(userId: string, workflowId: string): Promise<
 }
 
 /** Deterministic JSON stringify (sorted object keys) for structural equality checks that must not be fooled by key ordering. */
-function stableJson(value: unknown): string {
+// Phase 9.9.17A -- Part G: exported so the workflow GET route can tell the
+// Dashboard whether the draft actually differs from what's deployed
+// ("Up to date" vs "Unpublished changes"), using the EXACT SAME comparison
+// publishNewVersion() itself uses to decide whether publishing would be a
+// no-op -- never a second, potentially-inconsistent diff implementation.
+export function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((v) => stableJson(v)).join(',')}]`;
   const obj = value as Record<string, unknown>;
@@ -150,6 +156,48 @@ export async function validateRequiredIntegrationsConnected(userId: string, work
 }
 
 /**
+ * Phase 9.9.17A -- Part D: the exact same guard suite activateWorkflow()
+ * has always run (structure, schedules, Airtable schema, integrations,
+ * template syntax, notification safety, qualification policy, dedupe),
+ * extracted so publishNewVersion() below can reuse it byte-for-byte rather
+ * than defining a second, potentially-weaker "republish validation."
+ * Pure read/validate -- makes no database writes and never touches
+ * workflows.status.
+ */
+async function runActivationGuards(userId: string, workflowJson: unknown): Promise<string[]> {
+  const structuralResult = validateWorkflow(workflowJson);
+  const scheduleErrors = validateScheduleTriggers(workflowJson);
+  const airtableErrors = await validateAirtableConfiguration(userId, workflowJson);
+  const requiredIntegrationErrors = await validateRequiredIntegrationsConnected(userId, workflowJson);
+  const templateSyntaxNodes = Array.isArray((workflowJson as { nodes?: unknown })?.nodes)
+    ? ((workflowJson as { nodes: unknown[] }).nodes)
+    : [];
+  const templateSyntaxResult = validateSupportedTemplateSyntax(templateSyntaxNodes);
+  const templateSyntaxErrors = templateSyntaxResult.ok ? [] : [templateSyntaxResult.reason];
+  const notificationContentResult = validateNotificationFieldAllowlist(templateSyntaxNodes);
+  const notificationContentErrors = notificationContentResult.ok ? [] : [notificationContentResult.reason];
+  const qualificationPolicyResult = validateQualificationPolicyShape(templateSyntaxNodes);
+  const qualificationPolicyErrors = qualificationPolicyResult.ok ? [] : [qualificationPolicyResult.reason];
+  const airtableDedupeResult = validateAirtableDedupeClaim(templateSyntaxNodes);
+  const airtableDedupeErrors = airtableDedupeResult.ok ? [] : [airtableDedupeResult.reason];
+  const connections = (workflowJson as { connections?: unknown })?.connections;
+  const slaResult = validateSlaAcknowledgmentGating(templateSyntaxNodes, connections);
+  const slaErrors = slaResult.ok ? [] : [slaResult.reason];
+
+  return [
+    ...structuralResult.errors.map((e) => e.message),
+    ...scheduleErrors,
+    ...airtableErrors,
+    ...requiredIntegrationErrors,
+    ...templateSyntaxErrors,
+    ...notificationContentErrors,
+    ...qualificationPolicyErrors,
+    ...airtableDedupeErrors,
+    ...slaErrors,
+  ];
+}
+
+/**
  * Validates and activates a workflow: freezes the current workflow_json into
  * a new deployment_versions row (status='active', superseding any prior
  * active version), points workflows.active_deployment_version_id at it, and
@@ -160,6 +208,13 @@ export async function validateRequiredIntegrationsConnected(userId: string, work
  *
  * On failure, the workflow is marked status='error' with deployment_error
  * set to the joined validation messages — activation never fails silently.
+ *
+ * Phase 9.9.17A -- Part D: this function's own brief `status: 'validating'`
+ * window (below) is harmless for a workflow's FIRST activation (draft ->
+ * active) -- nothing was serving traffic yet. It must never be used to
+ * republish an ALREADY-active workflow's changed draft -- see
+ * publishNewVersion() below, which runs the identical guard suite without
+ * ever making the row non-executable, for exactly that case.
  */
 export async function activateWorkflow(userId: string, workflowId: string): Promise<ActivationResult> {
   assertTrustedUserId(userId);
@@ -226,45 +281,7 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
     return { success: false, status: 'error', errors: ['Activation is already in progress for this workflow.'] };
   }
 
-  const structuralResult = validateWorkflow(workflow.workflow_json);
-  const scheduleErrors = validateScheduleTriggers(workflow.workflow_json);
-  const airtableErrors = await validateAirtableConfiguration(userId, workflow.workflow_json);
-  const requiredIntegrationErrors = await validateRequiredIntegrationsConnected(userId, workflow.workflow_json);
-  // Phase 9.9.4A -- reject unsupported {{ ... }} expression syntax before
-  // activation too (not only at generation time), so a hand-edited or
-  // pre-existing workflow can't reach a live run with a message/field
-  // parameter that would silently render as inert, un-interpolated text.
-  const templateSyntaxNodes = Array.isArray((workflow.workflow_json as { nodes?: unknown })?.nodes)
-    ? ((workflow.workflow_json as { nodes: unknown[] }).nodes)
-    : [];
-  const templateSyntaxResult = validateSupportedTemplateSyntax(templateSyntaxNodes);
-  const templateSyntaxErrors = templateSyntaxResult.ok ? [] : [templateSyntaxResult.reason];
-  // Phase 9.9.9 -- Part G: same activation-time backstop as the template-
-  // syntax check above, for a hand-edited or pre-existing workflow whose
-  // Email/Slack node references an internal-metadata or credential-shaped
-  // field name.
-  const notificationContentResult = validateNotificationFieldAllowlist(templateSyntaxNodes);
-  const notificationContentErrors = notificationContentResult.ok ? [] : [notificationContentResult.reason];
-  // Phase 9.9.10 -- same activation-time backstop as the guards above, for
-  // a hand-edited or pre-existing workflow whose aiClassifier node claims a
-  // qualification policy that is structurally invalid.
-  const qualificationPolicyResult = validateQualificationPolicyShape(templateSyntaxNodes);
-  const qualificationPolicyErrors = qualificationPolicyResult.ok ? [] : [qualificationPolicyResult.reason];
-  // Phase 9.9.11A -- Part 9: same activation-time backstop for a hand-
-  // edited or pre-existing workflow whose Airtable node claims the
-  // unimplemented dedupe.onMatch:"append" behavior.
-  const airtableDedupeResult = validateAirtableDedupeClaim(templateSyntaxNodes);
-  const airtableDedupeErrors = airtableDedupeResult.ok ? [] : [airtableDedupeResult.reason];
-  const errors = [
-    ...structuralResult.errors.map((e) => e.message),
-    ...scheduleErrors,
-    ...airtableErrors,
-    ...requiredIntegrationErrors,
-    ...templateSyntaxErrors,
-    ...notificationContentErrors,
-    ...qualificationPolicyErrors,
-    ...airtableDedupeErrors,
-  ];
+  const errors = await runActivationGuards(userId, workflow.workflow_json);
 
   if (errors.length > 0) {
     await db
@@ -306,6 +323,134 @@ export async function activateWorkflow(userId: string, workflowId: string): Prom
   await ensureWebhookSecret(userId, workflowId);
 
   return { success: true, status: 'active', version: version.version, deploymentVersionId: version.id };
+}
+
+export type PublishResult =
+  | { success: true; alreadyUpToDate: true; version: number; deploymentVersionId: string }
+  | { success: true; alreadyUpToDate: false; version: number; deploymentVersionId: string; supersededVersionId: string | null }
+  | { success: false; reason: 'not_executable'; message: string }
+  | { success: false; reason: 'validation_failed'; errors: string[] }
+  | { success: false; reason: 'stale_draft'; latestUpdatedAt: string }
+  | { success: false; reason: 'conflict'; message: string };
+
+/**
+ * Phase 9.9.17A -- Part A/D/E/F: publishes the current draft as a new,
+ * immutable deployment version for a workflow that is ALREADY active,
+ * without ever making it non-executable in between.
+ *
+ * Contrast with activateWorkflow() above: that function's brief
+ * `status: 'validating'` claim is safe only for a workflow's first
+ * activation (nothing was serving traffic yet). This function is for the
+ * opposite case -- v1 is live, RIGHT NOW, and must keep serving webhook
+ * traffic for the entire duration of validation. It therefore:
+ *   - never writes to `workflows.status` at all (Part D -- no interval
+ *     where the workflow becomes non-executable merely because a new
+ *     draft is being validated; isExecutableStatus() stays true
+ *     throughout, so the webhook route in-flight the whole time keeps
+ *     resolving the CURRENT active_deployment_version_id -- v1 -- exactly
+ *     as it already does for every other request);
+ *   - runs the identical runActivationGuards() suite (Part D: no weaker
+ *     "republish validation");
+ *   - makes ZERO database writes at all on a validation failure (Part B/J:
+ *     v1 remains untouched, draft remains editable, zero side effects);
+ *   - requires the caller's own last-known `expectedUpdatedAt` and
+ *     verifies it twice -- once before validating (fail fast on an
+ *     already-stale draft) and again, atomically, on the final cutover
+ *     write (Part E/F: this is what makes "two Publish clicks from the
+ *     same starting revision" and "the draft changed mid-publish"
+ *     resolve to at most one successful transition, the same CAS pattern
+ *     already certified in lib/workflow/node-config-save.ts).
+ *
+ * The version-number race between two genuinely concurrent publishers is
+ * closed by the pre-existing `UNIQUE (workflow_id, version)` constraint on
+ * deployment_versions -- confirmed live via `pg_indexes` before writing
+ * this function, not assumed. No migration is required.
+ */
+export async function publishNewVersion(userId: string, workflowId: string, expectedUpdatedAt: string): Promise<PublishResult> {
+  assertTrustedUserId(userId);
+  const db = createServiceClient();
+
+  const workflow = await loadWorkflow(userId, workflowId);
+  if (!workflow) return { success: false, reason: 'not_executable', message: 'Workflow not found.' };
+  if (!isExecutableStatus(workflow.status)) {
+    return { success: false, reason: 'not_executable', message: `This workflow is currently "${workflow.status}" -- use Activate, not Publish, to bring it live for the first time.` };
+  }
+  if (workflow.updated_at !== expectedUpdatedAt) {
+    return { success: false, reason: 'stale_draft', latestUpdatedAt: workflow.updated_at };
+  }
+
+  const { data: activeVersion } = await db
+    .from('deployment_versions')
+    .select('id, version, workflow_data')
+    .eq('workflow_id', workflowId)
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Part K test 10 -- an identical draft never creates an unnecessary new
+  // version, exactly like activateWorkflow()'s own idempotency check.
+  if (activeVersion && stableJson(activeVersion.workflow_data) === stableJson(workflow.workflow_json)) {
+    return { success: true, alreadyUpToDate: true, version: activeVersion.version, deploymentVersionId: activeVersion.id };
+  }
+
+  // Part D -- the identical guard suite, run while the row is still fully
+  // 'active'/executable. No status write happens before, during, or after
+  // this call on either success or failure.
+  const errors = await runActivationGuards(userId, workflow.workflow_json);
+  if (errors.length > 0) {
+    return { success: false, reason: 'validation_failed', errors };
+  }
+
+  // Cutover. recordDeployment() itself is not wrapped in a single DB
+  // transaction, but the pre-existing UNIQUE(workflow_id, version)
+  // constraint makes a version-number collision between two genuinely
+  // concurrent publishers fail loudly (a constraint-violation exception)
+  // rather than silently succeed with two simultaneously-active rows --
+  // caught below and reported as a clean conflict, never left to surface
+  // as a raw 500.
+  const deploymentManager = new DeploymentManager();
+  let version;
+  try {
+    version = await deploymentManager.recordDeployment(
+      userId,
+      workflowId,
+      `native-${randomUUID()}`,
+      workflow.workflow_json,
+      { metadata: { publishedWhileActive: true } },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('duplicate key') || message.includes('unique constraint')) {
+      return { success: false, reason: 'conflict', message: 'Another publish just completed for this workflow. Reload to see the latest deployed version before publishing again.' };
+    }
+    throw err;
+  }
+
+  // Final CAS: only point the canonical workflow row at the new version if
+  // nothing else has changed it since we started (Part E/F). If this loses
+  // the race, the new deployment_versions row we just created simply sits
+  // inert -- never pointed to by active_deployment_version_id, so it never
+  // goes live. No corruption, just one wasted (but harmless) version slot.
+  const now = new Date().toISOString();
+  const { data: cutover } = await db
+    .from('workflows')
+    .update({ active_deployment_version_id: version.id, activated_at: now, deployment_error: null, updated_at: now })
+    .eq('id', workflowId)
+    .eq('user_id', userId)
+    .eq('updated_at', expectedUpdatedAt)
+    .select('id')
+    .maybeSingle();
+
+  if (!cutover) {
+    return { success: false, reason: 'conflict', message: 'This workflow was changed elsewhere while your publish was validating. Reload to see the latest version before publishing again.' };
+  }
+
+  await syncWorkflowSchedules({ userId, workflowId, workflowJson: workflow.workflow_json });
+  await ensureWebhookSecret(userId, workflowId);
+
+  return { success: true, alreadyUpToDate: false, version: version.version, deploymentVersionId: version.id, supersededVersionId: activeVersion?.id ?? null };
 }
 
 async function setStatus(userId: string, workflowId: string, status: LifecycleStatus): Promise<{ success: boolean; error?: string }> {
