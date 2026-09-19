@@ -7,8 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useExecutionStore } from '@/store/execution-store';
 
+// Radix's <Select.Item> hard-throws on value="" (reserved internally to mean
+// "cleared / show placeholder"), which crashed this entire page on every
+// render -- every list here always included a "', label: 'All ...'" entry.
+// ALL_VALUE is a display-only sentinel: the execution store's own filter
+// shape keeps using '' as its "unset" value everywhere else (its default
+// state, its query-param building), so it's translated back to '' at the
+// Select boundary rather than changed throughout the store/API.
+const ALL_VALUE = '__all__';
+
 const STATUSES = [
-  { value: '',          label: 'All statuses'  },
+  { value: ALL_VALUE,   label: 'All statuses'  },
   { value: 'running',   label: 'Running'       },
   { value: 'success',   label: 'Success'       },
   { value: 'failed',    label: 'Failed'        },
@@ -18,17 +27,17 @@ const STATUSES = [
 ];
 
 const MODES = [
-  { value: '',     label: 'All modes' },
-  { value: 'live', label: 'Live'      },
-  { value: 'test', label: 'Test'      },
+  { value: ALL_VALUE, label: 'All modes' },
+  { value: 'live',     label: 'Live'      },
+  { value: 'test',     label: 'Test'      },
 ];
 
 const DATE_PRESETS = [
-  { value: '',    label: 'All time'     },
-  { value: '1',   label: 'Last 24 h'   },
-  { value: '7',   label: 'Last 7 days' },
-  { value: '30',  label: 'Last 30 days'},
-  { value: '90',  label: 'Last 90 days'},
+  { value: ALL_VALUE, label: 'All time'     },
+  { value: '1',        label: 'Last 24 h'   },
+  { value: '7',        label: 'Last 7 days' },
+  { value: '30',       label: 'Last 30 days'},
+  { value: '90',       label: 'Last 90 days'},
 ];
 
 function daysBefore(days: number): string {
@@ -46,7 +55,7 @@ export function ExecutionFilterBar() {
     Boolean(filters.from);
 
   const handleDatePreset = useCallback((val: string) => {
-    if (!val) { setFilters({ from: '', to: '' }); return; }
+    if (val === ALL_VALUE) { setFilters({ from: '', to: '' }); return; }
     setFilters({ from: daysBefore(Number(val)), to: '' });
   }, [setFilters]);
 
@@ -65,8 +74,8 @@ export function ExecutionFilterBar() {
 
       {/* Status */}
       <Select
-        value={filters.status ?? ''}
-        onValueChange={v => setFilters({ status: v as typeof filters.status })}
+        value={filters.status || ALL_VALUE}
+        onValueChange={v => setFilters({ status: (v === ALL_VALUE ? '' : v) as typeof filters.status })}
       >
         <SelectTrigger className="h-9 text-sm w-[140px]">
           <SelectValue placeholder="All statuses" />
@@ -80,8 +89,8 @@ export function ExecutionFilterBar() {
 
       {/* Mode */}
       <Select
-        value={filters.mode ?? ''}
-        onValueChange={v => setFilters({ mode: v as typeof filters.mode })}
+        value={filters.mode || ALL_VALUE}
+        onValueChange={v => setFilters({ mode: (v === ALL_VALUE ? '' : v) as typeof filters.mode })}
       >
         <SelectTrigger className="h-9 text-sm w-[120px]">
           <SelectValue placeholder="All modes" />
@@ -95,7 +104,7 @@ export function ExecutionFilterBar() {
 
       {/* Date preset */}
       <Select
-        value={''}
+        value={ALL_VALUE}
         onValueChange={handleDatePreset}
       >
         <SelectTrigger className="h-9 text-sm w-[140px]">
