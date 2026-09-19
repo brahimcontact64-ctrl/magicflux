@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 import { getStripeClient } from '@/lib/billing/stripe-client';
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+import { getPublicOrigin } from '@/lib/config/public-origin';
 
 /**
  * POST /api/billing/portal
@@ -39,6 +38,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Incident 9.9.17F Part 5 -- was `NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'`
+    // at module scope; a customer leaving the billing portal would land on
+    // a broken localhost link if that env var were ever missing in production.
+    const SITE_URL = getPublicOrigin();
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${SITE_URL}/pricing`,

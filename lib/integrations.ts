@@ -91,6 +91,43 @@ export function matchedProvidersForNode(nodeType: string): Set<IntegrationProvid
   return matched;
 }
 
+type MinimalWorkflowNode = { id?: string; name?: string; type?: string };
+type MinimalWorkflow = {
+  nodes?: MinimalWorkflowNode[];
+  connections?: Record<string, { main?: Array<Array<{ node?: string } | null> | null> }>;
+};
+
+/**
+ * Incident 9.9.17F Part 2 -- forward-reachable node NAMES starting at (and
+ * including) `fromNodeName`, walking `connections` exactly like every other
+ * graph traversal in this codebase (lib/workflow/branch-overview.ts, the SLA
+ * acknowledgment gating guard) keys by node NAME, not id. Used to scope a
+ * RESUME's required-integrations check to only what the remaining graph can
+ * actually still reach, instead of the whole workflow.
+ */
+function reachableNodeNamesFrom(workflow: MinimalWorkflow, fromNodeName: string): Set<string> {
+  const connections = workflow.connections ?? {};
+  const seen = new Set<string>([fromNodeName]);
+  const queue = [fromNodeName];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const outputs = connections[current]?.main ?? [];
+    for (const port of outputs) {
+      if (!Array.isArray(port)) continue;
+      for (const conn of port) {
+        const target = conn?.node;
+        if (target && !seen.has(target)) {
+          seen.add(target);
+          queue.push(target);
+        }
+      }
+    }
+  }
+
+  return seen;
+}
+
 // Returns the integration providers required by a workflow, derived exclusively
 // from PROVIDER_NODE_ALLOWLIST via matchedProvidersForNode().
 //
@@ -102,8 +139,20 @@ export function matchedProvidersForNode(nodeType: string): Set<IntegrationProvid
 //
 // 'email' is an alias of 'gmail' — only 'gmail' is included in the returned
 // array so callers check one canonical provider name.
-export function requiredProvidersFromWorkflow(workflow: unknown): IntegrationProvider[] {
-  const nodes = ((workflow as { nodes?: Array<{ type?: string }> } | null)?.nodes ?? []);
+//
+// Incident 9.9.17F Part 2 -- optional `fromNodeName` (a RESUME's current
+// node) scopes this to only nodes still forward-reachable from there. Root
+// cause this closes: a Wait For Acknowledgment TIMEOUT resume -- which can
+// only ever reach its own Escalation Alert Slack node -- was still being
+// gated on EVERY provider anywhere in the whole workflow (including Gmail),
+// so a transient Gmail credential hiccup failed an escalation that never
+// touched Gmail at all. A fresh execution (no fromNodeName) keeps checking
+// the whole workflow, since its actual Hot/Warm/Cold path isn't known yet.
+export function requiredProvidersFromWorkflow(workflow: unknown, opts?: { fromNodeName?: string | null }): IntegrationProvider[] {
+  const wf = (workflow as MinimalWorkflow | null) ?? {};
+  const allNodes = wf.nodes ?? [];
+  const scope = opts?.fromNodeName ? reachableNodeNamesFrom(wf, opts.fromNodeName) : null;
+  const nodes = scope ? allNodes.filter((n) => scope.has(n.name ?? n.id ?? '')) : allNodes;
   const required = new Set<IntegrationProvider>();
 
   for (const node of nodes) {

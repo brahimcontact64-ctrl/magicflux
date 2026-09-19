@@ -68,6 +68,36 @@ function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[-_\s]/g, '');
 }
 
+/**
+ * Incident 9.9.17F Part 1 -- redact()'s own key-based matching is exactly
+ * what a value like `acknowledgment_url` (a URL string embedding a bearer
+ * token in its query string, stored under a key that itself is not
+ * sensitive) is designed to slip past: the KEY "acknowledgment_url" isn't
+ * secret, so the whole string was passed through untouched, token and all.
+ * This scans any string value that looks like an absolute http(s) URL and
+ * strips just the sensitive query parameters in place, preserving the rest
+ * of the URL (host/path/other params) for diagnostic value. Reuses the same
+ * sensitive-key set as key-based matching, so a provider-registered secret
+ * field name is caught here too, not just the fixed list below.
+ */
+function redactSensitiveQueryParamsInUrl(value: string): string {
+  if (!value.includes('?') || !/^https?:\/\//i.test(value)) return value;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value; // Not actually a parseable absolute URL -- leave as-is.
+  }
+  let changed = false;
+  for (const key of Array.from(url.searchParams.keys())) {
+    if (isSensitiveKey(key)) {
+      url.searchParams.set(key, REDACTED);
+      changed = true;
+    }
+  }
+  return changed ? url.toString() : value;
+}
+
 let cachedSensitiveKeySet: Set<string> | null = null;
 
 function getSensitiveKeySet(): Set<string> {
@@ -113,6 +143,7 @@ export function redact<T>(value: T, options?: { maxDepth?: number }): T {
 
   function walk(input: unknown, depth: number): unknown {
     if (input === null || input === undefined) return input;
+    if (typeof input === 'string') return redactSensitiveQueryParamsInUrl(input);
     if (typeof input !== 'object') return input;
     if (input instanceof Date) return input;
 

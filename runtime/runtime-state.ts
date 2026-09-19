@@ -159,11 +159,18 @@ export class RuntimeStateStore {
     retryCount?: number;
     nextRunAt?: string | null;
   }): Promise<void> {
+    // Incident 9.9.17F Part 1 -- this write was the one place outputData
+    // reached workflow_executions_v2 (the durable, support/UI-visible
+    // execution record) completely unredacted, unlike persistNodeState()'s
+    // equivalent write to runtime_node_states/workflow_execution_steps just
+    // below, which already goes through redact(). A node's own live output
+    // (in-memory, mid-execution) is untouched -- only what lands in durable
+    // storage here changes.
     const patch: Record<string, unknown> = {
       status: params.state === 'completed' ? 'success' : params.state,
       current_node_id: params.currentNodeId ?? null,
-      output_data: params.outputData ?? null,
-      error_message: params.errorMessage ?? null,
+      output_data: redact(params.outputData ?? null),
+      error_message: params.errorMessage != null ? redactText(params.errorMessage, 500) : null,
       retry_count: params.retryCount,
       next_run_at: params.nextRunAt ?? null,
       updated_at: nowIso(),
@@ -346,6 +353,17 @@ export class RuntimeStateStore {
     }
   }
 
+  // Incident 9.9.17F Part 1 -- runtime_execution_checkpoints/_snapshots are
+  // what resume actually reads back (getLatestCheckpoint()'s
+  // stateSnapshot.output seeds the resumed node's input, see
+  // ExecutionManager.resumeExecution()), so this was the durable copy a
+  // plaintext acknowledgment token (or any other secret shape) could ride
+  // through a park/resume cycle in. Confirmed safe to redact here: every
+  // node handler that pauses (Human Review, Wait, Wait For Acknowledgment)
+  // re-resolves its OWN operational state fresh from its own DB row keyed by
+  // a plain id already present in $json (never from a token/secret value
+  // in the parked payload) -- redacting this snapshot cannot break resume
+  // for any node type in this codebase.
   async writeCheckpoint(input: RuntimeCheckpointInput): Promise<void> {
     await this.db.from('runtime_execution_checkpoints').insert({
       execution_id: input.executionId,
@@ -353,8 +371,8 @@ export class RuntimeStateStore {
       user_id: input.userId,
       checkpoint_type: input.checkpointType,
       current_node_id: input.currentNodeId ?? null,
-      state_snapshot: input.stateSnapshot,
-      pending_queue: input.pendingQueue,
+      state_snapshot: redact(input.stateSnapshot),
+      pending_queue: redact(input.pendingQueue),
       created_at: nowIso(),
     });
   }
@@ -367,8 +385,8 @@ export class RuntimeStateStore {
       snapshot_type: input.snapshotType,
       snapshot_version: input.snapshotVersion,
       current_node_id: input.currentNodeId ?? null,
-      state_snapshot: input.stateSnapshot,
-      pending_queue: input.pendingQueue,
+      state_snapshot: redact(input.stateSnapshot),
+      pending_queue: redact(input.pendingQueue),
       metadata: input.metadata ?? {},
       created_at: nowIso(),
     }, { onConflict: 'execution_id,snapshot_version,user_id' });

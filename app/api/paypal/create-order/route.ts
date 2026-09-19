@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
+import { getPublicOrigin } from '@/lib/config/public-origin';
 
 const AMOUNT = '29.00';
 const CURRENCY = 'USD';
@@ -36,9 +37,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Payment system not configured.' }, { status: 503 });
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-
   try {
+    // Incident 9.9.17F Part 5 -- was `NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'`;
+    // a real customer completing a PayPal payment would be redirected to a
+    // broken localhost link if that env var were ever missing in production.
+    const siteUrl = getPublicOrigin();
     const token = await getAccessToken();
     const orderRes = await fetch(`${paypalBase()}/v2/checkout/orders`, {
       method: 'POST',

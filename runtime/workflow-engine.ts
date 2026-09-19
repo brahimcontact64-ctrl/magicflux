@@ -199,8 +199,14 @@ export class WorkflowEngine {
       }
     }
 
+    // Incident 9.9.17F Part 2 -- a RESUME (opts.resumeFromNodeId set) scopes
+    // this to only the providers still reachable from that node onward, so a
+    // Wait For Acknowledgment TIMEOUT resume (which can only ever reach its
+    // own Escalation Alert Slack node) is never blocked on Gmail/Airtable
+    // credentials it will never actually touch. A fresh execution keeps
+    // checking the whole workflow -- its real branch isn't known yet.
     const integrations = opts.mode === 'live'
-      ? Array.from((await resolveWorkflowIntegrations(opts.userId, opts.workflowId, opts.workflowJson)).resolved.values())
+      ? Array.from((await resolveWorkflowIntegrations(opts.userId, opts.workflowId, opts.workflowJson, { fromNodeName: opts.resumeFromNodeId ?? null })).resolved.values())
       : await getUserIntegrations(opts.userId, { connectedOnly: true });
 
     const handlerContext = buildHandlerContext({

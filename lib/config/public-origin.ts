@@ -34,8 +34,23 @@ function isLocalOrPrivateHostname(hostname: string): boolean {
   return LOCAL_HOSTNAMES.has(h) || PRIVATE_HOSTNAME_PATTERNS.some((p) => p.test(h));
 }
 
+/**
+ * Incident 9.9.17F Part 5 -- NODE_ENV alone is not enough to mean "this is
+ * real production": Vercel sets NODE_ENV=production for PREVIEW
+ * deployments too, distinguishing them only via VERCEL_ENV. The Railway
+ * worker has no VERCEL_ENV at all (it isn't a Vercel deployment), so
+ * "production" here means: NODE_ENV=production, AND either there's no
+ * VERCEL_ENV (Railway, or any other non-Vercel host) or VERCEL_ENV is
+ * literally 'production' (never 'preview'). Getting this wrong in either
+ * direction is real: too strict and a Vercel preview build with no
+ * NEXT_PUBLIC_SITE_URL configured would hard-fail on any origin-dependent
+ * route; too loose and a preview deployment's broken/absent origin could
+ * silently leak through to something customer-facing.
+ */
 function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+  if (process.env.NODE_ENV !== 'production') return false;
+  const vercelEnv = process.env.VERCEL_ENV;
+  return vercelEnv === undefined || vercelEnv === 'production';
 }
 
 /**

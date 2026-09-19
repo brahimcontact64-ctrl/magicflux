@@ -237,10 +237,11 @@ export async function getConnectedAirtableToken(userId: string): Promise<string 
   export async function resolveWorkflowIntegrations(
     userId: string,
     workflowId: string,
-    workflowJson: unknown
+    workflowJson: unknown,
+    opts?: { fromNodeName?: string | null }
   ) {
     const db = createServiceClient();
-    const requiredProviders = requiredProvidersFromWorkflow(workflowJson);
+    const requiredProviders = requiredProvidersFromWorkflow(workflowJson, opts);
     const userIntegrations = await getUserIntegrations(userId, { connectedOnly: true });
 
     const byProvider = new Map<IntegrationProvider, UserIntegration[]>();

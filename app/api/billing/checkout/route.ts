@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 import { getStripeClient } from '@/lib/billing/stripe-client';
 import { isCheckoutablePlan, stripePriceIdForPlan } from '@/lib/billing/stripe-plans';
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+import { getPublicOrigin } from '@/lib/config/public-origin';
 
 /**
  * POST /api/billing/checkout
@@ -52,6 +51,11 @@ export async function POST(req: NextRequest) {
   const existingCustomerId = (existingSub as { stripe_customer_id?: string | null } | null)?.stripe_customer_id ?? null;
 
   try {
+    // Incident 9.9.17F Part 5 -- was `NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'`
+    // at module scope; a customer completing a real subscription payment
+    // would be redirected to a broken localhost link if that env var were
+    // ever missing in production.
+    const SITE_URL = getPublicOrigin();
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getPublicOrigin } from '@/lib/config/public-origin';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 const PRICE_MAP: Record<string, { amount: number; label: string }> = {
   managed_setup: { amount: 9700, label: 'Managed Automation Setup' },
@@ -19,6 +19,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Incident 9.9.17F Part 5 -- was `NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'`
+    // at module scope; a real customer completing payment would be
+    // redirected to a broken localhost link if that env var were ever
+    // missing in production, with nothing surfacing the misconfiguration.
+    const SITE_URL = getPublicOrigin();
     const body = await req.json();
     const { priceKey, templateName, contactEmail, requestId } = body;
 
