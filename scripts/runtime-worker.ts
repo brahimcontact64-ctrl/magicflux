@@ -12,10 +12,24 @@ import { cleanupExpiredRuntimeLocks, markOrphanExecutionsFailed, recoverOrphanEx
 import { closeRedisConnection } from '../lib/runtime/redis';
 import { getPendingRestartRequests, performRestart } from '../lib/runtime/worker-lifecycle';
 import { subscribeDrainSignal, markWorkerDraining } from '../lib/runtime/drain-signal';
+import { computeAllOAuthClientFingerprints, getRuntimeIdentity } from '../lib/credentials/oauth-fingerprint';
+import { logger } from '../lib/runtime/logger';
 
 async function main() {
   console.log('[runtime-worker] booting...');
   process.env.RUNTIME_WORKER_ENABLED = process.env.RUNTIME_WORKER_ENABLED ?? 'true';
+
+  // Incident 9.9.17K -- log a safe, one-way fingerprint of every OAuth
+  // provider's configured client id/secret once at boot, so an operator can
+  // compare THIS runtime's OAuth client identity against Vercel's
+  // (GET /api/runtime/control/oauth-fingerprint) without either side ever
+  // printing/exposing the actual client id or secret. This is what would
+  // have let Railway's mismatched Gmail OAuth client be caught at deploy
+  // time instead of at a live lead's first Gmail send.
+  logger.info('oauth_client_fingerprint_boot', {
+    runtime: getRuntimeIdentity(),
+    fingerprints: computeAllOAuthClientFingerprints(),
+  });
 
   if (!process.env.REDIS_URL) {
     console.error('[runtime-worker] REDIS_URL is missing. Runtime queues are disabled.');

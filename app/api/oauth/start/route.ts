@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/supabase-server';
 import { normalizeProvider } from '@/lib/agent/provider-allowlist';
-import { getOAuthProviderConfig } from '@/lib/credentials/oauth-providers';
+import { getOAuthProviderConfig, readOAuthClientCredentials } from '@/lib/credentials/oauth-providers';
 import { buildOAuthState, isAllowedOAuthReturnTo } from '@/lib/credentials/oauth-state';
 
 /**
@@ -54,7 +54,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Check env vars are configured ────────────────────────────────────────────
-  const clientId = process.env[config.clientIdEnv];
+  // Incident 9.9.17K -- reads via the same whitespace-trimming helper used
+  // for the actual token requests, so a whitespace-only or newline-padded
+  // env value (a copy/paste artifact) fails this check the same way it
+  // would fail Google, instead of passing here and failing later.
+  const { clientId } = readOAuthClientCredentials(config);
   if (!clientId) {
     return NextResponse.json(
       { error: 'OAuth is not configured for this provider' },

@@ -13,11 +13,15 @@ import {
   assertTrustedUserId,
   getDecryptedProviderCredentials,
   saveCredentialsWithVerification,
+  updateVerificationStatus,
 } from './storage';
 import {
   getOAuthProviderConfig,
   refreshOAuthToken,
+  type OAuthTokenResponse,
 } from './oauth-providers';
+import { ClassifiedOAuthError } from './oauth-errors';
+import { logger } from '@/lib/runtime/logger';
 
 export const REFRESH_BUFFER_SECONDS = 300; // refresh when < 5 minutes remain
 
@@ -96,7 +100,68 @@ export async function getValidAccessToken(
   }
 
   // Perform the token refresh
-  const refreshed = await refreshOAuthToken(config, stored.refresh_token);
+  let refreshed: OAuthTokenResponse;
+  try {
+    refreshed = await refreshOAuthToken(config, stored.refresh_token);
+  } catch (err) {
+    // Incident 9.9.17K -- record the SaaS-facing meaning of this failure in
+    // the one durable, per-(user, provider) health record every future
+    // dashboard/alert should read, instead of leaving it forever showing
+    // the last successful refresh's "healthy" status (the actual gap this
+    // incident's live evidence exposed: a Railway refresh failure at
+    // 16:24:15 left credential_verifications reporting "healthy" from
+    // 16:24:28 all the way through a second failure at 19:21:52).
+    //
+    // Only a genuinely dead grant (reconnect_required) may ever mark the
+    // credential 'invalid' -- that is the one classification where telling
+    // the user to reconnect is actually correct. A platform config fault
+    // (config_fault) or a transient provider hiccup must NEVER be recorded
+    // as 'invalid': doing so would be exactly the false "credential
+    // revoked" signal Part D of this incident explicitly prohibits.
+    // Best-effort: a write failure here must never mask or replace the
+    // original OAuth failure the caller needs to see.
+    if (err instanceof ClassifiedOAuthError && err.errorClass === 'reconnect_required') {
+      await updateVerificationStatus(userId, provider, 'invalid', {
+        reason: 'oauth_reconnect_required',
+        oauth_error: err.oauthErrorCode,
+        http_status: err.httpStatus,
+        checked_at: new Date().toISOString(),
+      }).catch((writeErr: unknown) => {
+        logger.warn('oauth_refresh.verification_status_write_failed', {
+          provider,
+          user_id: userId,
+          error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+        });
+      });
+    } else if (err instanceof ClassifiedOAuthError && err.errorClass === 'config_fault') {
+      logger.warn('oauth_refresh.platform_config_fault', {
+        provider,
+        user_id: userId,
+        oauth_error: err.oauthErrorCode,
+        http_status: err.httpStatus,
+      });
+    }
+    throw err;
+  }
+
+  // Incident 9.9.17K -- concurrency guard. A second getValidAccessToken()
+  // call for the same (user, provider) racing this one (e.g. two workflow
+  // executions for the same account dispatched together) may have already
+  // completed its own refresh while this call's request to the provider was
+  // in flight. If storage already reflects a DIFFERENT, still-fresh token
+  // than the one this call started with, defer to it instead of writing
+  // this call's result: this call's refresh_token fallback (below) is only
+  // as current as the READ at the top of this function, so writing now
+  // could silently overwrite a refresh_token the other call's response
+  // rotated to with this call's stale one -- indistinguishable later from a
+  // genuine revocation. Both this call's and the other call's access_token
+  // are equally valid (same successful grant), so returning the other
+  // call's is not a correctness loss, only a skipped redundant write.
+  const currentCreds = await getDecryptedProviderCredentials(userId, provider);
+  const current = parseStoredToken(currentCreds[config.credentialKey]);
+  if (current && current.access_token !== stored.access_token && !tokenNeedsRefresh(current)) {
+    return current.access_token;
+  }
 
   // Preserve existing refresh_token when the provider does not rotate it.
   // Build as StoredOAuthToken (null-safe) and serialize directly — avoids

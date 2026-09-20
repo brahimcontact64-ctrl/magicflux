@@ -10,6 +10,8 @@
  * env vars in your deployment.
  */
 
+import { ClassifiedOAuthError, classifyOAuthRejection } from './oauth-errors';
+
 export type OAuthProviderConfig = {
   /** Canonical provider identifier (matches provider-registry keys) */
   provider: string;
@@ -99,6 +101,29 @@ export function getOAuthProviderConfig(provider: string): OAuthProviderConfig | 
   return OAUTH_PROVIDER_REGISTRY[provider] ?? null;
 }
 
+/**
+ * Incident 9.9.17K -- the ONE place OAuth client id/secret env values are
+ * read from process.env, so normalization (and, for fingerprinting, hashing)
+ * can never drift from what's actually sent to the provider. Trims
+ * surrounding whitespace/newlines only -- a real, observed failure mode of
+ * copy-pasting a client secret from a provider console into a dashboard's
+ * env var editor -- and never touches interior characters, so a secret that
+ * legitimately contains no leading/trailing whitespace is passed through
+ * byte-for-byte. Missing/empty (including whitespace-only) values normalize
+ * to '' and must be treated as "not configured" by every caller -- this
+ * function itself does not throw, so presence checks stay fail-closed at
+ * the call site instead of silently proceeding with a blank credential.
+ */
+export function readOAuthClientCredentials(config: OAuthProviderConfig): {
+  clientId: string;
+  clientSecret: string;
+} {
+  return {
+    clientId: (process.env[config.clientIdEnv] ?? '').trim(),
+    clientSecret: (process.env[config.clientSecretEnv] ?? '').trim(),
+  };
+}
+
 /** True when the provider has a registered OAuth flow. */
 export function isOAuthProvider(provider: string): boolean {
   return Object.prototype.hasOwnProperty.call(OAUTH_PROVIDER_REGISTRY, provider);
@@ -125,8 +150,7 @@ export async function exchangeOAuthCode(
   code: string,
   redirectUri: string
 ): Promise<OAuthTokenResponse> {
-  const clientId = process.env[config.clientIdEnv] ?? '';
-  const clientSecret = process.env[config.clientSecretEnv] ?? '';
+  const { clientId, clientSecret } = readOAuthClientCredentials(config);
 
   if (!clientId || !clientSecret) {
     throw new Error(`OAuth credentials not configured for provider: ${config.provider}`);
@@ -176,8 +200,7 @@ export async function refreshOAuthToken(
   config: OAuthProviderConfig,
   refreshToken: string
 ): Promise<OAuthTokenResponse> {
-  const clientId = process.env[config.clientIdEnv] ?? '';
-  const clientSecret = process.env[config.clientSecretEnv] ?? '';
+  const { clientId, clientSecret } = readOAuthClientCredentials(config);
 
   if (!clientId || !clientSecret) {
     throw new Error(`OAuth credentials not configured for provider: ${config.provider}`);
@@ -190,17 +213,37 @@ export async function refreshOAuthToken(
     client_secret: clientSecret,
   });
 
-  const res = await fetch(config.tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
+  let res: Response;
+  try {
+    res = await fetch(config.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  } catch (err) {
+    // Incident 9.9.17K -- a network-level failure reaching the provider
+    // (DNS, TLS, connection reset, timeout) is never the stored credential's
+    // fault and must never be classified alongside a real rejection.
+    const message = err instanceof Error ? err.message : String(err);
+    throw new ClassifiedOAuthError(
+      `OAuth token refresh network failure for ${config.provider}: ${message}`,
+      { provider: config.provider, errorClass: 'transient', httpStatus: null, oauthErrorCode: null, oauthErrorDescription: null }
+    );
+  }
 
   let data: Record<string, unknown>;
   try {
     data = (await res.json()) as Record<string, unknown>;
   } catch {
-    throw new Error('Token endpoint returned non-JSON response');
+    // Incident 9.9.17K -- a non-JSON body (an HTML error page, an empty
+    // body) most commonly comes from a provider-side outage or proxy error,
+    // not a real RFC 6749 rejection -- classify by HTTP status alone rather
+    // than assuming the credential is bad.
+    const errorClass = classifyOAuthRejection(null, res.status);
+    throw new ClassifiedOAuthError(
+      `Token endpoint returned non-JSON response for ${config.provider} (HTTP ${res.status})`,
+      { provider: config.provider, errorClass, httpStatus: res.status, oauthErrorCode: null, oauthErrorDescription: null }
+    );
   }
 
   if (!res.ok || !data.access_token) {
@@ -213,10 +256,18 @@ export async function refreshOAuthToken(
     // never token/secret material -- safe to keep in full. HTTP status is
     // included too, since 401 vs. 400 vs. 5xx changes the diagnosis
     // (credential rejection vs. malformed request vs. Google-side outage).
-    const errorCode = typeof data.error === 'string' ? data.error : data.error ? JSON.stringify(data.error) : 'unknown_error';
+    const errorCode = typeof data.error === 'string' ? data.error : data.error ? JSON.stringify(data.error) : null;
     const errorDescription = typeof data.error_description === 'string' ? data.error_description : null;
-    const detail = errorDescription ? `${errorCode}: ${errorDescription}` : errorCode;
-    throw new Error(`OAuth token refresh rejected for ${config.provider} (HTTP ${res.status}): ${detail}`);
+    const detail = errorCode ? (errorDescription ? `${errorCode}: ${errorDescription}` : errorCode) : (errorDescription ?? 'unknown_error');
+    // Incident 9.9.17K -- classify so callers can distinguish a platform
+    // OAuth-client misconfiguration (never the end user's fault) from a
+    // genuinely dead/revoked grant (user must reconnect) from a transient
+    // provider failure (retry, don't touch stored credential state).
+    const errorClass = classifyOAuthRejection(errorCode, res.status);
+    throw new ClassifiedOAuthError(
+      `OAuth token refresh rejected for ${config.provider} (HTTP ${res.status}): ${detail}`,
+      { provider: config.provider, errorClass, httpStatus: res.status, oauthErrorCode: errorCode, oauthErrorDescription: errorDescription }
+    );
   }
 
   return {

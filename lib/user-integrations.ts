@@ -9,6 +9,7 @@ import {
 } from '@/lib/credentials/storage';
 import { isOAuthProvider, getOAuthProviderConfig } from '@/lib/credentials/oauth-providers';
 import { getValidAccessToken } from '@/lib/credentials/oauth-refresh';
+import { ClassifiedOAuthError } from '@/lib/credentials/oauth-errors';
 import { logger } from '@/lib/runtime/logger';
 
 export type IntegrationStatus = 'connected' | 'invalid' | 'not_connected';
@@ -99,6 +100,13 @@ async function resolveBridgedIntegration(
       user_id: userId,
       error: err instanceof Error ? err.message : String(err),
       error_type: err instanceof Error ? err.constructor.name : typeof err,
+      // Incident 9.9.17K -- distinguishes a platform OAuth-client
+      // misconfiguration ('config_fault', never the user's fault) from a
+      // genuinely dead/revoked grant ('reconnect_required') from a
+      // transient provider hiccup ('transient'), right in the one log line
+      // that previously collapsed all three into an undifferentiated
+      // SETUP_REQUIRED. null for any non-OAuth or unclassified failure.
+      error_class: err instanceof ClassifiedOAuthError ? err.errorClass : null,
     });
     return null;
   }
