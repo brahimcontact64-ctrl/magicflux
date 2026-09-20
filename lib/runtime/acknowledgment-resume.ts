@@ -38,10 +38,34 @@ import { ExecutionManager } from '@/runtime/execution-manager';
  *      which retry-dispatcher.ts has no reason to know about.
  *
  * Duplicate-side-effect safety: identical to review-resume.ts -- before
- * EVER calling resumeExecution() again, checks
- * workflow_executions_v2.status/current_node_id. If the execution has
- * already moved past this exact node, resumeExecution() is NEVER called
- * again; only this row's resumed_at bookkeeping is caught up.
+ * EVER calling resumeExecution() again, checks workflow_executions_v2.status.
+ * If the execution has already moved past its wait (status is no longer
+ * 'waiting'), resumeExecution() is NEVER called again; only this row's
+ * resumed_at bookkeeping is caught up.
+ *
+ * Incident 9.9.17I -- this check used to ALSO require
+ * `execRow.current_node_id === item.node_name`. That is correct for
+ * magicflux-nodes.waitForAcknowledgment's own self-contained mode (the same
+ * node both creates the row and parks on it), but item.node_name is always
+ * the CHALLENGE-CREATING node's name -- for the two-node-split topology
+ * magicflux-nodes.createAcknowledgmentChallenge + a separate
+ * waitForAcknowledgment (the certified Sigma Plus reference topology),
+ * those are two DIFFERENT nodes, so this comparison was false for every
+ * acknowledgment that landed after the execution had genuinely parked --
+ * i.e. the normal case for any real human (open the email, read it, click
+ * a few seconds to minutes later). The acknowledgment itself was recorded
+ * correctly and immediately either way; only the RESUME was needlessly
+ * deferred to the next scheduled retry-dispatcher wake-up, up to the full
+ * SLA window later, even though nothing was actually wrong. Proven by a
+ * failing engine-level test (tests/incident-9917i-...) before this fix.
+ * Dropping the node-name comparison is safe specifically because a
+ * Create Acknowledgment Challenge node's own row can only ever exist for
+ * an execution that has already passed any earlier gate (e.g. Human
+ * Review) -- by the time this function runs, if the execution is
+ * genuinely 'waiting' at all, the only node it can be parked at is the
+ * Wait For Acknowledgment corresponding to THIS SAME challenge; there is
+ * no other reachable parking point after Create Acknowledgment Challenge
+ * on any Hot-path topology this codebase generates.
  */
 
 export type AckItemForResume = {
@@ -70,11 +94,9 @@ export async function attemptAcknowledgmentResume(item: AckItemForResume): Promi
     .eq('id', item.execution_id)
     .maybeSingle();
 
-  const stillAtThisNode = Boolean(
-    execRow && execRow.status === 'waiting' && item.node_name && execRow.current_node_id === item.node_name
-  );
+  const stillWaiting = Boolean(execRow && execRow.status === 'waiting');
 
-  if (!stillAtThisNode) {
+  if (!stillWaiting) {
     // A prior attempt already progressed the execution past this node (or
     // it ended for an unrelated reason) -- never re-invoke resumeExecution.
     // Only catch up this row's own bookkeeping.

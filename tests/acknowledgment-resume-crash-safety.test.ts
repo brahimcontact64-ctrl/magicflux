@@ -121,7 +121,7 @@ describe('attemptAcknowledgmentResume — crash-window recovery', () => {
     expect(tables.workflow_acknowledgments[0].resumed_at).toBeTruthy();
   });
 
-  it('does NOT call resumeExecution again once the execution has already moved past this node -- only catches up bookkeeping', async () => {
+  it('does NOT call resumeExecution again once the execution has already moved past its wait entirely -- only catches up bookkeeping', async () => {
     tables.workflow_executions_v2[0].status = 'success';
     tables.workflow_executions_v2[0].current_node_id = 'Save to Airtable';
     const { attemptAcknowledgmentResume } = await import('../lib/runtime/acknowledgment-resume');
@@ -130,6 +130,24 @@ describe('attemptAcknowledgmentResume — crash-window recovery', () => {
     expect(result.resumed).toBe(true);
     if (result.resumed) expect(result.alreadyResumed).toBe(true);
     expect(resumeExecutionMock).not.toHaveBeenCalled();
+    expect(tables.workflow_acknowledgments[0].resumed_at).toBeTruthy();
+  });
+
+  it('Incident 9.9.17I: DOES attempt resume when the execution is still "waiting" even though current_node_id differs from this row\'s own node_name -- the real two-node-split shape (Create Acknowledgment Challenge creates the row; a separate Wait For Acknowledgment node is what\'s actually parked)', async () => {
+    // Exactly the certified Sigma Plus reference topology's shape: the row's
+    // own node_name is always the CHALLENGE-CREATING node, never the node
+    // actually parked when the execution is 'waiting'. Before this
+    // incident's fix, this combination incorrectly skipped resumeExecution
+    // entirely, deferring an already-correct acknowledgment's visible
+    // completion to the next scheduled retry-dispatcher wake-up (up to the
+    // full SLA window later) instead of resuming immediately.
+    tables.workflow_executions_v2[0].status = 'waiting';
+    tables.workflow_executions_v2[0].current_node_id = 'Wait For Acknowledgment';
+    const { attemptAcknowledgmentResume } = await import('../lib/runtime/acknowledgment-resume');
+    const result = await attemptAcknowledgmentResume(ackItem({ node_id: 'challenge', node_name: 'Create Acknowledgment Challenge' }));
+
+    expect(result.resumed).toBe(true);
+    expect(resumeExecutionMock).toHaveBeenCalledTimes(1);
     expect(tables.workflow_acknowledgments[0].resumed_at).toBeTruthy();
   });
 

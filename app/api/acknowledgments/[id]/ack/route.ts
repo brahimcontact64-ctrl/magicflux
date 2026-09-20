@@ -6,22 +6,33 @@ import { attemptAcknowledgmentResume } from '@/lib/runtime/acknowledgment-resume
 type Ctx = { params: { id: string } };
 
 /**
- * Incident 9.9.17H -- this route is meant to be opened directly by a human
- * tapping a link inside an email/Slack message, often through an in-app
- * browser (Gmail's own WebView) or after Gmail/Google Safe Browsing's own
- * link-wrapping redirect -- never via fetch()/XHR from a page that could
- * read a JSON body and render it. A bare `NextResponse.json(...)` response
- * has no visual representation there; the observed symptom (a blank page,
- * with the address bar still showing google.com from the wrapper's own
- * redirect) is exactly what an unstyled, unrendered JSON body looks like in
- * that context -- confirmed by reading this file, not guessed from the
- * screenshot. Every branch below now renders a minimal, self-contained,
- * first-party HTML page instead. No business logic changed: same CAS
- * updates, same resume call, same status codes, same security checks --
- * only the response body/content-type.
+ * Incident 9.9.17I -- two independent live executions were acknowledged
+ * ~6.6 seconds after their challenge was created, both times with the
+ * human stating they had not clicked the link. The GET handler performed
+ * the CAS mutation itself, so ANY automated fetch of the URL -- a link
+ * scanner, a prefetcher, an email security gateway, a browser's own
+ * speculative navigation -- silently consumed the one-time acknowledgment
+ * before a human ever saw it. Which specific system did it is unproven and
+ * irrelevant: a GET that mutates is unsafe by HTTP's own semantics
+ * (RFC 7231 SS4.2.1 -- GET/HEAD must be safe/side-effect-free), regardless
+ * of which client issues it.
+ *
+ * New contract: GET never mutates acknowledgment state, under any
+ * repetition, header shape, or request count -- it only ever reads and
+ * renders. The rendered page's only path to a mutation is a real HTML
+ * <form method="POST">, which no prefetcher/scanner/speculative-navigation
+ * mechanism ever submits (they fetch resources; they do not fill in and
+ * submit forms). Only POST may attempt the pending -> acknowledged CAS.
  */
-function htmlPage(opts: { title: string; message: string; icon: string }): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function htmlPage(opts: { title: string; message: string; icon: string; formAction?: string; formToken?: string }): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const form = opts.formAction
+    ? `
+    <form method="POST" action="${esc(opts.formAction)}">
+      <input type="hidden" name="token" value="${esc(opts.formToken ?? '')}">
+      <button type="submit" class="btn">Acknowledge Lead</button>
+    </form>`
+    : '';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -34,7 +45,9 @@ function htmlPage(opts: { title: string; message: string; icon: string }): strin
   .card { max-width: 420px; }
   .icon { font-size: 44px; margin-bottom: 16px; line-height: 1; }
   h1 { font-size: 20px; margin: 0 0 8px; font-weight: 600; }
-  p { font-size: 15px; color: #a8a8b3; margin: 0; line-height: 1.5; }
+  p { font-size: 15px; color: #a8a8b3; margin: 0 0 20px; line-height: 1.5; }
+  .btn { appearance: none; border: none; border-radius: 10px; padding: 14px 28px; font-size: 16px; font-weight: 600; background: #f2f2f5; color: #0b0b10; cursor: pointer; }
+  .btn:active { opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -42,81 +55,138 @@ function htmlPage(opts: { title: string; message: string; icon: string }): strin
     <div class="icon">${opts.icon}</div>
     <h1>${esc(opts.title)}</h1>
     <p>${esc(opts.message)}</p>
+    ${form}
   </div>
 </body>
 </html>`;
 }
 
-function htmlResponse(status: number, opts: { title: string; message: string; icon: string }): NextResponse {
+function htmlResponse(status: number, opts: { title: string; message: string; icon: string; formAction?: string; formToken?: string }): NextResponse {
   return new NextResponse(htmlPage(opts), {
     status,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }
 
-const ACKNOWLEDGED_PAGE = { icon: '✅', title: 'Lead acknowledged', message: 'This lead has been acknowledged successfully. The workflow will continue automatically.' };
+const ACKNOWLEDGED_PAGE = { icon: '✅', title: 'Lead acknowledged', message: 'Lead acknowledged successfully. The workflow will continue automatically.' };
+const ALREADY_ACKNOWLEDGED_PAGE = { icon: '✅', title: 'Already acknowledged', message: 'This lead has already been acknowledged.' };
 const INVALID_LINK_PAGE = { icon: '⚠️', title: 'Link not valid', message: 'This acknowledgment link is invalid or has expired.' };
-const ESCALATED_PAGE = { icon: '⏰', title: 'Already escalated', message: "This lead's response window already ended and it was escalated. Your acknowledgment has been recorded for the record." };
-const SERVER_ERROR_PAGE = { icon: '⚠️', title: 'Something went wrong', message: "We couldn't record your acknowledgment right now. Please try the link again in a moment." };
+const ESCALATED_PAGE = { icon: '⏰', title: 'Window expired', message: 'Acknowledgment window expired. The SLA escalation has already started.' };
+const SERVER_ERROR_PAGE = { icon: '⚠️', title: 'Something went wrong', message: "We couldn't record your acknowledgment right now. Please try again in a moment." };
+
+type AckItem = {
+  id: string;
+  user_id: string;
+  workflow_id: string;
+  execution_id: string;
+  node_id: string;
+  node_name: string | null;
+  deployment_version_id: string | null;
+  status: string;
+  mode: string | null;
+  resume_attempts: number | null;
+  acknowledgment_token_hash: string | null;
+};
 
 /**
- * GET /api/acknowledgments/[id]/ack?token=...
- *
- * The UNAUTHENTICATED, token-based acknowledgment link (Part D) -- meant
- * to be clicked directly from a reminder/escalation notification without
- * requiring a dashboard session. Authorization here is ENTIRELY the
- * token's own unguessability (Part J: "workflow/execution IDs alone are
- * insufficient authorization" -- knowing this row's `id` from the URL path
- * proves nothing on its own; only a correct token does).
- *
- * Security:
- *   - The token is never stored in plaintext (wait-for-acknowledgment.ts
- *     only ever persists its SHA-256 hash) -- compared here by hashing the
- *     supplied value and comparing digests in constant time
- *     (timingSafeEqual), never a plain `===` string compare, to avoid a
- *     timing side-channel on the hash bytes. Never echoed back in the
- *     response body either (Incident 9.9.17H).
- *   - A missing/malformed/wrong-length/incorrect token, or a row with no
- *     token configured at all, fails closed with the exact same 404 a
- *     nonexistent row would produce -- never distinguishes "row exists but
- *     wrong token" from "row doesn't exist" (no existence leak).
- *   - A replayed (already-used) token is idempotent, never an error (Part
- *     J) -- re-clicking an already-acknowledged link just confirms it.
- *   - No redirect is ever issued from this route (no Location header) --
- *     the confirmation is rendered directly, so there is no open-redirect
- *     surface here at all.
+ * Shared by GET and POST -- looks up the row and validates the supplied
+ * token in constant time. Never distinguishes "row doesn't exist" from
+ * "row exists but wrong token" (no existence leak, Part J), and never
+ * echoes the token anywhere (not in a response, not in a log line).
  */
-export async function GET(req: NextRequest, { params }: Ctx) {
-  const token = req.nextUrl.searchParams.get('token')?.trim();
-  if (!token) return htmlResponse(404, INVALID_LINK_PAGE);
-
-  const db = createServiceClient();
+async function lookupAndValidateToken(
+  db: ReturnType<typeof createServiceClient>,
+  id: string,
+  token: string | null
+): Promise<{ ok: true; item: AckItem } | { ok: false }> {
+  if (!token) return { ok: false };
 
   const { data: item } = await db
     .from('workflow_acknowledgments')
     .select('id, user_id, workflow_id, execution_id, node_id, node_name, deployment_version_id, status, mode, resume_attempts, acknowledgment_token_hash')
-    .eq('id', params.id)
+    .eq('id', id)
     .maybeSingle();
 
-  if (!item || !item.acknowledgment_token_hash) {
-    return htmlResponse(404, INVALID_LINK_PAGE);
-  }
+  if (!item || !item.acknowledgment_token_hash) return { ok: false };
 
   const suppliedHash = createHash('sha256').update(token).digest();
   const storedHash = Buffer.from(String(item.acknowledgment_token_hash), 'hex');
   const validToken = suppliedHash.length === storedHash.length && timingSafeEqual(suppliedHash, storedHash);
+  if (!validToken) return { ok: false };
 
-  if (!validToken) {
-    return htmlResponse(404, INVALID_LINK_PAGE);
-  }
+  return { ok: true, item: item as AckItem };
+}
+
+/**
+ * GET /api/acknowledgments/[id]/ack?token=...
+ *
+ * READ-ONLY by construction (Incident 9.9.17I): performs zero writes of any
+ * kind, on every branch, regardless of how many times it is called or by
+ * what -- a human's browser, a link-scanning crawler, a prefetch, a HEAD-
+ * like speculative fetch. It renders the current state and, only when the
+ * item is genuinely still 'pending', a real <form method="POST"> the human
+ * must submit themselves. No automated fetcher submits HTML forms.
+ */
+export async function GET(req: NextRequest, { params }: Ctx) {
+  const token = req.nextUrl.searchParams.get('token')?.trim() ?? null;
+  const result = await lookupAndValidateToken(createServiceClient(), params.id, token);
+  if (!result.ok) return htmlResponse(404, INVALID_LINK_PAGE);
+  const { item } = result;
 
   if (item.status === 'acknowledged') {
-    await attemptAcknowledgmentResume({ ...item, mode: (item.mode ?? 'live') as 'test' | 'live' });
-    return htmlResponse(200, ACKNOWLEDGED_PAGE);
+    return htmlResponse(200, ALREADY_ACKNOWLEDGED_PAGE);
   }
 
   if (item.status === 'timed_out') {
-    // Part H -- late acknowledgment via the link. Never rewinds `status`.
+    return htmlResponse(200, ESCALATED_PAGE);
+  }
+
+  // status === 'pending' -- the only branch that renders the human action.
+  return htmlResponse(200, {
+    icon: '🔥',
+    title: 'Hot Lead',
+    message: 'This lead is waiting for acknowledgment.',
+    formAction: `/api/acknowledgments/${params.id}/ack`,
+    formToken: token ?? '',
+  });
+}
+
+/**
+ * POST /api/acknowledgments/[id]/ack
+ *
+ * The ONLY path that may attempt the pending -> acknowledged CAS
+ * (Incident 9.9.17I, Part 1). Reads the token from the submitted form body
+ * (application/x-www-form-urlencoded), not the query string -- POST bodies
+ * are not written to typical server/proxy access logs or browser history
+ * the way a URL is, so this is a strict reduction in where the token can
+ * leak, on top of it never being logged or persisted in plaintext anywhere
+ * (unchanged from before).
+ *
+ * CSRF: this action has no ambient authority to ride -- there is no
+ * cookie/session driving it, only possession of the high-entropy bearer
+ * token submitted in the request itself. A cross-site page could only
+ * forge this POST if it already knew the correct token, at which point it
+ * is already a legitimate holder of the link and CSRF protection is moot.
+ * Deliberately NOT adding a separate CSRF token/cookie check: doing so
+ * would require a session to anchor it to, which is exactly the
+ * cookie/session-based model this route must not adopt.
+ */
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const form = await req.formData().catch(() => null);
+  const token = (form?.get('token') ? String(form.get('token')) : req.nextUrl.searchParams.get('token'))?.trim() ?? null;
+
+  const db = createServiceClient();
+  const result = await lookupAndValidateToken(db, params.id, token);
+  if (!result.ok) return htmlResponse(404, INVALID_LINK_PAGE);
+  const { item } = result;
+
+  if (item.status === 'acknowledged') {
+    await attemptAcknowledgmentResume({ ...item, mode: (item.mode ?? 'live') as 'test' | 'live' });
+    return htmlResponse(200, ALREADY_ACKNOWLEDGED_PAGE);
+  }
+
+  if (item.status === 'timed_out') {
+    // Part H -- late acknowledgment via an explicit POST. Never rewinds `status`.
     const nowIso = new Date().toISOString();
     await db
       .from('workflow_acknowledgments')
@@ -148,7 +218,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 
   if (!updated) {
-    // Lost a race with a concurrent timeout/decide (Part E).
+    // Lost a race with a concurrent timeout/decide (Part E) -- re-read the
+    // now-authoritative state rather than assuming which side won.
     const { data: latest } = await db
       .from('workflow_acknowledgments')
       .select('id, user_id, workflow_id, execution_id, node_id, node_name, deployment_version_id, status, mode, resume_attempts')
@@ -168,7 +239,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     }
 
     await attemptAcknowledgmentResume({ ...latest, mode: (latest.mode ?? 'live') as 'test' | 'live' });
-    return htmlResponse(200, ACKNOWLEDGED_PAGE);
+    return htmlResponse(200, ALREADY_ACKNOWLEDGED_PAGE);
   }
 
   await attemptAcknowledgmentResume({
