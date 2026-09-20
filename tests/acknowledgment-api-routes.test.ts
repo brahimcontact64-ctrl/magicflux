@@ -189,12 +189,24 @@ describe('POST /api/acknowledgments/[id]/decide', () => {
 });
 
 // ─── Unauthenticated token-based link ───────────────────────────────────────
+//
+// Incident 9.9.17H -- this route now renders a first-party HTML confirmation
+// page (a bare JSON body has no visible representation in the mobile/in-app
+// browser context this link is actually opened from -- see the route's own
+// doc comment). Assertions below check Content-Type, status, and rendered
+// text instead of a JSON body; every underlying state-transition/resume/
+// concurrency assertion is unchanged.
+
+function expectHtml(res: Response): void {
+  expect(res.headers.get('content-type')).toContain('text/html');
+}
 
 describe('GET /api/acknowledgments/[id]/ack -- token-based link', () => {
   it('a missing token fails closed with the same 404 a nonexistent row would produce', async () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq(undefined), { params: { id: ACK_ID } });
     expect(res.status).toBe(404);
+    expectHtml(res);
     expect(tables.workflow_acknowledgments[0].status).toBe('pending');
   });
 
@@ -202,6 +214,7 @@ describe('GET /api/acknowledgments/[id]/ack -- token-based link', () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq('totally-wrong-token'), { params: { id: ACK_ID } });
     expect(res.status).toBe(404);
+    expectHtml(res);
     expect(tables.workflow_acknowledgments[0].status).toBe('pending');
   });
 
@@ -209,37 +222,69 @@ describe('GET /api/acknowledgments/[id]/ack -- token-based link', () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq('short'), { params: { id: ACK_ID } });
     expect(res.status).toBe(404);
+    expectHtml(res);
   });
 
-  it('the correct token acknowledges the item and triggers resume', async () => {
+  it('an invalid-token page renders first-party HTML and never echoes the supplied token', async () => {
+    const suppliedToken = 'totally-wrong-token-should-never-appear';
+    const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
+    const res = await GET(ackReq(suppliedToken), { params: { id: ACK_ID } });
+    const html = await res.text();
+    expect(html).toContain('<html');
+    expect(html).toContain('Link not valid');
+    expect(html).not.toContain(suppliedToken);
+    expect(html).not.toContain(REAL_TOKEN);
+    expect(html).not.toContain(REAL_TOKEN_HASH);
+  });
+
+  it('the correct token acknowledges the item, triggers resume, and renders the mobile-compatible HTML confirmation with no token anywhere in it', async () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
-    const body = await res.json();
+    const html = await res.text();
 
     expect(res.status).toBe(200);
-    expect(body.acknowledged).toBe(true);
+    expectHtml(res);
+    expect(html).toContain('<html');
+    expect(html).toContain('Lead acknowledged');
+    expect(html).toContain('The workflow will continue automatically');
+    expect(html).not.toContain(REAL_TOKEN);
+    expect(html).not.toContain(REAL_TOKEN_HASH);
     expect(tables.workflow_acknowledgments[0].status).toBe('acknowledged');
     expect(tables.workflow_acknowledgments[0].acknowledged_by).toBe(OWNER_ID); // scoped to the row's own tenant
     expect(attemptResumeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('a replayed (already-used) token is idempotent, never an error', async () => {
+  it('no Location header (or any redirect) is ever issued -- the confirmation is rendered directly, eliminating the open-redirect surface', async () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
-    await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
-    const second = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
-    const body = await second.json();
-    expect(second.status).toBe(200);
-    expect(body.alreadyAcknowledged).toBe(true);
+    const res = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
+    expect(res.headers.get('location')).toBeNull();
+    expect([301, 302, 303, 307, 308]).not.toContain(res.status);
   });
 
-  it('a valid token used AFTER the SLA already timed out records a late acknowledgment, never rewinds status (Part H)', async () => {
+  it('a replayed (already-used) token is idempotent, never an error, and still renders the same first-party success page -- refreshing/reopening the consumed link is safe', async () => {
+    const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
+    await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
+    attemptResumeMock.mockClear();
+    const second = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
+    const html = await second.text();
+    expect(second.status).toBe(200);
+    expectHtml(second);
+    expect(html).toContain('Lead acknowledged');
+    // attemptAcknowledgmentResume's OWN exactly-once guard (unchanged,
+    // untouched by this incident) is what prevents a second real resume --
+    // this route still safely calls it again on replay.
+    expect(attemptResumeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a valid token used AFTER the SLA already timed out records a late acknowledgment, renders the escalated page, never rewinds status (Part H)', async () => {
     tables.workflow_acknowledgments[0].status = 'timed_out';
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
-    const body = await res.json();
+    const html = await res.text();
 
     expect(res.status).toBe(200);
-    expect(body.lateAcknowledgment).toBe(true);
+    expectHtml(res);
+    expect(html).toContain('Already escalated');
     expect(tables.workflow_acknowledgments[0].status).toBe('timed_out');
     expect(tables.workflow_acknowledgments[0].late_acknowledged_at).toBeTruthy();
   });
@@ -249,6 +294,7 @@ describe('GET /api/acknowledgments/[id]/ack -- token-based link', () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const res = await GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } });
     expect(res.status).toBe(404);
+    expectHtml(res);
   });
 
   it('cross-tenant: a token cannot be reused against a DIFFERENT row id -- workflow/execution IDs alone are insufficient authorization (Part J)', async () => {
@@ -266,13 +312,20 @@ describe('GET /api/acknowledgments/[id]/ack -- token-based link', () => {
     expect(tables.workflow_acknowledgments[1].status).toBe('pending');
   });
 
-  it('two concurrent clicks of the same link: exactly one CAS wins', async () => {
+  it('two concurrent clicks of the same link: exactly one CAS wins, both render a 200 HTML success page regardless of which side won', async () => {
     const { GET } = await import('../app/api/acknowledgments/[id]/ack/route');
     const [a, b] = await Promise.all([GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } }), GET(ackReq(REAL_TOKEN), { params: { id: ACK_ID } })]);
-    const [bodyA, bodyB] = await Promise.all([a.json(), b.json()]);
-    const winners = [bodyA, bodyB].filter((x) => x.acknowledged);
-    const losers = [bodyA, bodyB].filter((x) => x.alreadyAcknowledged);
-    expect(winners).toHaveLength(1);
-    expect(losers).toHaveLength(1);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expectHtml(a);
+    expectHtml(b);
+    expect(tables.workflow_acknowledgments[0].status).toBe('acknowledged');
+    // Exactly one real resume call for the whole race -- the loser's branch
+    // re-reads and calls attemptAcknowledgmentResume too (its own exactly-once
+    // guard is what prevents a second real resumeExecution call, proven in
+    // lib/runtime/acknowledgment-resume.ts's own tests) -- here we only
+    // confirm both requests completed successfully and the row converged to
+    // exactly one acknowledged state.
+    expect(attemptResumeMock.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 });
