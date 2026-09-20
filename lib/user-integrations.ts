@@ -9,6 +9,7 @@ import {
 } from '@/lib/credentials/storage';
 import { isOAuthProvider, getOAuthProviderConfig } from '@/lib/credentials/oauth-providers';
 import { getValidAccessToken } from '@/lib/credentials/oauth-refresh';
+import { logger } from '@/lib/runtime/logger';
 
 export type IntegrationStatus = 'connected' | 'invalid' | 'not_connected';
 
@@ -41,7 +42,22 @@ async function resolveBridgedIntegration(
   userId: string,
   provider: IntegrationProvider
 ): Promise<UserIntegration | null> {
-  const status = await verifyProviderConnection(userId, provider).catch(() => null);
+  const status = await verifyProviderConnection(userId, provider).catch((err: unknown) => {
+    // Incident 9.9.17G -- resolveWorkflowIntegrations() only ever surfaces a
+    // bare "SETUP_REQUIRED:<provider>" regardless of WHY this returned
+    // null, which made a genuine credential-row-exists-but-something-failed
+    // case indistinguishable from "never connected at all" across three
+    // separate live incidents. logger.warn already redacts its context
+    // (lib/runtime/logger.ts -> redact()), and every error message reaching
+    // this catch is one of: a generic DB error, or nothing at all (this
+    // function has no other throw path) -- never token/secret material.
+    logger.warn('integration_resolution.connection_check_failed', {
+      provider,
+      user_id: userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
   if (!status?.connected) return null;
 
   try {
@@ -67,7 +83,23 @@ async function resolveBridgedIntegration(
     }
     const credentials = await getDecryptedProviderCredentials(userId, provider);
     return { provider, credentials, status: 'connected' };
-  } catch {
+  } catch (err) {
+    // Incident 9.9.17G -- this is the exact swallow point that turned a real
+    // Gmail OAuth failure (decrypt/config/refresh -- see
+    // lib/credentials/oauth-refresh.ts's getValidAccessToken, whose own
+    // thrown messages are already generic/safe: "No OAuth config for
+    // provider: X", "No valid OAuth credentials stored for provider: X",
+    // CredentialDecryptionError's fixed generic message, or Google's own
+    // RFC 6749 error/error_description string) into an undifferentiated
+    // "SETUP_REQUIRED:gmail" three separate times in production with zero
+    // trace of which one actually happened. None of these messages ever
+    // contain token/secret material by construction (see each throw site).
+    logger.warn('integration_resolution.credential_resolve_failed', {
+      provider,
+      user_id: userId,
+      error: err instanceof Error ? err.message : String(err),
+      error_type: err instanceof Error ? err.constructor.name : typeof err,
+    });
     return null;
   }
 }
