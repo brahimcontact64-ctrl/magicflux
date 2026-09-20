@@ -302,7 +302,7 @@ describe('GET /api/acknowledgments/[id]/ack -- read-only, scanner-safe (Incident
     expect(tables.workflow_acknowledgments[0].status).toBe('pending');
   });
 
-  it('has no exported HEAD handler -- Next.js itself returns 405 for HEAD, so zero application code (and therefore zero mutation) ever runs', async () => {
+  it('exports no HEAD handler of its own -- confirmed live: the platform derives HEAD from this exact GET (same status, body stripped), so HEAD inherits GET\'s own proven zero-mutation behavior rather than running any separate code path', async () => {
     const mod = await import('../app/api/acknowledgments/[id]/ack/route');
     expect((mod as Record<string, unknown>).HEAD).toBeUndefined();
   });
@@ -461,7 +461,11 @@ describe('POST /api/acknowledgments/[id]/ack -- the ONLY path that may mutate (I
 });
 
 describe('HEAD /api/acknowledgments/[id]/ack (Incident 9.9.17I -- scanner-safety proof)', () => {
-  it('exports no HEAD handler at all -- confirms Next.js\'s own method dispatch (405) is what protects this route, not application logic', async () => {
+  // Verified live in production: HEAD on this route returns the SAME status
+  // as GET with an empty body (the platform derives it from GET rather than
+  // 405ing), so its safety comes transitively from GET's own proven
+  // zero-mutation behavior -- not from a route-level HEAD export/rejection.
+  it('exports no HEAD handler of its own, only GET and POST', async () => {
     const mod = await import('../app/api/acknowledgments/[id]/ack/route');
     expect(typeof (mod as Record<string, unknown>).GET).toBe('function');
     expect(typeof (mod as Record<string, unknown>).POST).toBe('function');
