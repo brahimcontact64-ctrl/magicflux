@@ -204,8 +204,19 @@ export async function refreshOAuthToken(
   }
 
   if (!res.ok || !data.access_token) {
-    const desc = String(data.error_description ?? data.error ?? 'Token refresh failed');
-    throw new Error(desc);
+    // Incident 9.9.17J -- this used to keep only ONE of error/error_description
+    // (whichever the `??` chain picked first), silently discarding the other.
+    // A real production failure showed only "Unauthorized" in the log --
+    // almost certainly Google's `error_description` for an `invalid_client`
+    // rejection, with the actually-diagnostic `error` code thrown away by
+    // this exact chain. Both fields are RFC 6749 error-response fields,
+    // never token/secret material -- safe to keep in full. HTTP status is
+    // included too, since 401 vs. 400 vs. 5xx changes the diagnosis
+    // (credential rejection vs. malformed request vs. Google-side outage).
+    const errorCode = typeof data.error === 'string' ? data.error : data.error ? JSON.stringify(data.error) : 'unknown_error';
+    const errorDescription = typeof data.error_description === 'string' ? data.error_description : null;
+    const detail = errorDescription ? `${errorCode}: ${errorDescription}` : errorCode;
+    throw new Error(`OAuth token refresh rejected for ${config.provider} (HTTP ${res.status}): ${detail}`);
   }
 
   return {

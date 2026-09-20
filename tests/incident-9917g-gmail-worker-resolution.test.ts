@@ -118,8 +118,8 @@ function expiredToken(): Record<string, unknown> {
   };
 }
 
-function googleRefreshResponse(ok: boolean, body: Record<string, unknown>) {
-  return { ok, status: ok ? 200 : 400, json: async () => body };
+function googleRefreshResponse(ok: boolean, body: Record<string, unknown>, status?: number) {
+  return { ok, status: status ?? (ok ? 200 : 400), json: async () => body };
 }
 
 describe('Incident 9.9.17G -- worker-side dual-FK Gmail credential resolution (real chain, not a mocked readiness check)', () => {
@@ -173,7 +173,13 @@ describe('Incident 9.9.17G -- worker-side dual-FK Gmail credential resolution (r
     const loggedLines = warnSpy.mock.calls.map((c) => String(c[0]));
     const relevant = loggedLines.find((l) => l.includes('credential_resolve_failed'));
     expect(relevant).toBeTruthy();
+    // Incident 9.9.17J -- both the RFC 6749 error CODE and its description
+    // must survive into the log; the pre-fix `??` chain discarded whichever
+    // one it didn't pick, which is exactly what turned a real production
+    // failure into an uninformative bare "Unauthorized".
+    expect(relevant).toContain('invalid_grant');
     expect(relevant).toContain('Token has been expired or revoked');
+    expect(relevant).toMatch(/HTTP \d+/);
     // Never the access/refresh token strings themselves.
     expect(relevant).not.toContain('stale-access-token-not-a-real-secret');
     expect(relevant).not.toContain('refresh-token-not-a-real-secret');
@@ -219,6 +225,26 @@ describe('Incident 9.9.17G -- worker-side dual-FK Gmail credential resolution (r
     const relevant = loggedLines.find((l) => l.includes('credential_resolve_failed'));
     expect(relevant).toBeTruthy();
     expect(relevant).toContain('OAuth credentials not configured for provider: gmail');
+
+    warnSpy.mockRestore();
+  });
+
+  it('Incident 9.9.17J: an invalid_client rejection (Google\'s literal error_description "Unauthorized" for a client id/secret mismatch) preserves BOTH the error code and description and the HTTP status -- the previous `??` chain silently dropped the error code, leaving only the uninformative "Unauthorized" string a real production log showed', async () => {
+    seedDualFkAttachment(expiredToken());
+    fetchMock.mockResolvedValue(googleRefreshResponse(false, { error: 'invalid_client', error_description: 'Unauthorized' }, 401));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { resolveWorkflowIntegrations } = await import('../lib/user-integrations');
+    await expect(resolveWorkflowIntegrations(USER_ID, WORKFLOW_ID, gmailWorkflow())).rejects.toThrow('SETUP_REQUIRED:gmail');
+
+    const loggedLines = warnSpy.mock.calls.map((c) => String(c[0]));
+    const relevant = loggedLines.find((l) => l.includes('credential_resolve_failed'));
+    expect(relevant).toBeTruthy();
+    // The previously-lost signal: 'invalid_client' now survives alongside
+    // 'Unauthorized', instead of the description alone swallowing it.
+    expect(relevant).toContain('invalid_client');
+    expect(relevant).toContain('Unauthorized');
+    expect(relevant).toContain('HTTP 401');
 
     warnSpy.mockRestore();
   });
