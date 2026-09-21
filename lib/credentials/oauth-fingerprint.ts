@@ -33,6 +33,19 @@ function fingerprint(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, FINGERPRINT_LENGTH);
 }
 
+/**
+ * Incident 9.9.17L -- the same one-way, truncated SHA-256 fingerprint,
+ * exposed for non-client-credential secrets (specifically, a stored
+ * refresh_token) so a token's IDENTITY can be tracked/compared across
+ * events (did this refresh use the same token as last time? did the value
+ * change between two writes to storage?) without ever recording the token
+ * itself. Returns null for an empty/absent value so "no token" is never
+ * confused with "a token that fingerprints to some value".
+ */
+export function fingerprintSecret(value: string | null | undefined): string | null {
+  return value ? fingerprint(value) : null;
+}
+
 export type OAuthClientFingerprint = {
   provider: string;
   clientIdEnvVar: string;

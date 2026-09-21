@@ -217,7 +217,8 @@ describe('GET /api/oauth/callback', () => {
       OWNER_ID, // from the signed state, not the ATTACKER_ID query param
       'gmail',
       expect.any(Object),
-      'healthy'
+      'healthy',
+      expect.any(Object) // Incident 9.9.17L -- source/fingerprint forensic metadata
     );
     fetchSpy.mockRestore();
   });

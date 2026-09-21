@@ -3,6 +3,7 @@ import { normalizeProvider } from '@/lib/agent/provider-allowlist';
 import { getOAuthProviderConfig, exchangeOAuthCode, serializeOAuthTokens } from '@/lib/credentials/oauth-providers';
 import { isAllowedOAuthReturnTo, verifyOAuthState } from '@/lib/credentials/oauth-state';
 import { assertTrustedUserId, saveCredentialsWithVerification } from '@/lib/credentials/storage';
+import { computeOAuthClientFingerprint, fingerprintSecret, getRuntimeIdentity } from '@/lib/credentials/oauth-fingerprint';
 
 /**
  * GET /api/oauth/callback?code=<code>&state=<state>
@@ -103,7 +104,21 @@ export async function GET(req: NextRequest) {
   };
 
   try {
-    await saveCredentialsWithVerification(userId, provider, credentials, 'healthy');
+    // Incident 9.9.17L -- tags this write as a genuine user-initiated
+    // reconnect (the authorization_code grant, only reachable via a real
+    // Google consent-screen round trip), distinct from an automatic
+    // background refresh's 'automatic_refresh' tag
+    // (lib/credentials/oauth-refresh.ts) -- so a future investigation can
+    // tell, from credential_verifications.metadata alone, whether the last
+    // write to this credential was a reconnect or a silent refresh, and
+    // whether the refresh_token identity changed as a result.
+    await saveCredentialsWithVerification(userId, provider, credentials, 'healthy', {
+      source: 'oauth_callback_connect',
+      runtime: getRuntimeIdentity(),
+      client_fingerprint: computeOAuthClientFingerprint(provider),
+      refresh_token_fingerprint: fingerprintSecret(tokens.refresh_token ?? null),
+      connected_at: new Date().toISOString(),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[oauth/callback] saveCredentialsWithVerification failed for provider=${provider}: ${msg}`);

@@ -21,6 +21,7 @@ import {
   type OAuthTokenResponse,
 } from './oauth-providers';
 import { ClassifiedOAuthError } from './oauth-errors';
+import { computeOAuthClientFingerprint, fingerprintSecret, getRuntimeIdentity } from './oauth-fingerprint';
 import { logger } from '@/lib/runtime/logger';
 
 export const REFRESH_BUFFER_SECONDS = 300; // refresh when < 5 minutes remain
@@ -120,12 +121,31 @@ export async function getValidAccessToken(
     // revoked" signal Part D of this incident explicitly prohibits.
     // Best-effort: a write failure here must never mask or replace the
     // original OAuth failure the caller needs to see.
+    // Incident 9.9.17L -- every classified failure now carries the same
+    // safe forensic fields Part G asked for: which runtime attempted it,
+    // the OAuth client fingerprint used, and a one-way fingerprint of the
+    // refresh_token attempted (never the token itself). This is what lets a
+    // FUTURE occurrence prove or disprove "is this the same refresh token
+    // Google accepted before" and "did the client fingerprint change
+    // between two attempts" without ever needing to see the actual values.
+    const forensics = {
+      runtime: getRuntimeIdentity(),
+      client_fingerprint: computeOAuthClientFingerprint(provider),
+      refresh_token_fingerprint: fingerprintSecret(stored.refresh_token),
+      request_shape: {
+        grant_type: 'refresh_token',
+        client_auth_method: 'body' as const, // client_id/client_secret in the POST body (client_secret_post), never Basic auth
+        refresh_token_present: Boolean(stored.refresh_token),
+      },
+    };
+
     if (err instanceof ClassifiedOAuthError && err.errorClass === 'reconnect_required') {
       await updateVerificationStatus(userId, provider, 'invalid', {
         reason: 'oauth_reconnect_required',
         oauth_error: err.oauthErrorCode,
         http_status: err.httpStatus,
         checked_at: new Date().toISOString(),
+        ...forensics,
       }).catch((writeErr: unknown) => {
         logger.warn('oauth_refresh.verification_status_write_failed', {
           provider,
@@ -134,11 +154,17 @@ export async function getValidAccessToken(
         });
       });
     } else if (err instanceof ClassifiedOAuthError && err.errorClass === 'config_fault') {
+      // Deliberately NOT written to credential_verifications: doing so
+      // would change the user-visible status column for something that is
+      // never the user's fault (see the comment below this catch block).
+      // Log-only, but now with the full forensic shape.
       logger.warn('oauth_refresh.platform_config_fault', {
         provider,
         user_id: userId,
         oauth_error: err.oauthErrorCode,
         http_status: err.httpStatus,
+        checked_at: new Date().toISOString(),
+        ...forensics,
       });
     }
     throw err;
@@ -175,11 +201,30 @@ export async function getValidAccessToken(
       : null,
   };
 
+  // Incident 9.9.17L -- Part 2 of this incident could not determine, after
+  // the fact, whether a prior "healthy" credential_verifications write
+  // reflected a genuine Google token-endpoint exchange or something else
+  // entirely, because neither this write nor the callback-connect write
+  // recorded WHICH code path produced it. Tagging source/fingerprints here
+  // (and the mirrored tag in app/api/oauth/callback/route.ts) closes that
+  // gap for every future write: 'automatic_refresh' can only ever come from
+  // a real, completed grant_type=refresh_token exchange (the early-return
+  // branches above never reach this line), so its mere presence proves a
+  // real Google round trip occurred, and the refresh-token fingerprint
+  // pair proves whether the token rotated.
   await saveCredentialsWithVerification(
     userId,
     provider,
     { [config.credentialKey]: JSON.stringify(updated) },
-    'healthy'
+    'healthy',
+    {
+      source: 'automatic_refresh',
+      runtime: getRuntimeIdentity(),
+      client_fingerprint: computeOAuthClientFingerprint(provider),
+      previous_refresh_token_fingerprint: fingerprintSecret(stored.refresh_token),
+      refresh_token_fingerprint: fingerprintSecret(updated.refresh_token),
+      refreshed_at: new Date().toISOString(),
+    }
   );
 
   return updated.access_token;
