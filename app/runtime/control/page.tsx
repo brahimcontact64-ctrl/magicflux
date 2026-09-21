@@ -24,6 +24,7 @@ import { SlaPanel }             from '@/components/control/SlaPanel';
 import { CostPanel }            from '@/components/control/CostPanel';
 import { AlertsPanel }          from '@/components/control/AlertsPanel';
 import { SideEffectRecoveryPanel } from '@/components/control/SideEffectRecoveryPanel';
+import { OAuthRefreshTestPanel } from '@/components/control/OAuthRefreshTestPanel';
 
 export default function ControlPage() {
   const router = useRouter();
@@ -95,6 +96,7 @@ export default function ControlPage() {
             <TabsTrigger value='cost'           className='text-xs px-4'>Cost</TabsTrigger>
             <TabsTrigger value='alerts'         className='text-xs px-4'>Alerts</TabsTrigger>
             <TabsTrigger value='recovery'       className='text-xs px-4'>Recovery</TabsTrigger>
+            <TabsTrigger value='oauth-test'     className='text-xs px-4'>OAuth Test</TabsTrigger>
           </TabsList>
 
           <TabsContent value='overview'>
@@ -187,6 +189,14 @@ export default function ControlPage() {
               <p className='text-xs text-muted-foreground'>Resolve side effects MagicFlux could not prove the outcome of. Never a blind retry -- each action records what you confirmed directly with the provider.</p>
             </div>
             <SideEffectRecoveryPanel />
+          </TabsContent>
+
+          <TabsContent value='oauth-test'>
+            <div className='mb-4'>
+              <h1 className='text-lg font-semibold'>OAuth Refresh Test</h1>
+              <p className='text-xs text-muted-foreground'>Incident 9.9.17M -- temporary diagnostic. Triggers exactly one real Gmail OAuth refresh attempt from Vercel&apos;s runtime under your own session.</p>
+            </div>
+            <OAuthRefreshTestPanel />
           </TabsContent>
         </Tabs>
       </main>
