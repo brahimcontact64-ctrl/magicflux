@@ -86,10 +86,13 @@ test.describe('repeated geometry stability through every requested state transit
     await page.waitForTimeout(500);
     await assertClean('back-to-top');
 
-    await page.mouse.wheel(0, 400);
+    // page.mouse.wheel() isn't supported in Playwright's mobile-WebKit
+    // emulation; window.scrollBy is the touch-agnostic equivalent and
+    // exercises the same scroll-driven layout recalculation either way.
+    await page.evaluate(() => window.scrollBy(0, 400));
     await page.waitForTimeout(300);
     await assertClean('scrolled');
-    await page.mouse.wheel(0, -400);
+    await page.evaluate(() => window.scrollBy(0, -400));
     await page.waitForTimeout(300);
     await assertClean('scrolled-back');
 

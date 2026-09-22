@@ -138,10 +138,18 @@ export async function findOverflowingElements(page: Page): Promise<{ docScrollWi
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && (rect.right > vw + 2 || rect.left < -2)) {
         const cs = getComputedStyle(el);
-        const parent = el.parentElement;
-        const parentOverflowX = parent ? getComputedStyle(parent).overflowX : '';
-        const isDecorativeOrContained =
-          cs.position === 'absolute' || cs.position === 'fixed' || parentOverflowX === 'auto' || parentOverflowX === 'scroll';
+        // Walk the FULL ancestor chain, not just the immediate parent --
+        // an intentionally-scrollable strip (e.g. a tab bar) commonly has
+        // one or more plain wrapper divs between the wide content and the
+        // actual overflow-x:auto container.
+        let hasScrollableAncestor = false;
+        let ancestor = el.parentElement;
+        while (ancestor) {
+          const ox = getComputedStyle(ancestor).overflowX;
+          if (ox === 'auto' || ox === 'scroll') { hasScrollableAncestor = true; break; }
+          ancestor = ancestor.parentElement;
+        }
+        const isDecorativeOrContained = cs.position === 'absolute' || cs.position === 'fixed' || hasScrollableAncestor;
         if (!isDecorativeOrContained) {
           offenders.push({
             tag: el.tagName,

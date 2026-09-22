@@ -52,12 +52,26 @@ export function Hero() {
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/5 blur-[120px] pointer-events-none" />
       <div className="absolute top-1/2 left-1/4 w-[300px] h-[300px] rounded-full bg-blue-500/5 blur-[100px] pointer-events-none" />
 
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-medium mb-8 animate-in-up">
-          <Sparkles className="w-3 h-3" />
+      {/* Phase 9.9.19C -- this div is the ONLY flex item of the Hero
+          <section> above (display:flex, no flex-basis set), and a flex
+          item's default min-width is `auto` -- meaning it refuses to
+          shrink below its own content's min-content width, not the
+          available space. Proven by direct reproduction at 320px: this
+          div computed to 344px wide (12px past each edge, symmetric,
+          exactly matching the real iPhone's "badge/H1/subtitle/terminal
+          card all extend off-screen" report) purely because the Badge
+          below is `inline-flex` with no wrap, forcing one unbreakable
+          row wide enough to become this whole container's floor. min-w-0
+          is the standard fix for a flex item that should shrink to fit
+          its actual container instead of its content's natural width. */}
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center min-w-0">
+        {/* Badge -- flex-wrap so "No coding required" can drop to its own
+            line on the narrowest phones instead of forcing one long
+            unbreakable row (the actual min-content contributor above). */}
+        <div className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-medium mb-8 animate-in-up max-w-full">
+          <Sparkles className="w-3 h-3 flex-shrink-0" />
           <span>MagicFlux</span>
-          <span className="w-1 h-1 rounded-full bg-primary" />
+          <span className="w-1 h-1 rounded-full bg-primary flex-shrink-0" />
           <span>No coding required</span>
         </div>
 
