@@ -78,6 +78,22 @@
 
   html {
     scroll-behavior: smooth;
+    /* Phase 9.9.19C -- iOS Safari's mobile text-autosizing ("boost")
+       feature can automatically inflate rendered font sizes beyond what
+       the page's CSS specifies, independent of any layout/flex bug --
+       historically the exact mechanism behind "text suddenly renders
+       oversized and overflows" reports that come and go on the same real
+       device/session with no code change, and specifically NOT
+       reproducible by ANY Playwright browser engine (including its
+       "webkit" project): Playwright's WebKit build is desktop WebKit,
+       which never implements this iOS-only mobile subsystem at all, no
+       matter how many device/viewport options are passed to it. This is
+       the standard, non-hacky disable -- it does not touch overflow,
+       clipping, or any element's intended size, only WebKit's own
+       automatic inflation of it.
+       https://webkit.org/blog/ (text-size-adjust) */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 }
 

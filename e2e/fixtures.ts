@@ -105,3 +105,62 @@ export async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   });
   expect(overflow, 'page has horizontal overflow (content wider than viewport)').toBeLessThanOrEqual(2);
 }
+
+export type OverflowOffender = {
+  tag: string;
+  className: string;
+  rect: { left: number; right: number; width: number };
+  computedWidth: string;
+  whiteSpace: string;
+  position: string;
+  text: string;
+};
+
+/**
+ * Phase 9.9.19C -- Part C's diagnostic: recursively finds elements whose
+ * bounding rect exceeds the viewport, then filters out the two LEGITIMATE
+ * classes that produce a wide rect without ever causing page-level
+ * overflow -- position:absolute/fixed decorative elements (clipped by an
+ * ancestor's overflow-hidden, e.g. Hero's background blur circles) and
+ * elements inside a horizontally-scrollable ancestor (overflow-x:auto/
+ * scroll, e.g. an intentional tab strip) -- so what's left is an actual
+ * candidate for "this specific element is forcing the page wider", not
+ * hundreds of descendants merely inheriting it. Callers should still check
+ * `document.documentElement.scrollWidth` themselves for the authoritative
+ * page-level signal (expectNoHorizontalOverflow) -- this is for
+ * identifying WHICH element to blame once that signal fires.
+ */
+export async function findOverflowingElements(page: Page): Promise<{ docScrollWidth: number; docClientWidth: number; offenders: OverflowOffender[] }> {
+  return page.evaluate(() => {
+    const vw = window.innerWidth;
+    const offenders: OverflowOffender[] = [];
+    const walk = (el: Element) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && (rect.right > vw + 2 || rect.left < -2)) {
+        const cs = getComputedStyle(el);
+        const parent = el.parentElement;
+        const parentOverflowX = parent ? getComputedStyle(parent).overflowX : '';
+        const isDecorativeOrContained =
+          cs.position === 'absolute' || cs.position === 'fixed' || parentOverflowX === 'auto' || parentOverflowX === 'scroll';
+        if (!isDecorativeOrContained) {
+          offenders.push({
+            tag: el.tagName,
+            className: typeof el.className === 'string' ? el.className : '',
+            rect: { left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width) },
+            computedWidth: cs.width,
+            whiteSpace: cs.whiteSpace,
+            position: cs.position,
+            text: (el.textContent ?? '').slice(0, 60),
+          });
+        }
+      }
+      for (const child of Array.from(el.children)) walk(child);
+    };
+    walk(document.body);
+    return {
+      docScrollWidth: document.documentElement.scrollWidth,
+      docClientWidth: document.documentElement.clientWidth,
+      offenders,
+    };
+  });
+}
