@@ -33,7 +33,9 @@ test('opening the mobile menu never overlaps the Hero headline/CTA, and closing 
   // The overlay itself must exist and start exactly at the top bar's
   // bottom edge -- never at 0 (which would mean it's covering the logo/
   // close button too) and never floating below some arbitrary offset.
-  const firstNavLink = page.getByRole('link', { name: 'How it works' });
+  // Scoped to <header> -- the Footer has its own identical-looking "How it
+  // works" link further down the page.
+  const firstNavLink = page.locator('header').getByRole('link', { name: 'How it works' });
   await expect(firstNavLink).toBeVisible();
   const linkBox = await firstNavLink.boundingBox();
   expect(linkBox).not.toBeNull();
