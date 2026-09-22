@@ -39,31 +39,26 @@ async function navbarBox(page: Page) {
 }
 
 test.describe('landing page anchor-scroll must never collide with the fixed navbar', () => {
-  test.skip(({ isMobile }) => !isMobile, 'the reported bug is mobile-nav-driven; desktop nav has no anchor-collision risk at this navbar height');
+  // The fixed navbar (h-16) exists at every viewport; a URL can carry any
+  // of these hashes directly regardless of device, so this runs on both
+  // mobile and desktop projects rather than being mobile-only.
 
-  const anchors: Array<{ href: string; headingPattern: RegExp }> = [
-    { href: '#how-it-works', headingPattern: /two ways to automate/i },
-    { href: '#templates', headingPattern: /./ },
-    { href: '#managed', headingPattern: /./ },
-    { href: '#pricing', headingPattern: /./ },
-    { href: '#demo', headingPattern: /./ },
-    { href: '#waitlist', headingPattern: /./ },
-  ];
+  // Only how-it-works/managed/pricing are actually reachable from the
+  // mobile nav sheet (NAV_LINKS); demo is Hero-only ("See a Demo"), and
+  // templates/waitlist currently have no clickable in-page entry point at
+  // all. Every one of the six still needs scroll-margin-top -- a URL can
+  // be shared/bookmarked with any of these hashes directly -- so this
+  // drives the browser's real native anchor-scroll via location.hash
+  // (what every one of these six paths ultimately triggers) rather than
+  // depending on a specific clickable element existing for each.
+  const anchors = ['#how-it-works', '#templates', '#managed', '#pricing', '#demo', '#waitlist'];
 
-  for (const { href, headingPattern } of anchors) {
+  for (const href of anchors) {
     test(`anchor ${href}: target section clears the fixed navbar after native scroll`, async ({ page }) => {
       await page.goto('/', { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(800);
 
-      // Open the mobile sheet and tap the real nav link -- exactly the
-      // real-device repro path, not a page.goto(hash) shortcut (which
-      // skips the browser's own native anchor-scroll behavior entirely).
-      await page.getByRole('button', { name: /open menu/i }).click();
-      await page.getByRole('link', { name: new RegExp(href.replace('#', ''), 'i') }).click().catch(async () => {
-        // Fall back to clicking by href for links whose visible label
-        // doesn't literally contain the anchor id (Templates, Demo, etc.)
-        await page.locator(`header a[href="${href}"]`).first().click();
-      });
+      await page.evaluate((hash) => { window.location.hash = hash; }, href);
       await page.waitForTimeout(600);
 
       const nav = await navbarBox(page);
@@ -103,7 +98,20 @@ test.describe('landing page — visual capture + no-collision baseline (initial 
   test('navbar open: full-viewport sheet, no overflow, close control reachable, opening does not shift page layout', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
-    const heroBefore = await page.getByRole('heading', { level: 1 }).boundingBox();
+
+    // Measuring the H1 heading itself is NOT a valid "did the menu shift
+    // the page" probe on this specific page: Hero's typed-example/
+    // rotating-word animation continuously changes the height of content
+    // BELOW the heading, and since Hero centers its whole content block
+    // vertically (flex items-center), that alone moves the heading a few
+    // px over any elapsed time -- confirmed by measuring it across the
+    // same delay with ZERO menu interaction at all (identical shift).
+    // The Hero <section> element's own top-left corner is what the menu
+    // could actually move (e.g. via a scrollbar-width reflow from the
+    // body scroll-lock) -- it's positioned by the fixed `pt-16` container,
+    // never by the animated content inside it.
+    const heroSection = page.locator('section').first();
+    const sectionBefore = await heroSection.boundingBox();
 
     await page.getByRole('button', { name: /open menu/i }).click();
     await page.waitForTimeout(400);
@@ -112,15 +120,23 @@ test.describe('landing page — visual capture + no-collision baseline (initial 
 
     await page.getByRole('button', { name: /close menu/i }).click();
     await page.waitForTimeout(400);
-    const heroAfter = await page.getByRole('heading', { level: 1 }).boundingBox();
-    expect(Math.abs(heroAfter!.y - heroBefore!.y)).toBeLessThan(2);
+    const sectionAfter = await heroSection.boundingBox();
+    expect(Math.abs(sectionAfter!.x - sectionBefore!.x)).toBeLessThan(1);
+    expect(Math.abs(sectionAfter!.y - sectionBefore!.y)).toBeLessThan(1);
     await page.screenshot({ path: 'test-results/visual-navbar-closed-after.png' });
   });
 
   test('first section below Hero ("How it works") never collides with the navbar on a normal scroll (not just anchor-jump)', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
-    await page.locator('#how-it-works').scrollIntoViewIfNeeded();
+    // scrollIntoViewIfNeeded()'s "wait for stable" heuristic never settles
+    // on WebKit against this page specifically -- Hero's own typed-example
+    // animation keeps SOMETHING on the page moving continuously, which is
+    // legitimate content behavior, not an instability bug. A direct native
+    // scrollIntoView() (the same mechanism location.hash navigation uses
+    // under the hood) doesn't wait on that heuristic and is what a real
+    // scroll gesture triggers anyway.
+    await page.evaluate(() => document.getElementById('how-it-works')?.scrollIntoView());
     await page.waitForTimeout(400);
 
     const nav = await navbarBox(page);
