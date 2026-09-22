@@ -191,60 +191,74 @@ export default function DashboardPage() {
           </div>
           <span className='text-sm font-semibold'>MagicFlux</span>
         </Link>
-        <div className='h-4 w-px bg-border' />
-        <span className='text-xs text-muted-foreground'>Dashboard</span>
+        <div className='h-4 w-px bg-border hidden sm:block' />
+        <span className='text-xs text-muted-foreground hidden sm:block'>Dashboard</span>
         <div className='flex-1' />
-        <Button variant='ghost' size='sm' onClick={loadData} className='gap-1.5 text-xs text-muted-foreground' disabled={loading}>
-          <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          Refresh
-        </Button>
-        <FeedbackWidget />
-        <ThemeToggle />
-        <Link href='/reviews' className='relative'>
-          <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
-            <ClipboardCheck className='h-3.5 w-3.5' />
-            Reviews
+        {/* Phase 9.9.19 -- Part 8: this row previously had no wrap and no
+            overflow handling at all -- 9+ unshrinkable buttons in a plain
+            `flex` row with no responsive hiding forced the ENTIRE page to
+            904px+ wide on a 390px viewport (the browser expands the layout
+            box to fit unwrappable content rather than clipping it), which
+            is exactly the confirmed 704px page-level horizontal overflow
+            this phase's audit found. `overflow-x-auto` + `flex-shrink-0` on
+            every child keeps every existing action reachable (a horizontal
+            swipe within this one strip) while guaranteeing the PAGE itself
+            never overflows -- the same pattern already used successfully
+            in WorkflowEditor's own toolbar. Desktop is visually unchanged
+            (the strip never needs to scroll at that width). */}
+        <div className='flex items-center gap-2 overflow-x-auto' style={{ WebkitOverflowScrolling: 'touch' }}>
+          <Button variant='ghost' size='sm' onClick={loadData} className='gap-1.5 text-xs text-muted-foreground flex-shrink-0' disabled={loading}>
+            <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+            Refresh
           </Button>
-          {pendingReviews !== null && pendingReviews.length > 0 && (
-            <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
-              {pendingReviews.length}
-            </span>
-          )}
-        </Link>
-        {/* Phase 9.9.12A -- workflow_acknowledgments is now live in
-            production (migration applied, schema/RLS certified), so this
-            link is restored (previously deferred in Phase 9.9.12 pending
-            that approval). Same owner-scoped /api/acknowledgments count
-            pattern as the Reviews badge above. */}
-        <Link href='/acknowledgments' className='relative'>
-          <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
-            <AlarmClock className='h-3.5 w-3.5' />
-            Acknowledgments
-          </Button>
-          {pendingAcknowledgments !== null && pendingAcknowledgments.length > 0 && (
-            <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
-              {pendingAcknowledgments.length}
-            </span>
-          )}
-        </Link>
-        <Link href='/runtime'>
-          <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
-            <Activity className='h-3.5 w-3.5' />
-            Runtime
-          </Button>
-        </Link>
-        <Link href='/builder'>
-          <Button size='sm' className='gap-1.5 text-xs'>
-            <Plus className='h-3.5 w-3.5' />
-            New Workflow
-          </Button>
-        </Link>
-        <Link href='/'>
-          <Button variant='ghost' size='sm' className='gap-2 text-muted-foreground'>
-            <ArrowLeft className='h-3.5 w-3.5' />
-            Home
-          </Button>
-        </Link>
+          <div className='flex-shrink-0'><FeedbackWidget /></div>
+          <div className='flex-shrink-0'><ThemeToggle /></div>
+          <Link href='/reviews' className='relative flex-shrink-0'>
+            <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
+              <ClipboardCheck className='h-3.5 w-3.5' />
+              Reviews
+            </Button>
+            {pendingReviews !== null && pendingReviews.length > 0 && (
+              <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
+                {pendingReviews.length}
+              </span>
+            )}
+          </Link>
+          {/* Phase 9.9.12A -- workflow_acknowledgments is now live in
+              production (migration applied, schema/RLS certified), so this
+              link is restored (previously deferred in Phase 9.9.12 pending
+              that approval). Same owner-scoped /api/acknowledgments count
+              pattern as the Reviews badge above. */}
+          <Link href='/acknowledgments' className='relative flex-shrink-0'>
+            <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
+              <AlarmClock className='h-3.5 w-3.5' />
+              Acknowledgments
+            </Button>
+            {pendingAcknowledgments !== null && pendingAcknowledgments.length > 0 && (
+              <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black'>
+                {pendingAcknowledgments.length}
+              </span>
+            )}
+          </Link>
+          <Link href='/runtime' className='flex-shrink-0'>
+            <Button variant='outline' size='sm' className='gap-1.5 text-xs'>
+              <Activity className='h-3.5 w-3.5' />
+              Runtime
+            </Button>
+          </Link>
+          <Link href='/builder' className='flex-shrink-0'>
+            <Button size='sm' className='gap-1.5 text-xs'>
+              <Plus className='h-3.5 w-3.5' />
+              New Workflow
+            </Button>
+          </Link>
+          <Link href='/' className='flex-shrink-0'>
+            <Button variant='ghost' size='sm' className='gap-2 text-muted-foreground'>
+              <ArrowLeft className='h-3.5 w-3.5' />
+              Home
+            </Button>
+          </Link>
+        </div>
       </header>
 
       <main className='mx-auto max-w-6xl space-y-6 px-6 py-8'>

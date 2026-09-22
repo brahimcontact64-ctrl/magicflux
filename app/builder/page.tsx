@@ -380,11 +380,21 @@ export default function BuilderPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const mobile = window.innerWidth < 768;
+    setIsMobile(mobile);
+    // Phase 9.9.19 -- Part 1/4: the Templates sidebar previously defaulted
+    // open unconditionally, squeezing ChatInterface into roughly half the
+    // viewport width on a phone (confirmed live at 390px: chat text
+    // wrapping mid-word, prompt suggestion buttons unreadable). Only
+    // corrects the INITIAL mobile state -- the existing isMobile-driven
+    // auto-close after generating/selecting a template (below) already
+    // covers the later interaction points, and desktop's default-open
+    // behavior is unchanged.
+    if (mobile) setSidebarOpen(false);
     const handleResize = () => setIsMobile(window.innerWidth < 768);
-    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const templateId = searchParams.get('template');
@@ -932,12 +942,22 @@ export default function BuilderPage() {
       {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} checkoutAvailable={checkoutAvailable} />}
 
       {/* Main */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Phase 9.9.19 -- Part 1/4: on mobile, opening this sidebar as a
+            fixed-width column (as desktop does) leaves the chat squeezed
+            into whatever's left of a 390px viewport minus 224px -- exactly
+            the confirmed unreadable layout this phase's audit found. On
+            mobile it now renders as a full-viewport overlay instead (below
+            the header's own z-20, so the existing "Templates" toggle
+            button stays reachable to close it again -- no new close
+            control needed). Desktop's fixed-width column is unchanged. */}
         <aside className={cn(
-          'flex-shrink-0 border-r border-border bg-card/30 transition-all duration-300 overflow-hidden',
-          sidebarOpen ? 'w-56 lg:w-64' : 'w-0'
+          'flex-shrink-0 border-r border-border transition-all duration-300 overflow-hidden',
+          sidebarOpen
+            ? (isMobile ? 'fixed inset-x-0 top-14 bottom-0 z-10 w-full border-r-0 bg-background' : 'w-56 lg:w-64 bg-card/30')
+            : 'w-0 bg-card/30'
         )}>
-          <div className="w-56 lg:w-64 h-full overflow-y-auto scrollbar-thin p-3">
+          <div className={cn('h-full overflow-y-auto scrollbar-thin p-3', isMobile ? 'w-full' : 'w-56 lg:w-64')}>
             <IndustrySelector
               selectedIndustry={selectedIndustry}
               selectedTemplate={selectedTemplate}
