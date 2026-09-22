@@ -245,8 +245,19 @@ export function Navbar() {
             ))}
             <div className="pt-3 space-y-2 border-t border-border mt-3">
               {user ? (
-                <div className="px-3 py-2 text-sm text-muted-foreground">
-                  Signed in as <span className="text-foreground font-medium">{user.email}</span>
+                // Phase 9.9.19B -- a real iPhone with a long email address
+                // showed this row overflowing horizontally off-screen: an
+                // email has no natural break points (no spaces), so plain
+                // inline text never wraps on its own no matter how narrow
+                // the container is. break-words (overflow-wrap: break-word)
+                // forces a break inside the token itself once it would
+                // otherwise overflow, and min-w-0 lets this flex child
+                // actually shrink below its content's intrinsic width
+                // (the flex default is to refuse to, which silently
+                // defeats break-words on its own).
+                <div className="px-3 py-2 text-sm text-muted-foreground flex flex-wrap items-baseline gap-x-1 min-w-0">
+                  <span className="flex-shrink-0">Signed in as</span>
+                  <span className="text-foreground font-medium break-words min-w-0 max-w-full">{user.email}</span>
                 </div>
               ) : (
                 <>

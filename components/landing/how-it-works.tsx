@@ -64,9 +64,18 @@ const MANAGED_STEPS = [
   }
 ];
 
+// Phase 9.9.19B -- this section (and every other #anchor target the
+// navbar/Hero link to) had no scroll-margin-top, so a real iPhone tapping
+// "How it works" natively scrolled this section's top edge to viewport
+// y=0 -- directly under the 64px fixed navbar, which is exactly the
+// reported "heading rendering underneath/through the navbar". scroll-mt-20
+// (80px, a bit more than the navbar's own 64px for visual breathing room)
+// is the CSS-spec-correct mechanism for a fixed-header + anchor-link
+// layout; applied identically to every #anchor section on this page, not
+// just this one.
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-24 relative">
+    <section id="how-it-works" className="py-24 relative scroll-mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">

@@ -27,8 +27,15 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'mobile-375', use: { ...devices['Desktop Chrome'], viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true } },
-    { name: 'mobile-320', use: { ...devices['Desktop Chrome'], viewport: { width: 320, height: 690 }, isMobile: true, hasTouch: true } },
+    // Phase 9.9.19B -- real iPhone CSS-pixel dimensions (SE, 6/7/8, 12-14,
+    // 14 Pro, 14 Pro Max/15 Plus), not approximations. A real iPhone
+    // caught a bug (anchor-scroll landing a heading under the fixed navbar,
+    // and a long-email overflow) that scrollWidth<=clientWidth-only
+    // Chromium checks at slightly-off heights never exercised.
+    { name: 'mobile-320', use: { ...devices['Desktop Chrome'], viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-375', use: { ...devices['Desktop Chrome'], viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-390', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-393', use: { ...devices['Desktop Chrome'], viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true } },
     { name: 'mobile-430', use: { ...devices['Desktop Chrome'], viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true } },
     { name: 'tablet-768', use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     { name: 'webkit-desktop', use: { ...devices['Desktop Safari'], viewport: { width: 1440, height: 900 } } },

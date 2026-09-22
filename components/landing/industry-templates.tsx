@@ -42,7 +42,7 @@ export function IndustryTemplates() {
   const Icon = INDUSTRY_ICONS[activeData.icon];
 
   return (
-    <section id="templates" className="py-24 relative">
+    <section id="templates" className="py-24 relative scroll-mt-20">
       {/* Background */}
       <div className="absolute inset-0 dot-pattern opacity-20" />
       <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background" />

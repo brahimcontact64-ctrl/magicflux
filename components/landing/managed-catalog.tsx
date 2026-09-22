@@ -219,7 +219,7 @@ export function ManagedCatalog() {
   // scrollWidth past the viewport on every mobile breakpoint and on desktop
   // Safari, forcing horizontal scroll on the homepage.
   return (
-    <section id="managed" className="py-24 relative overflow-hidden">
+    <section id="managed" className="py-24 relative overflow-hidden scroll-mt-20">
       <div className="absolute inset-0 dot-pattern opacity-30" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] rounded-full bg-primary/4 blur-[150px] pointer-events-none" />
 

@@ -47,7 +47,7 @@ const JSON_PREVIEW = `{
 
 export function DemoPreview() {
   return (
-    <section id="demo" className="py-24 relative overflow-hidden">
+    <section id="demo" className="py-24 relative overflow-hidden scroll-mt-20">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] rounded-full bg-primary/5 blur-[150px] pointer-events-none" />
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

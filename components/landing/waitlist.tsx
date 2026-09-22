@@ -40,7 +40,7 @@ export function Waitlist() {
   }
 
   return (
-    <section id="waitlist" className="py-24 relative overflow-hidden">
+    <section id="waitlist" className="py-24 relative overflow-hidden scroll-mt-20">
       {/* Background */}
       <div className="absolute inset-0 grid-pattern opacity-30" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-primary/8 blur-[150px] pointer-events-none" />
