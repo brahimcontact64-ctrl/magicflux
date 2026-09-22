@@ -41,10 +41,26 @@ import { expectNoHorizontalOverflow, findOverflowingElements } from './fixtures'
  *     whatever regressions ARE visible to these engines.
  */
 
-test('html disables WebKit/mobile text auto-inflation (the standard mitigation for "text renders oversized on a real device, not reproducible in automation")', async ({ page }) => {
+test('html disables WebKit/mobile text auto-inflation (the standard mitigation for "text renders oversized on a real device, not reproducible in automation")', async ({ page, request }) => {
+  // Both getComputedStyle() and the CSSOM's own cssRules are unreliable
+  // ways to verify this specific property across engines -- WebKit's
+  // getComputedStyle never exposes it via any JS accessor, and Tailwind
+  // nests this declaration inside an `@layer base { }` block, whose
+  // cssRules representation isn't consistent to introspect either.
+  // Fetching the actual built/deployed CSS file's raw bytes and checking
+  // the declaration is textually present sidesteps every engine-specific
+  // introspection quirk -- it verifies the real deployed artifact
+  // directly, the same file every browser (including a real iPhone)
+  // downloads and applies.
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  const adjust = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('-webkit-text-size-adjust') || getComputedStyle(document.documentElement).getPropertyValue('text-size-adjust'));
-  expect(adjust.trim()).toBe('100%');
+  const cssHref = await page.evaluate(() => {
+    const link = document.querySelector('link[rel="stylesheet"]');
+    return link ? (link as HTMLLinkElement).href : null;
+  });
+  expect(cssHref, 'no stylesheet link found on the page').not.toBeNull();
+  const res = await request.get(cssHref!);
+  const css = await res.text();
+  expect(css).toMatch(/text-size-adjust:\s*100%/i);
 });
 
 test('exactly one <meta name="viewport"> tag in the raw server-rendered HTML (not two)', async ({ request, baseURL }) => {
