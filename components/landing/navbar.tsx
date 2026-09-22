@@ -140,6 +140,24 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', handler);
   }, []);
 
+  // Phase 9.9.19 -- Part B: the mobile menu used to render INLINE inside
+  // this fixed-position header. Since a `position: fixed` element never
+  // participates in document flow, opening the menu grew the header's own
+  // height (64px -> 64px + the full link list) without ever pushing the
+  // page content below it down -- the expanded panel simply painted over
+  // whatever the Hero section had rendered at those pixel coordinates.
+  // That is the exact "nav links overlapping the Hero" bug. Locking body
+  // scroll while the menu is open is the other half of "intentional"
+  // scroll behavior Part B asks for -- without it, the page behind a
+  // full-viewport sheet remains independently scrollable, which reads as
+  // broken on a real phone even once the visual overlap itself is fixed.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [mobileOpen]);
+
   return (
     <header className={cn(
       'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
@@ -193,22 +211,39 @@ export function Navbar() {
 
           <div className="flex md:hidden items-center gap-2">
             <ThemeToggle />
-            <button onClick={() => setMobileOpen(!mobileOpen)}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors">
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              aria-expanded={mobileOpen}
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              className="p-3 -m-1 rounded-lg hover:bg-secondary transition-colors"
+            >
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
+      </nav>
 
-        {mobileOpen && (
-          <div className="md:hidden border-t border-border py-4 space-y-1">
+      {/* Phase 9.9.19 -- Part B: a genuine full-viewport overlay sheet, a
+          sibling of the top bar rather than inline content that grows it.
+          `top-16` starts it exactly below the always-64px top bar (so the
+          logo + close button stay visible and reachable above it); `bottom-0`
+          anchors to the CURRENT visual viewport edge rather than a stale
+          100vh snapshot, which is what keeps this correct across iOS
+          Safari's address-bar show/hide resize (Part H) without needing
+          dvh/svh here. z-40 sits below the header's own z-50 (close button
+          stays on top, clickable) and above the page's content (Hero is
+          z-10) -- opaque background, so it can never visually collide with
+          whatever is rendered underneath, only fully occlude it. */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-x-0 top-16 bottom-0 z-40 bg-background overflow-y-auto overscroll-contain">
+          <div className="px-4 py-4 space-y-1" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
             {NAV_LINKS.map(link => (
               <a key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
-                className="block px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors">
+                className="block px-3 py-3 text-base text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors">
                 {link.label}
               </a>
             ))}
-            <div className="pt-2 space-y-2">
+            <div className="pt-3 space-y-2 border-t border-border mt-3">
               {user ? (
                 <div className="px-3 py-2 text-sm text-muted-foreground">
                   Signed in as <span className="text-foreground font-medium">{user.email}</span>
@@ -216,10 +251,10 @@ export function Navbar() {
               ) : (
                 <>
                   <Link href="/login" onClick={() => setMobileOpen(false)}>
-                    <Button variant="outline" size="sm" className="w-full">Sign in</Button>
+                    <Button variant="outline" size="sm" className="w-full h-11 text-base">Sign in</Button>
                   </Link>
                   <Link href="/builder" onClick={() => setMobileOpen(false)}>
-                    <Button size="sm" className="w-full gap-2">
+                    <Button size="sm" className="w-full h-11 text-base gap-2">
                       <Zap className="w-3.5 h-3.5" />
                       Start Building Free
                     </Button>
@@ -228,8 +263,8 @@ export function Navbar() {
               )}
             </div>
           </div>
-        )}
-      </nav>
+        </div>
+      )}
     </header>
   );
 }
