@@ -14,6 +14,9 @@ import {
   PlayCircle,
   StopCircle,
   ClipboardList,
+  Plug,
+  Unplug,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -402,6 +405,12 @@ export default function ConnectWebsitePage() {
           </div>
         </div>
 
+        {/* Phase 9.9.22B -- the real, live WooCommerce Direct Connector
+            setup flow. Shown only when WooCommerce is selected above --
+            every other platform still only gets the generic guide/relay
+            instructions until its own connector is built. */}
+        {guide.id === 'woocommerce' && <WooCommerceConnectPanel workflowId={params.id} />}
+
         {/* Code examples (custom-code only, but always available) */}
         <div className="rounded-xl border border-border bg-card p-4 space-y-3">
           <p className="text-sm font-semibold">Code examples</p>
@@ -436,6 +445,284 @@ export default function ConnectWebsitePage() {
           </Button>
         </div>
       </main>
+    </div>
+  );
+}
+
+// ── WooCommerce Direct Connector panel (Phase 9.9.22B) ─────────────────────
+
+type WcConnectionInfo = {
+  connected: boolean;
+  connectionId?: string;
+  status?: string;
+  storeUrl?: string;
+  topics?: string[];
+  lastVerifiedAt?: string | null;
+  lastEventAt?: string | null;
+  lastError?: string | null;
+};
+
+type WcTestResult = { stage: string; detail: string };
+
+const WC_STATUS_LABEL: Record<string, string> = {
+  connecting: 'Connecting…',
+  connected: 'Connected',
+  needs_attention: 'Needs attention',
+  disconnected: 'Disconnected',
+};
+
+const WC_STATUS_CLASS: Record<string, string> = {
+  connecting: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  connected: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+  needs_attention: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  disconnected: 'bg-muted text-muted-foreground border-border',
+};
+
+function WooCommerceConnectPanel({ workflowId }: { workflowId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [info, setInfo] = useState<WcConnectionInfo | null>(null);
+  const [storeUrl, setStoreUrl] = useState('');
+  const [consumerKey, setConsumerKey] = useState('');
+  const [consumerSecret, setConsumerSecret] = useState('');
+  const [busy, setBusy] = useState<'validate' | 'connect' | 'disconnect' | 'test' | null>(null);
+  const [testResult, setTestResult] = useState<WcTestResult | null>(null);
+
+  const authHeaders = useCallback(async (): Promise<HeadersInit | null> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+    return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  }, []);
+
+  const load = useCallback(async () => {
+    const headers = await authHeaders();
+    if (!headers) return;
+    const res = await fetch(`/api/connectors/woocommerce/connect?workflowId=${encodeURIComponent(workflowId)}`, { headers, cache: 'no-store' });
+    if (res.ok) setInfo(await res.json());
+    setLoading(false);
+  }, [workflowId, authHeaders]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleValidate = useCallback(async () => {
+    if (!storeUrl || !consumerKey || !consumerSecret) {
+      toast.error('Store URL, Consumer Key and Consumer Secret are all required.');
+      return;
+    }
+    setBusy('validate');
+    setTestResult(null);
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch('/api/connectors/woocommerce/validate', {
+        method: 'POST',
+        headers,
+        // Sent once, over HTTPS, straight to our own authenticated API --
+        // never logged, never rendered back, never persisted by this call.
+        body: JSON.stringify({ storeUrl, consumerKey, consumerSecret }),
+      });
+      const result = (await res.json()) as WcTestResult;
+      setTestResult(result);
+    } finally {
+      setBusy(null);
+    }
+  }, [storeUrl, consumerKey, consumerSecret, authHeaders]);
+
+  const handleConnect = useCallback(async () => {
+    if (!storeUrl || !consumerKey || !consumerSecret) {
+      toast.error('Store URL, Consumer Key and Consumer Secret are all required.');
+      return;
+    }
+    setBusy('connect');
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch('/api/connectors/woocommerce/connect', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ workflowId, storeUrl, consumerKey, consumerSecret }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.message ?? payload.error ?? 'Could not connect WooCommerce');
+        return;
+      }
+      toast.success('WooCommerce connected — webhook subscription created.');
+      // The secret never needs to be typed again; clear it from memory as
+      // soon as it's done its job. Store URL/Key are left so the field
+      // isn't confusingly blanked mid-success, but neither is sent anywhere
+      // again after this point.
+      setConsumerSecret('');
+      setTestResult(null);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }, [workflowId, storeUrl, consumerKey, consumerSecret, authHeaders, load]);
+
+  const handleTestExisting = useCallback(async () => {
+    if (!info?.connectionId) return;
+    setBusy('test');
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch(`/api/connectors/woocommerce/${info.connectionId}/test`, { method: 'POST', headers });
+      const result = (await res.json()) as WcTestResult;
+      setTestResult(result);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }, [info?.connectionId, authHeaders, load]);
+
+  const handleDisconnect = useCallback(async () => {
+    if (!info?.connectionId) return;
+    if (!window.confirm('Disconnect WooCommerce? This removes the webhook subscription from your store and stops new events from reaching this workflow.')) return;
+    setBusy('disconnect');
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch(`/api/connectors/woocommerce/${info.connectionId}`, { method: 'DELETE', headers });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error ?? 'Could not disconnect');
+        return;
+      }
+      toast.success('WooCommerce disconnected.');
+      setInfo({ connected: false });
+      setTestResult(null);
+      setStoreUrl('');
+      setConsumerKey('');
+    } finally {
+      setBusy(null);
+    }
+  }, [info?.connectionId, authHeaders]);
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-4">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">WooCommerce Direct Connector</p>
+        {info?.connected && info.status && (
+          <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${WC_STATUS_CLASS[info.status] ?? WC_STATUS_CLASS.disconnected}`}>
+            {WC_STATUS_LABEL[info.status] ?? info.status}
+          </span>
+        )}
+      </div>
+
+      {info?.connected ? (
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-2 gap-2 text-xs">
+            <div className="rounded-md border border-border bg-background/40 p-2">
+              <p className="text-muted-foreground mb-1">Store</p>
+              <p className="font-mono truncate">{info.storeUrl}</p>
+            </div>
+            <div className="rounded-md border border-border bg-background/40 p-2">
+              <p className="text-muted-foreground mb-1">Subscribed events</p>
+              <p className="font-mono">{info.topics?.join(', ') || 'none'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            {info.lastEventAt ? (
+              <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Last order/customer event: {new Date(info.lastEventAt).toLocaleString()}</>
+            ) : (
+              <><Clock className="w-3.5 h-3.5" /> No inbound events received yet</>
+            )}
+          </div>
+          {info.lastError && (
+            <div className="rounded-md border border-amber-500/25 bg-amber-500/5 p-2 text-[11px] text-amber-300">{info.lastError}</div>
+          )}
+          {testResult && (
+            <div className={`rounded-md border p-2 text-xs ${testResult.stage === 'ready' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400' : 'border-amber-500/30 bg-amber-500/5 text-amber-300'}`}>
+              {testResult.detail}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleTestExisting} disabled={busy !== null}>
+              {busy === 'test' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              Test Connection
+            </Button>
+            <Button size="sm" variant="destructive" className="gap-1.5" onClick={handleDisconnect} disabled={busy !== null}>
+              {busy === 'disconnect' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unplug className="w-3.5 h-3.5" />}
+              Disconnect
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Test Connection re-checks your store/credentials/subscription over WooCommerce&apos;s own API — it never sends test orders or touches Gmail, Slack, or Airtable.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Enter your WooCommerce REST API credentials (WooCommerce → Settings → Advanced → REST API in wp-admin, with Read/Write permissions). MagicFlux verifies them and creates the webhook subscription automatically — no manual WooCommerce webhook setup needed.
+          </p>
+          <div className="space-y-2">
+            <label className="block text-xs">
+              <span className="text-muted-foreground">Store URL</span>
+              <input
+                type="text"
+                value={storeUrl}
+                onChange={(e) => setStoreUrl(e.target.value)}
+                placeholder="https://mystore.com"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1 w-full h-8 rounded-md border border-border bg-background px-2 text-xs"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="text-muted-foreground">Consumer Key</span>
+              <input
+                type="text"
+                value={consumerKey}
+                onChange={(e) => setConsumerKey(e.target.value)}
+                placeholder="ck_…"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1 w-full h-8 rounded-md border border-border bg-background px-2 text-xs font-mono"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="text-muted-foreground">Consumer Secret</span>
+              <input
+                type="password"
+                value={consumerSecret}
+                onChange={(e) => setConsumerSecret(e.target.value)}
+                placeholder="cs_…"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1 w-full h-8 rounded-md border border-border bg-background px-2 text-xs font-mono"
+              />
+            </label>
+          </div>
+
+          {testResult && (
+            <div className={`rounded-md border p-2 text-xs ${testResult.stage === 'ready' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400' : 'border-amber-500/30 bg-amber-500/5 text-amber-300'}`}>
+              {testResult.detail}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleValidate} disabled={busy !== null}>
+              {busy === 'validate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              Test Connection
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleConnect} disabled={busy !== null}>
+              {busy === 'connect' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+              Connect WooCommerce
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Your Consumer Secret is transmitted once over HTTPS to MagicFlux, encrypted at rest, and never shown again after this step.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

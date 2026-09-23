@@ -319,3 +319,98 @@ describe('POST /api/connectors/woocommerce/[connectionId]/test -- Test Connectio
     expect(body.stage).toBe('subscription_invalid');
   });
 });
+
+describe('GET /api/connectors/woocommerce/connect?workflowId=... -- Phase 9.9.22B workflow-scoped lookup', () => {
+  it('reports connected:false when no connection exists yet', async () => {
+    const { GET } = await import('../app/api/connectors/woocommerce/connect/route');
+    const req = new NextRequest(new URL(`http://localhost/api/connectors/woocommerce/connect?workflowId=${WORKFLOW_A}`));
+    const res = await GET(req);
+    const body = await res.json();
+    expect(body.connected).toBe(false);
+  });
+
+  it('reports full status once a connection exists, never leaking credentials or the webhook secret', async () => {
+    const { POST: connect } = await import('../app/api/connectors/woocommerce/connect/route');
+    await connect(connectReq(VALID_CONNECT_BODY));
+
+    const { GET } = await import('../app/api/connectors/woocommerce/connect/route');
+    const req = new NextRequest(new URL(`http://localhost/api/connectors/woocommerce/connect?workflowId=${WORKFLOW_A}`));
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.connected).toBe(true);
+    expect(body.status).toBe('connected');
+    expect(body.storeUrl).toBe(STORE_URL);
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain('cs_test'); // the consumer secret used in VALID_CONNECT_BODY
+    expect(raw.toLowerCase()).not.toContain('secret_encrypted');
+  });
+
+  it('a stranger looking up the same workflowId sees connected:false, never the real owner\'s connection', async () => {
+    const { POST: connect } = await import('../app/api/connectors/woocommerce/connect/route');
+    await connect(connectReq(VALID_CONNECT_BODY));
+
+    currentUserId = 'attacker-user';
+    const { GET } = await import('../app/api/connectors/woocommerce/connect/route');
+    const req = new NextRequest(new URL(`http://localhost/api/connectors/woocommerce/connect?workflowId=${WORKFLOW_A}`));
+    const res = await GET(req);
+    const body = await res.json();
+    expect(body.connected).toBe(false);
+  });
+
+  it('requires authentication', async () => {
+    currentUserId = null;
+    const { GET } = await import('../app/api/connectors/woocommerce/connect/route');
+    const req = new NextRequest(new URL(`http://localhost/api/connectors/woocommerce/connect?workflowId=${WORKFLOW_A}`));
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/connectors/woocommerce/validate -- Phase 9.9.22B pre-connect test', () => {
+  function validateReq(body: Record<string, unknown>) {
+    return new NextRequest(new URL('http://localhost/api/connectors/woocommerce/validate'), {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('reports ready for a reachable store with valid credentials, and persists nothing', async () => {
+    const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
+    const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' }));
+    const body = await res.json();
+    expect(body.stage).toBe('ready');
+    expect(tables.platform_connections.length).toBe(0);
+    expect(tables.integration_credentials.length).toBe(0);
+  });
+
+  it('reports credentials_invalid for a rejected key, without creating anything', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      const u = new URL(url);
+      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
+      if (u.pathname === '/wp-json/wc/v3/webhooks' && (init?.method ?? 'GET') === 'GET') return { status: 401, headers: { get: () => null }, body: null, text: async () => '{}' };
+      return defaultFetchImpl(url, init);
+    });
+    const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
+    const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'wrong', consumerSecret: 'wrong' }));
+    const body = await res.json();
+    expect(body.stage).toBe('credentials_invalid');
+  });
+
+  it('rejects an SSRF-unsafe store URL before any credential is checked', async () => {
+    const dnsModule = await import('node:dns');
+    vi.mocked(dnsModule.promises.lookup).mockResolvedValueOnce([{ address: '10.0.0.5', family: 4 }] as never);
+    const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
+    const res = await POST(validateReq({ storeUrl: 'https://internal.example.com', consumerKey: 'ck', consumerSecret: 'cs' }));
+    const body = await res.json();
+    expect(body.stage).toBe('store_unreachable');
+  });
+
+  it('requires authentication', async () => {
+    currentUserId = null;
+    const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
+    const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'ck', consumerSecret: 'cs' }));
+    expect(res.status).toBe(401);
+  });
+});

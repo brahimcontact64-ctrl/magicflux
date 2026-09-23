@@ -11,10 +11,38 @@ import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 import { saveProviderCredentials } from '@/lib/credentials/storage';
 import { validateStoreUrlReachable, listWebhooks } from '@/lib/connectors/woocommerce/client';
 import { getConnector } from '@/lib/connectors/registry';
-import { ensureConnection, updateConnectionSubscriptions, updateConnectionHealth } from '@/lib/connectors/storage';
+import { ensureConnection, updateConnectionSubscriptions, updateConnectionHealth, getConnectionForOwner } from '@/lib/connectors/storage';
 import { isSupportedTopic, WOOCOMMERCE_SUPPORTED_TOPICS } from '@/lib/connectors/woocommerce/capabilities';
 
 const DEFAULT_TOPICS = ['order.created', 'customer.created'] as const;
+
+/**
+ * Phase 9.9.22B -- lets the Connect page discover whether THIS workflow
+ * already has a WooCommerce connection, without the browser needing to
+ * already know a connectionId. Owner-scoped; never returns credentials or
+ * the webhook secret.
+ */
+export async function GET(req: NextRequest) {
+  const user = await getUserFromRequest(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const workflowId = req.nextUrl.searchParams.get('workflowId');
+  if (!workflowId) return NextResponse.json({ error: 'workflowId is required' }, { status: 400 });
+
+  const connection = await getConnectionForOwner(user.id, workflowId, 'woocommerce');
+  if (!connection) return NextResponse.json({ connected: false });
+
+  return NextResponse.json({
+    connected: true,
+    connectionId: connection.id,
+    status: connection.status,
+    storeUrl: connection.storeUrl,
+    topics: connection.topics,
+    lastVerifiedAt: connection.lastVerifiedAt,
+    lastEventAt: connection.lastEventAt,
+    lastError: connection.lastError,
+  });
+}
 
 export async function POST(req: NextRequest) {
   const user = await getUserFromRequest(req);
