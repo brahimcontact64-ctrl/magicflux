@@ -80,6 +80,16 @@ export async function POST(req: NextRequest) {
   const preflightCredentials = { storeUrl: body.storeUrl, consumerKey: body.consumerKey, consumerSecret: body.consumerSecret };
   const diagnosis = await diagnoseWooCommerceConnection(body.storeUrl, preflightCredentials);
   if (diagnosis.stage !== 'ready') {
+    // Never logs the store URL, key, or secret -- only the host (for
+    // cross-referencing with the store owner) and the pre-written/caught
+    // stage + detail, which are either a fixed safe string or a generic
+    // network-error message (never a raw upstream response body).
+    console.error('[woocommerce-connect] pre-flight diagnosis did not reach ready', {
+      workflowId: body.workflowId,
+      storeHost: (() => { try { return new URL(body.storeUrl!).host; } catch { return 'unparseable'; } })(),
+      stage: diagnosis.stage,
+      detail: diagnosis.detail,
+    });
     return NextResponse.json({ error: diagnosis.stage.toUpperCase(), message: diagnosis.detail }, { status: 400 });
   }
 
