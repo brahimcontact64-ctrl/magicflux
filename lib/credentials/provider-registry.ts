@@ -77,6 +77,17 @@ const PROVIDER_CREDENTIAL_MAP: Readonly<Record<string, CredentialRequirement[]>>
     { provider: 'supabase', key: 'project_url', label: 'Project URL', required: true, secret: false, source: 'manual', description: 'Your Supabase project URL (https://xxx.supabase.co)' },
     { provider: 'supabase', key: 'anon_key', label: 'Anon Key', required: true, secret: true, source: 'api_key', description: 'Supabase anon/public API key' },
   ],
+  // Phase 9.9.22 -- WooCommerce Direct Connector. store_url is the
+  // customer's own site, not secret; consumer_key/consumer_secret are the
+  // WooCommerce REST API credentials generated in wp-admin (WooCommerce >
+  // Settings > Advanced > REST API), stored encrypted via the same
+  // integration_credentials path every other provider uses.
+  woocommerce: [
+    { provider: 'woocommerce', key: 'store_url', label: 'Store URL', required: true, secret: false, source: 'manual', description: 'Your WooCommerce store\'s base URL (e.g. https://mystore.com)' },
+    { provider: 'woocommerce', key: 'consumer_key', label: 'Consumer Key', required: true, secret: true, source: 'api_key', description: 'WooCommerce REST API Consumer Key (Read/Write access required)' },
+    { provider: 'woocommerce', key: 'consumer_secret', label: 'Consumer Secret', required: true, secret: true, source: 'api_key', description: 'WooCommerce REST API Consumer Secret' },
+  ],
+
   // Generic credential type for any provider not covered above — lets an
   // HTTP node reference an arbitrary API key without a dedicated provider
   // entry. Only one custom credential is supported per user today (the
@@ -166,6 +177,7 @@ export function getProviderDisplayName(provider: string): string {
     whatsapp: 'WhatsApp',
     canva: 'Canva',
     supabase: 'Supabase',
+    woocommerce: 'WooCommerce',
     custom: 'Custom API Key',
   };
   return displayNames[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

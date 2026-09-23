@@ -49,6 +49,9 @@ const SECRET_KEY_SET = new Set([
   'api_token',
   'webhook_secret',
   'anon_key',
+  // Phase 9.9.22 -- WooCommerce Direct Connector REST API credentials.
+  'consumer_key',
+  'consumer_secret',
 ]);
 
 export function isSecretKey(key: string): boolean {

@@ -35,17 +35,27 @@ type ConnectionInfo = {
   testMode: { active: boolean; until: string | null; lastEvent: null | { receivedAt: string; authenticated: boolean; valid: boolean; missingFields: string[]; presentFields: string[] } };
 };
 
+// Phase 9.9.22 -- Part A taxonomy correction: 'native' is reserved for a
+// connection MagicFlux can genuinely verify directly today. 'connector_pending'
+// and 'requires_relay' both still need Zapier/Make right now -- the
+// distinction is just whether a MagicFlux-built adapter already exists in
+// code awaiting certification (connector_pending) or hasn't been built yet
+// (requires_relay). Neither is shown as "Native" until it truly is one.
 const CONNECTION_TYPE_LABEL: Record<PlatformGuide['connectionType'], string> = {
   native: 'Native connection',
+  connector_pending: 'MagicFlux Connector (pending certification) -- Requires Relay for now',
   plugin: 'Plugin connection',
   intermediary: 'Intermediary connection (Zapier/Make)',
+  requires_relay: 'Requires Relay (Zapier/Make) -- MagicFlux Connector planned',
   custom_api: 'Custom/API connection',
 };
 
 const CONNECTION_TYPE_CLASS: Record<PlatformGuide['connectionType'], string> = {
   native: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+  connector_pending: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
   plugin: 'bg-blue-500/10 text-blue-400 border-blue-500/25',
   intermediary: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  requires_relay: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
   custom_api: 'bg-muted text-muted-foreground border-border',
 };
 

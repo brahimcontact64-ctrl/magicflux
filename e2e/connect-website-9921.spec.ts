@@ -56,12 +56,13 @@ test.describe('Connection Guide -- Deploy -> Connect -> platform setup -> test i
     }
   });
 
-  test('Shopify is truthfully labeled a Native connection with an official doc link', async ({ page }) => {
+  test('Shopify is truthfully labeled "Requires Relay" (Phase 9.9.22 correction), never Native, with an official doc link', async ({ page }) => {
     await loginViaSession(page, connectAccount());
     await page.goto(`/dashboard/workflows/${workflowId()}/connect`, { waitUntil: 'domcontentloaded' });
 
     await page.getByRole('button', { name: /^Shopify$/i }).click();
-    await expect(page.getByText(/native connection/i)).toBeVisible();
+    await expect(page.getByText(/requires relay/i)).toBeVisible();
+    await expect(page.getByText(/^native connection$/i)).not.toBeVisible();
     await expect(page.getByRole('link', { name: /shopify/i }).first()).toHaveAttribute('href', /shopify/);
   });
 

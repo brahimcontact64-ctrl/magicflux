@@ -6,16 +6,38 @@
  * UI branching.
  *
  * `connectionType` is a truth claim, not a marketing label:
- *   - 'native'       the platform has a genuine, first-party, built-in
- *                     "send this event to a URL" feature (no plugin, no
- *                     third-party app required to originate the call).
- *   - 'plugin'       requires installing a plugin/app inside the platform
- *                     (the platform itself has no built-in outbound webhook).
- *   - 'intermediary' the platform's own UI has no generic outbound-webhook
- *                     destination at all; a bridge tool (commonly Zapier or
- *                     Make) is the realistic path.
- *   - 'custom_api'   only reachable by writing code against the platform's
- *                     API/SDK -- no no-code path exists.
+ *   - 'native'         MagicFlux can genuinely receive this platform's event
+ *                       directly and SECURELY today -- verified signature,
+ *                       no relay. As of Phase 9.9.22 this is true only for
+ *                       Custom/API (the user's own server can always attach
+ *                       our header) -- see 'connector_pending' below for
+ *                       WooCommerce's actual current state.
+ *   - 'connector_pending' Phase 9.9.22 correction: a real MagicFlux adapter
+ *                       exists in code (signature verification, subscription
+ *                       management, normalization) but has not yet been
+ *                       certified against a live store, and/or its schema
+ *                       migration has not yet been approved/applied. Still
+ *                       requires an external relay (Zapier/Make) until that
+ *                       certification lands -- never marketed as 'native'
+ *                       before it genuinely is.
+ *   - 'plugin'         requires installing a plugin/app inside the platform
+ *                       (the platform itself has no built-in outbound webhook).
+ *   - 'intermediary'   the platform's own UI has no generic outbound-webhook
+ *                       destination AT ALL for this use case; a bridge tool
+ *                       (commonly Zapier or Make) is the only realistic path,
+ *                       with no MagicFlux adapter that could remove it (e.g.
+ *                       Squarespace's Form Block).
+ *   - 'requires_relay' Phase 9.9.21A finding: the platform DOES have a real,
+ *                       first-party outbound webhook feature, but it signs
+ *                       with its OWN scheme and/or exposes no custom-header
+ *                       field, so MagicFlux cannot verify/receive it directly
+ *                       YET -- a MagicFlux Connector is technically feasible
+ *                       (see the 9.9.21A audit) but not yet built. An
+ *                       external relay (Zapier/Make) is the honest path
+ *                       today. Never labeled 'native' just because the
+ *                       platform itself has "webhooks."
+ *   - 'custom_api'     only reachable by writing code against the platform's
+ *                       API/SDK -- no no-code path exists.
  *
  * `supportsCustomAuthHeader` records whether that platform's own webhook/
  * automation UI lets a user attach an arbitrary header (needed for
@@ -27,7 +49,7 @@
  * silently implying MagicFlux's own secret can always be wired in natively.
  */
 
-export type ConnectionType = 'native' | 'plugin' | 'intermediary' | 'custom_api';
+export type ConnectionType = 'native' | 'connector_pending' | 'plugin' | 'intermediary' | 'requires_relay' | 'custom_api';
 
 export type PlatformGuide = {
   id: string;
@@ -82,7 +104,7 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
   {
     id: 'woocommerce',
     label: 'WooCommerce',
-    connectionType: 'native',
+    connectionType: 'connector_pending',
     summary: 'WooCommerce ships with a native Webhooks feature under its own settings -- no plugin required.',
     steps: [
       'In wp-admin, go to WooCommerce > Settings > Advanced > Webhooks, then Add webhook.',
@@ -95,13 +117,14 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
     ],
     limitations: [
       'WooCommerce\'s native webhook form has no generic "add a custom header" field -- it can\'t send MagicFlux\'s X-MagicFlux-Webhook-Secret header directly. Use an intermediary (Zapier/Make) to receive WooCommerce\'s natively-signed delivery and forward it to MagicFlux with the required header, or have a developer verify the X-WC-Webhook-Signature server-side before relaying.',
+      'Phase 9.9.22: a MagicFlux Direct Connector for WooCommerce (verifies X-WC-Webhook-Signature natively, auto-creates the webhook subscription via WooCommerce\'s REST API -- no manual setup above needed) is implemented and covered by automated tests, but is NOT yet certified against a live WooCommerce store and its schema migration has not yet been applied. Until certification is complete, this manual/relay path above remains the only way to connect WooCommerce today -- do not present this platform as "Direct" or "Connector" before that certification lands.',
     ],
     supportsCustomAuthHeader: false,
   },
   {
     id: 'shopify',
     label: 'Shopify',
-    connectionType: 'native',
+    connectionType: 'requires_relay',
     summary: 'Shopify has a native Webhooks feature (Settings > Notifications, or the Admin/GraphQL API for finer control) -- no app install required for the basic UI path.',
     steps: [
       'In Shopify admin, go to Settings > Notifications, scroll to Webhooks, and click Create webhook.',
@@ -121,7 +144,7 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
   {
     id: 'clickfunnels',
     label: 'ClickFunnels',
-    connectionType: 'native',
+    connectionType: 'requires_relay',
     summary: 'ClickFunnels 2.0 has a native Webhooks feature under Workspace Settings -- no third-party app required.',
     steps: [
       'In ClickFunnels, go to Workspace Settings > Webhooks > Add New Endpoint.',
@@ -141,7 +164,7 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
   {
     id: 'webflow',
     label: 'Webflow',
-    connectionType: 'native',
+    connectionType: 'requires_relay',
     summary: 'Webflow has native Webhooks (Site Settings > Integrations, or the Data API), including a "form_submission" trigger built for exactly this.',
     steps: [
       'In your Webflow project, go to Site Settings > Integrations > Webhooks (or use the "Form Data" quick-connect at webflow.com/integrations/form-data).',
@@ -161,7 +184,7 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
   {
     id: 'wix',
     label: 'Wix',
-    connectionType: 'native',
+    connectionType: 'requires_relay',
     summary: 'Wix Automations (the built-in no-code automation builder) has a "Send an HTTP Request" action that can POST any trigger\'s data -- including form submissions -- to an external URL.',
     steps: [
       'In your Wix dashboard, go to Automations and create a new automation.',
@@ -198,7 +221,7 @@ export const PLATFORM_GUIDES: PlatformGuide[] = [
   {
     id: 'framer',
     label: 'Framer',
-    connectionType: 'native',
+    connectionType: 'requires_relay',
     summary: 'Framer Forms has a native "Send To > Webhook" destination built specifically for this.',
     steps: [
       'Select your form on the Framer canvas, click "Add…" next to "Send To" in the right sidebar, and choose Webhook.',

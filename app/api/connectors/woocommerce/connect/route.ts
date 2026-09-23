@@ -1,0 +1,102 @@
+/**
+ * Phase 9.9.22 -- Part D: "Connect WooCommerce" in one authenticated call.
+ * The user is never asked to manually build a WooCommerce webhook -- this
+ * route validates the store, verifies the credentials actually work, and
+ * creates the required webhook subscription(s) through WooCommerce's own
+ * REST API.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
+import { saveProviderCredentials } from '@/lib/credentials/storage';
+import { validateStoreUrlReachable, listWebhooks } from '@/lib/connectors/woocommerce/client';
+import { getConnector } from '@/lib/connectors/registry';
+import { ensureConnection, updateConnectionSubscriptions, updateConnectionHealth } from '@/lib/connectors/storage';
+import { isSupportedTopic, WOOCOMMERCE_SUPPORTED_TOPICS } from '@/lib/connectors/woocommerce/capabilities';
+
+const DEFAULT_TOPICS = ['order.created', 'customer.created'] as const;
+
+export async function POST(req: NextRequest) {
+  const user = await getUserFromRequest(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = (await req.json().catch(() => ({}))) as {
+    workflowId?: string;
+    storeUrl?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
+    topics?: string[];
+  };
+
+  if (!body.workflowId || !body.storeUrl || !body.consumerKey || !body.consumerSecret) {
+    return NextResponse.json({ error: 'storeUrl, consumerKey, consumerSecret and workflowId are required' }, { status: 400 });
+  }
+
+  const requestedTopics = (body.topics && body.topics.length > 0 ? body.topics : [...DEFAULT_TOPICS]).filter(Boolean);
+  const unsupported = requestedTopics.filter((t) => !isSupportedTopic(t));
+  if (unsupported.length > 0) {
+    return NextResponse.json({ error: 'UNSUPPORTED_TOPICS', message: `Not supported yet: ${unsupported.join(', ')}`, supportedTopics: WOOCOMMERCE_SUPPORTED_TOPICS }, { status: 400 });
+  }
+
+  const db = createServiceClient();
+  const { data: workflow } = await db.from('workflows').select('id').eq('id', body.workflowId).eq('user_id', user.id).maybeSingle();
+  if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
+
+  // Part E -- SSRF pre-flight before ANY outbound call is made with the
+  // user-supplied store URL.
+  const reachable = await validateStoreUrlReachable(body.storeUrl);
+  if (!reachable.ok) {
+    return NextResponse.json({ error: 'STORE_UNREACHABLE', message: reachable.reason }, { status: 400 });
+  }
+
+  const credentials = { storeUrl: reachable.storeUrl, consumerKey: body.consumerKey, consumerSecret: body.consumerSecret };
+
+  const listed = await listWebhooks(reachable.storeUrl, credentials);
+  if (!listed.ok) {
+    return NextResponse.json({ error: 'CREDENTIALS_INVALID', message: listed.reason }, { status: 400 });
+  }
+
+  // Consumer Key/Secret never returned to the browser again after this
+  // point -- saved encrypted, read back only server-side.
+  await saveProviderCredentials(user.id, 'woocommerce', {
+    store_url: reachable.storeUrl,
+    consumer_key: body.consumerKey,
+    consumer_secret: body.consumerSecret,
+  });
+
+  const { connection, webhookSecret } = await ensureConnection(user.id, body.workflowId, 'woocommerce', reachable.storeUrl);
+  const webhookUrl = `${req.nextUrl.origin}/api/connectors/woocommerce/${connection.id}/receive`;
+
+  const connector = getConnector('woocommerce')!;
+  const subscribed = await connector.subscribe({
+    credentials,
+    webhookUrl,
+    webhookSecret,
+    topics: requestedTopics,
+    existing: connection.providerSubscriptions,
+  });
+
+  if (!subscribed.ok) {
+    await updateConnectionSubscriptions(connection.id, {
+      providerSubscriptions: subscribed.partialSubscriptions ?? connection.providerSubscriptions,
+      topics: requestedTopics,
+      status: 'needs_attention',
+    });
+    await updateConnectionHealth(connection.id, { lastError: subscribed.reason, errorCategory: 'subscription_failed' });
+    return NextResponse.json({ error: 'SUBSCRIPTION_FAILED', message: subscribed.reason, connectionId: connection.id }, { status: 502 });
+  }
+
+  await updateConnectionSubscriptions(connection.id, {
+    providerSubscriptions: subscribed.providerSubscriptions,
+    topics: requestedTopics,
+    status: 'connected',
+  });
+  await updateConnectionHealth(connection.id, { lastVerifiedAt: new Date().toISOString(), lastError: null, errorCategory: null });
+
+  return NextResponse.json({
+    success: true,
+    connectionId: connection.id,
+    status: 'connected',
+    topics: requestedTopics,
+  });
+}

@@ -103,8 +103,23 @@ describe('PLATFORM_GUIDES registry', () => {
       expect(guide.label).toBeTruthy();
       expect(guide.summary).toBeTruthy();
       expect(guide.steps.length).toBeGreaterThan(0);
-      expect(['native', 'plugin', 'intermediary', 'custom_api']).toContain(guide.connectionType);
+      expect(['native', 'connector_pending', 'plugin', 'intermediary', 'requires_relay', 'custom_api']).toContain(guide.connectionType);
     }
+  });
+
+  it('Phase 9.9.22 Part A: no platform is claimed "native" without a genuine, verified, relay-free MagicFlux receiver -- today that is none of them (Custom/API is its own honest "custom_api" category, not "native")', () => {
+    const nativeClaims = PLATFORM_GUIDES.filter((p) => p.connectionType === 'native').map((p) => p.id);
+    expect(nativeClaims).toEqual([]);
+  });
+
+  it('Phase 9.9.22 Part A: Shopify/ClickFunnels/Webflow/Wix/Framer are corrected to "requires_relay", not "native"', () => {
+    for (const id of ['shopify', 'clickfunnels', 'webflow', 'wix', 'framer']) {
+      expect(getPlatformGuide(id)?.connectionType).toBe('requires_relay');
+    }
+  });
+
+  it('Phase 9.9.22 Part A: WooCommerce is "connector_pending" (a real connector exists in code, not yet certified/migrated) -- never "native" before certification', () => {
+    expect(getPlatformGuide('woocommerce')?.connectionType).toBe('connector_pending');
   });
 
   it('every officialDocs URL is https', () => {
