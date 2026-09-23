@@ -48,7 +48,7 @@ function authHeader(credentials: ConnectCredentials): string {
   return `Basic ${token}`;
 }
 
-type WcRequestResult = { status: number; bodyText: string; usedFallback: boolean };
+type WcRequestResult = { status: number; bodyText: string; usedFallback: boolean; usedQueryParamAuth?: boolean };
 
 /**
  * Issues one WordPress/WooCommerce REST API request, trying the "pretty"
@@ -59,11 +59,11 @@ type WcRequestResult = { status: number; bodyText: string; usedFallback: boolean
  * the fallback is never a different host, never a redirect, never a
  * relaxation of any existing protection.
  */
-async function wcRequest(
+async function wcRequestOnce(
   storeUrl: string,
   restPath: string,
   init: { method: string; headers?: Record<string, string>; body?: string; query?: Record<string, string> },
-): Promise<WcRequestResult> {
+): Promise<{ status: number; bodyText: string; usedFallback: boolean }> {
   const prettyUrl = new URL(`${storeUrl}/wp-json${restPath}`);
   for (const [k, v] of Object.entries(init.query ?? {})) prettyUrl.searchParams.set(k, v);
 
@@ -86,6 +86,51 @@ async function wcRequest(
   return { status: fallbackRes.status, bodyText: fallbackRes.bodyText, usedFallback: true };
 }
 
+/**
+ * Phase 9.9.22B -- live-certification follow-up: on a constrained/shared
+ * host, PHP is sometimes never handed the `Authorization` header at all
+ * (a well-known PHP-CGI/FastCGI limitation, unrelated to WooCommerce),
+ * which WooCommerce's own REST API reports with the exact same generic
+ * permission-denied response as genuinely wrong credentials -- the two
+ * are indistinguishable from the response alone. WooCommerce's own docs
+ * (developer.woocommerce.com/docs/apis/rest-api/v2/authentication/)
+ * document passing `consumer_key`/`consumer_secret` as query parameters
+ * over HTTPS as the supported alternative for exactly this case. When a
+ * credentialed request is rejected as unauthenticated, this transparently
+ * retries the SAME request with the SAME secret values sent as query
+ * parameters instead of a header, still HTTPS-only and SSRF-checked at
+ * every hop. This can never turn wrong credentials into valid ones -- it
+ * only changes how the same two values are transmitted -- so it never
+ * weakens authentication; it only stops a host-side transport quirk from
+ * masquerading as invalid credentials.
+ */
+async function wcRequest(
+  storeUrl: string,
+  restPath: string,
+  init: { method: string; headers?: Record<string, string>; body?: string; query?: Record<string, string>; credentials?: ConnectCredentials },
+): Promise<WcRequestResult> {
+  const primary = await wcRequestOnce(storeUrl, restPath, init);
+
+  if ((primary.status !== 401 && primary.status !== 403) || !init.credentials) {
+    return primary;
+  }
+
+  const { Authorization: _discardedAuthHeader, ...headersWithoutAuth } = init.headers ?? {};
+  const queryWithCredentials = {
+    ...(init.query ?? {}),
+    consumer_key: init.credentials.consumerKey,
+    consumer_secret: init.credentials.consumerSecret,
+  };
+  const viaQueryParams = await wcRequestOnce(storeUrl, restPath, { method: init.method, headers: headersWithoutAuth, body: init.body, query: queryWithCredentials });
+
+  if (viaQueryParams.status === 401 || viaQueryParams.status === 403) {
+    // Both transports were rejected -- return the original (header-based)
+    // result, since it's the standard path and equally informative.
+    return primary;
+  }
+  return { ...viaQueryParams, usedQueryParamAuth: true };
+}
+
 export type WcDiagnosisStage =
   | 'store_unreachable'
   | 'wordpress_rest_unavailable'
@@ -94,7 +139,7 @@ export type WcDiagnosisStage =
   | 'webhooks_endpoint_unavailable'
   | 'ready';
 
-export type WcDiagnosis = { stage: WcDiagnosisStage; detail: string; storeUrl?: string; usedFallback?: boolean };
+export type WcDiagnosis = { stage: WcDiagnosisStage; detail: string; storeUrl?: string; usedFallback?: boolean; usedQueryParamAuth?: boolean };
 
 /**
  * Phase 9.9.22B -- Part: Test Connection must distinguish store-unreachable
@@ -148,7 +193,7 @@ export async function diagnoseWooCommerceConnection(rawUrl: string, credentials:
 
   let listRes: WcRequestResult;
   try {
-    listRes = await wcRequest(storeUrl, '/wc/v3/webhooks', { method: 'GET', headers: { Authorization: authHeader(credentials) }, query: { per_page: '1' } });
+    listRes = await wcRequest(storeUrl, '/wc/v3/webhooks', { method: 'GET', headers: { Authorization: authHeader(credentials) }, query: { per_page: '1' }, credentials });
   } catch (err) {
     return { stage: 'store_unreachable', detail: err instanceof Error ? err.message : 'Store became unreachable while checking webhooks.' };
   }
@@ -166,7 +211,7 @@ export async function diagnoseWooCommerceConnection(rawUrl: string, credentials:
     return { stage: 'store_unreachable', detail: `WooCommerce returned an unexpected error (${listRes.status}).` };
   }
 
-  return { stage: 'ready', detail: 'Store reachable, WooCommerce REST API available, and credentials valid.', storeUrl, usedFallback: listRes.usedFallback };
+  return { stage: 'ready', detail: 'Store reachable, WooCommerce REST API available, and credentials valid.', storeUrl, usedFallback: listRes.usedFallback, usedQueryParamAuth: listRes.usedQueryParamAuth };
 }
 
 /** Thin wrapper kept for callers that only need the normalized store URL + basic reachability (no credentials yet). Superseded by diagnoseWooCommerceConnection() for anything credential-aware. */
@@ -196,7 +241,7 @@ export async function listWebhooks(storeUrl: string, credentials: ConnectCredent
   const check = await checkUrlSafe(storeUrl);
   if (!check.allowed) return { ok: false, status: 0, reason: check.reason };
 
-  const res = await wcRequest(storeUrl, '/wc/v3/webhooks', { method: 'GET', headers: { Authorization: authHeader(credentials) }, query: { per_page: '100' } });
+  const res = await wcRequest(storeUrl, '/wc/v3/webhooks', { method: 'GET', headers: { Authorization: authHeader(credentials) }, query: { per_page: '100' }, credentials });
 
   if (res.status === 401 || res.status === 403) {
     return { ok: false, status: res.status, reason: 'WooCommerce rejected these credentials' };
@@ -237,6 +282,7 @@ export async function listWebhookDeliveries(storeUrl: string, credentials: Conne
   const res = await wcRequest(storeUrl, `/wc/v3/webhooks/${encodeURIComponent(webhookId)}/deliveries`, {
     method: 'GET',
     headers: { Authorization: authHeader(credentials) },
+    credentials,
   });
 
   if (res.status === 401 || res.status === 403) {
@@ -286,6 +332,7 @@ export async function createWebhook(
       secret: params.secret,
       status: 'active',
     }),
+    credentials,
   });
 
   if (res.status === 401 || res.status === 403) {
@@ -315,6 +362,7 @@ export async function deleteWebhook(storeUrl: string, credentials: ConnectCreden
       method: 'DELETE',
       headers: { Authorization: authHeader(credentials) },
       query: { force: 'true' },
+      credentials,
     });
     // A webhook already deleted externally (Part K) 404s -- not a failure
     // from this connector's point of view, since the end state (no

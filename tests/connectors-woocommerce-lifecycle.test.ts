@@ -588,6 +588,80 @@ describe('Phase 9.9.22B -- Live Certification Failure #1 regression: pretty-perm
   });
 });
 
+describe('Phase 9.9.22B -- live-certification follow-up: Authorization header stripped by host -> consumer_key/secret query-param fallback', () => {
+  const REAL_KEY = 'ck_real_9f0kryqo';
+  const REAL_SECRET = 'cs_real_9f0kryqo';
+
+  /** Models a host that never hands PHP the Authorization header at all -- a real, well-known PHP-CGI/FastCGI limitation on constrained/shared hosts, unrelated to WooCommerce. Any Basic Auth attempt (even with the objectively correct key/secret) is treated as fully unauthenticated; only the correct consumer_key/consumer_secret QUERY PARAMETERS authenticate. */
+  function installHeaderStrippingHost() {
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      const u = new URL(url);
+      const method = init?.method ?? 'GET';
+      const restPath = logicalRestPath(u);
+      if (restPath === null) throw new Error(`Unhandled mock fetch: ${method} ${u.pathname}${u.search}`);
+      if (restPath === '/') {
+        return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2', 'wc/v3'] }) };
+      }
+      const queryAuthOk = u.searchParams.get('consumer_key') === REAL_KEY && u.searchParams.get('consumer_secret') === REAL_SECRET;
+      if (restPath === '/wc/v3/webhooks' && method === 'GET') {
+        if (!queryAuthOk) return { status: 401, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ code: 'woocommerce_rest_cannot_view', message: 'Sorry, you cannot list resources.' }) };
+        return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify(storeWebhooks) };
+      }
+      if (restPath === '/wc/v3/webhooks' && method === 'POST') {
+        if (!queryAuthOk) return { status: 401, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ code: 'woocommerce_rest_cannot_view', message: 'Sorry, you cannot list resources.' }) };
+        const body = JSON.parse(init!.body as string) as { topic: string; delivery_url: string };
+        const webhook = { id: nextWebhookId++, topic: body.topic, delivery_url: body.delivery_url, status: 'active' };
+        storeWebhooks.push(webhook);
+        return { status: 201, headers: { get: () => null }, body: null, text: async () => JSON.stringify(webhook) };
+      }
+      if (restPath.startsWith('/wc/v3/webhooks/') && method === 'DELETE') {
+        if (!queryAuthOk) return { status: 401, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ code: 'woocommerce_rest_cannot_view', message: 'Sorry, you cannot list resources.' }) };
+        const id = Number(restPath.split('/').pop());
+        storeWebhooks = storeWebhooks.filter((w) => w.id !== id);
+        return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
+      }
+      throw new Error(`Unhandled mock fetch: ${method} ${restPath}`);
+    });
+  }
+
+  it('diagnoseWooCommerceConnection() reaches "ready" via the query-param fallback when Basic Auth is silently stripped, and reports usedQueryParamAuth', async () => {
+    installHeaderStrippingHost();
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: REAL_KEY, consumerSecret: REAL_SECRET });
+    expect(result.stage).toBe('ready');
+    expect(result.usedQueryParamAuth).toBe(true);
+  });
+
+  it('genuinely wrong credentials still fail even with the query-param fallback attempted -- never mistaken for a transport issue', async () => {
+    installHeaderStrippingHost();
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_wrong', consumerSecret: 'cs_wrong' });
+    expect(result.stage).toBe('authentication_failed');
+  });
+
+  it('POST /connect succeeds end-to-end on a header-stripping host -- webhook subscriptions are actually created via the query-param transport', async () => {
+    installHeaderStrippingHost();
+    const { POST } = await import('../app/api/connectors/woocommerce/connect/route');
+    const res = await POST(connectReq({ workflowId: WORKFLOW_A, storeUrl: STORE_URL, consumerKey: REAL_KEY, consumerSecret: REAL_SECRET }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('connected');
+    expect(storeWebhooks.length).toBe(2);
+  });
+
+  it('never sends the query-param fallback for a request that already succeeded via the header -- normal hosts are unaffected', async () => {
+    // Uses the DEFAULT (non-stripping) mock -- Basic Auth succeeds on the
+    // first attempt, so no fetch call should ever carry consumer_key/secret
+    // as a query parameter.
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('ready');
+    expect(result.usedQueryParamAuth).toBeFalsy();
+    const anyQueryParamCall = fetchMock.mock.calls.some(([url]) => new URL(url as string).searchParams.has('consumer_key'));
+    expect(anyQueryParamCall).toBe(false);
+  });
+});
+
 describe('listWebhookDeliveries() -- Phase 9.9.22B Live Certification Failure #3 investigation tooling', () => {
   it('returns only safe fields (id/date/duration/url/response-code), never request/response headers or bodies', async () => {
     fetchMock.mockImplementation(async (url: string) => {
