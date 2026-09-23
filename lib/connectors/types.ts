@@ -71,10 +71,21 @@ export type NormalizedEvent = {
   providerMetadata: Record<string, unknown>;
 };
 
+// Phase 9.9.22B -- Live Certification Failure #1 widened this from a
+// coarse (store_unreachable | credentials_invalid | ...) split into the
+// exact stages a real WordPress/WooCommerce host can fail at, so "the
+// store answered but isn't WordPress", "it's WordPress but WooCommerce's
+// REST API isn't registered", and "WooCommerce is there but the webhooks
+// endpoint specifically 404s" are never collapsed into one misleading
+// "credentials invalid"-shaped message the way the original 404 was.
 export type TestConnectionResult =
   | { stage: 'store_unreachable'; detail: string }
+  | { stage: 'wordpress_rest_unavailable'; detail: string }
+  | { stage: 'woocommerce_unavailable'; detail: string }
   | { stage: 'credentials_invalid'; detail: string }
+  | { stage: 'authentication_failed'; detail: string }
   | { stage: 'permissions_insufficient'; detail: string }
+  | { stage: 'webhooks_endpoint_unavailable'; detail: string }
   | { stage: 'subscription_invalid'; detail: string }
   | { stage: 'ready'; detail: string };
 

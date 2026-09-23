@@ -103,28 +103,56 @@ vi.mock('@/lib/supabase-server', () => ({
 let nextWebhookId = 100;
 let storeWebhooks: Array<{ id: number; topic: string; delivery_url: string; status: string }>;
 
+// Phase 9.9.22B -- Live Certification Failure #1: models a real WordPress
+// host where pretty-permalink rewrite rules aren't serving /wp-json/* at
+// all (every pretty-form request 404s, exactly as observed against the
+// real WPRun store), while the canonical `?rest_route=` query form
+// (handled directly by index.php, independent of any rewrite rule)
+// answers identically to what the pretty form would if it worked. Default
+// false -- most tests exercise the normal, working-permalinks path;
+// dedicated tests below flip this to prove the fallback.
+let prettyPermalinksBroken = false;
+
+/** Maps EITHER URL form (pretty /wp-json/<path> or fallback /?rest_route=<path>) to the same logical REST path, so routing logic below is written once regardless of which form the caller used. */
+function logicalRestPath(u: URL): string | null {
+  if (u.pathname === '/wp-json' || u.pathname.startsWith('/wp-json/')) {
+    return u.pathname.slice('/wp-json'.length) || '/';
+  }
+  if (u.pathname === '/' && u.searchParams.has('rest_route')) {
+    return u.searchParams.get('rest_route') || '/';
+  }
+  return null;
+}
+
 async function defaultFetchImpl(url: string, init?: { method?: string; body?: string }) {
   const u = new URL(url);
   const method = init?.method ?? 'GET';
+  const restPath = logicalRestPath(u);
+  if (restPath === null) throw new Error(`Unhandled mock fetch: ${method} ${u.pathname}${u.search}`);
 
-  if (u.pathname === '/wp-json/') {
-    return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
+  const isPrettyForm = u.pathname !== '/';
+  if (isPrettyForm && prettyPermalinksBroken) {
+    return { status: 404, headers: { get: () => null }, body: null, text: async () => 'Not Found' };
   }
-  if (u.pathname === '/wp-json/wc/v3/webhooks' && method === 'GET') {
+
+  if (restPath === '/') {
+    return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2', 'wc/v3'] }) };
+  }
+  if (restPath === '/wc/v3/webhooks' && method === 'GET') {
     return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify(storeWebhooks) };
   }
-  if (u.pathname === '/wp-json/wc/v3/webhooks' && method === 'POST') {
+  if (restPath === '/wc/v3/webhooks' && method === 'POST') {
     const body = JSON.parse(init!.body as string) as { topic: string; delivery_url: string };
     const webhook = { id: nextWebhookId++, topic: body.topic, delivery_url: body.delivery_url, status: 'active' };
     storeWebhooks.push(webhook);
     return { status: 201, headers: { get: () => null }, body: null, text: async () => JSON.stringify(webhook) };
   }
-  if (u.pathname.startsWith('/wp-json/wc/v3/webhooks/') && method === 'DELETE') {
-    const id = Number(u.pathname.split('/').pop());
+  if (restPath.startsWith('/wc/v3/webhooks/') && method === 'DELETE') {
+    const id = Number(restPath.split('/').pop());
     storeWebhooks = storeWebhooks.filter((w) => w.id !== id);
     return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
   }
-  throw new Error(`Unhandled mock fetch: ${method} ${u.pathname}`);
+  throw new Error(`Unhandled mock fetch: ${method} ${restPath}`);
 }
 
 const fetchMock = vi.fn(defaultFetchImpl);
@@ -134,6 +162,7 @@ beforeEach(() => {
   currentUserId = OWNER_A;
   storeWebhooks = [];
   nextWebhookId = 100;
+  prettyPermalinksBroken = false;
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   fetchMock.mockImplementation(defaultFetchImpl);
@@ -174,9 +203,10 @@ describe('POST /api/connectors/woocommerce/connect', () => {
     expect(tables.platform_connections.length).toBe(1); // still one connection row, not two
   });
 
-  it('revoked/invalid credentials -> 400 CREDENTIALS_INVALID, no connection or subscription created', async () => {
+  it('revoked/invalid credentials -> 400 AUTHENTICATION_FAILED, no connection or subscription created', async () => {
     // Override just the credentials-list call to 401 -- everything else
-    // (store reachability) still goes through the real default routing.
+    // (store reachability, WordPress/WooCommerce namespace presence)
+    // still goes through the real default routing.
     fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
       const u = new URL(url);
       if (u.pathname === '/wp-json/wc/v3/webhooks' && (init?.method ?? 'GET') === 'GET') {
@@ -190,7 +220,7 @@ describe('POST /api/connectors/woocommerce/connect', () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe('CREDENTIALS_INVALID');
+    expect(body.error).toBe('AUTHENTICATION_FAILED');
     expect(tables.platform_connections.length).toBe(0);
     expect(storeWebhooks.length).toBe(0);
   });
@@ -199,7 +229,7 @@ describe('POST /api/connectors/woocommerce/connect', () => {
     fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
       const u = new URL(url);
       const method = init?.method ?? 'GET';
-      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
+      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2', 'wc/v3'] }) };
       if (u.pathname === '/wp-json/wc/v3/webhooks' && method === 'GET') return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify(storeWebhooks) };
       if (u.pathname === '/wp-json/wc/v3/webhooks' && method === 'POST') return { status: 403, headers: { get: () => null }, body: null, text: async () => '{}' };
       throw new Error(`unexpected ${method} ${u.pathname}`);
@@ -367,14 +397,15 @@ describe('GET /api/connectors/woocommerce/connect?workflowId=... -- Phase 9.9.22
   });
 });
 
+function validateReq(body: Record<string, unknown>) {
+  return new NextRequest(new URL('http://localhost/api/connectors/woocommerce/validate'), {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 describe('POST /api/connectors/woocommerce/validate -- Phase 9.9.22B pre-connect test', () => {
-  function validateReq(body: Record<string, unknown>) {
-    return new NextRequest(new URL('http://localhost/api/connectors/woocommerce/validate'), {
-      method: 'POST',
-      body: JSON.stringify(body),
-      headers: { 'content-type': 'application/json' },
-    });
-  }
 
   it('reports ready for a reachable store with valid credentials, and persists nothing', async () => {
     const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
@@ -385,17 +416,17 @@ describe('POST /api/connectors/woocommerce/validate -- Phase 9.9.22B pre-connect
     expect(tables.integration_credentials.length).toBe(0);
   });
 
-  it('reports credentials_invalid for a rejected key, without creating anything', async () => {
+  it('reports authentication_failed for a rejected key, without creating anything', async () => {
     fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
       const u = new URL(url);
-      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => '{}' };
+      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2', 'wc/v3'] }) };
       if (u.pathname === '/wp-json/wc/v3/webhooks' && (init?.method ?? 'GET') === 'GET') return { status: 401, headers: { get: () => null }, body: null, text: async () => '{}' };
       return defaultFetchImpl(url, init);
     });
     const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
     const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'wrong', consumerSecret: 'wrong' }));
     const body = await res.json();
-    expect(body.stage).toBe('credentials_invalid');
+    expect(body.stage).toBe('authentication_failed');
   });
 
   it('rejects an SSRF-unsafe store URL before any credential is checked', async () => {
@@ -412,5 +443,114 @@ describe('POST /api/connectors/woocommerce/validate -- Phase 9.9.22B pre-connect
     const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
     const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'ck', consumerSecret: 'cs' }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe('Phase 9.9.22B -- Live Certification Failure #1 regression: pretty-permalink 404 -> ?rest_route= fallback', () => {
+  it('diagnoseWooCommerceConnection() reports "ready" via the fallback when EVERY /wp-json/* pretty path 404s', async () => {
+    prettyPermalinksBroken = true;
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('ready');
+    expect(result.usedFallback).toBe(true);
+  });
+
+  it('reproduces the exact live failure shape: with the OLD single-path behavior this would be credentials_invalid/404 -- the fallback must reach "ready" instead', async () => {
+    // Confirms the pretty form genuinely 404s in this scenario (proving the
+    // test models the real failure, not a no-op).
+    const directPretty = await fetchMock(`${STORE_URL}/wp-json/wc/v3/webhooks?per_page=1`, { method: 'GET' });
+    prettyPermalinksBroken = true;
+    const directPrettyBroken = await fetchMock(`${STORE_URL}/wp-json/wc/v3/webhooks?per_page=1`, { method: 'GET' });
+    expect(directPretty.status).not.toBe(404);
+    expect(directPrettyBroken.status).toBe(404);
+
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('ready');
+  });
+
+  it('POST /validate reports ready via the fallback', async () => {
+    prettyPermalinksBroken = true;
+    const { POST } = await import('../app/api/connectors/woocommerce/validate/route');
+    const res = await POST(validateReq({ storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' }));
+    const body = await res.json();
+    expect(body.stage).toBe('ready');
+  });
+
+  it('POST /connect succeeds end-to-end via the fallback -- webhook subscriptions are actually created on the store', async () => {
+    prettyPermalinksBroken = true;
+    const { POST } = await import('../app/api/connectors/woocommerce/connect/route');
+    const res = await POST(connectReq(VALID_CONNECT_BODY));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('connected');
+    expect(storeWebhooks.length).toBe(2);
+  });
+
+  it('Test Connection (post-connect) still reports ready via the fallback for an existing connection', async () => {
+    prettyPermalinksBroken = true;
+    const { POST: connect } = await import('../app/api/connectors/woocommerce/connect/route');
+    const connectRes = await connect(connectReq(VALID_CONNECT_BODY));
+    const { connectionId } = await connectRes.json();
+
+    const { POST: test } = await import('../app/api/connectors/woocommerce/[connectionId]/test/route');
+    const req = new NextRequest(new URL(`http://localhost/api/connectors/woocommerce/${connectionId}/test`), { method: 'POST' });
+    const res = await test(req, { params: { connectionId } });
+    const body = await res.json();
+    expect(body.stage).toBe('ready');
+  });
+
+  it('a genuine server error (500) is never mistaken for a permalink issue -- no fallback attempted, reported as store_unreachable', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === '/wp-json/') return { status: 500, headers: { get: () => null }, body: null, text: async () => 'Internal Server Error' };
+      throw new Error(`should not be reached: ${u.pathname}${u.search}`);
+    });
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('store_unreachable');
+  });
+
+  it('WordPress reachable but WooCommerce REST namespace absent -> woocommerce_unavailable, never silently treated as ready', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === '/wp-json/') return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2'] }) };
+      throw new Error(`should not be reached: ${u.pathname}${u.search}`);
+    });
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('woocommerce_unavailable');
+  });
+
+  it('neither /wp-json/ nor ?rest_route= resolves at all -> wordpress_rest_unavailable, not a misleading credentials error', async () => {
+    fetchMock.mockImplementation(async () => ({ status: 404, headers: { get: () => null }, body: null, text: async () => 'Not Found' }));
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('wordpress_rest_unavailable');
+  });
+
+  it('WordPress + WooCommerce namespace present, but the webhooks endpoint itself 404s even via the fallback -> webhooks_endpoint_unavailable', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      const restPath = logicalRestPath(u);
+      if (restPath === '/') return { status: 200, headers: { get: () => null }, body: null, text: async () => JSON.stringify({ namespaces: ['wp/v2', 'wc/v3'] }) };
+      if (restPath === '/wc/v3/webhooks') return { status: 404, headers: { get: () => null }, body: null, text: async () => 'Not Found' };
+      throw new Error(`should not be reached: ${u.pathname}${u.search}`);
+    });
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.stage).toBe('webhooks_endpoint_unavailable');
+  });
+
+  it('never leaks a raw upstream response body in the diagnosis, even when the body could contain arbitrary site/plugin content', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === '/wp-json/') return { status: 404, headers: { get: () => null }, body: null, text: async () => '<html><body>SUPER_SENSITIVE_PLUGIN_DEBUG_OUTPUT do-not-leak-this</body></html>' };
+      throw new Error('unexpected');
+    });
+    const { diagnoseWooCommerceConnection } = await import('@/lib/connectors/woocommerce/client');
+    const result = await diagnoseWooCommerceConnection(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' });
+    expect(result.detail).not.toContain('SUPER_SENSITIVE_PLUGIN_DEBUG_OUTPUT');
+    expect(JSON.stringify(result)).not.toContain('SUPER_SENSITIVE_PLUGIN_DEBUG_OUTPUT');
   });
 });

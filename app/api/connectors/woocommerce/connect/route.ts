@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, createServiceClient } from '@/lib/supabase-server';
 import { saveProviderCredentials } from '@/lib/credentials/storage';
-import { validateStoreUrlReachable, listWebhooks } from '@/lib/connectors/woocommerce/client';
+import { diagnoseWooCommerceConnection } from '@/lib/connectors/woocommerce/client';
 import { getConnector } from '@/lib/connectors/registry';
 import { ensureConnection, updateConnectionSubscriptions, updateConnectionHealth, getConnectionForOwner } from '@/lib/connectors/storage';
 import { isSupportedTopic, WOOCOMMERCE_SUPPORTED_TOPICS } from '@/lib/connectors/woocommerce/capabilities';
@@ -71,28 +71,30 @@ export async function POST(req: NextRequest) {
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
 
   // Part E -- SSRF pre-flight before ANY outbound call is made with the
-  // user-supplied store URL.
-  const reachable = await validateStoreUrlReachable(body.storeUrl);
-  if (!reachable.ok) {
-    return NextResponse.json({ error: 'STORE_UNREACHABLE', message: reachable.reason }, { status: 400 });
+  // user-supplied store URL. Phase 9.9.22B -- full staged diagnosis
+  // (store -> WordPress REST -> WooCommerce namespace -> credentials ->
+  // webhooks endpoint), with the pretty-permalink/rest_route compatibility
+  // fallback applied transparently at every step, so Connect never fails
+  // with a misleading "credentials invalid" for what's actually a
+  // permalink/rewrite-rule limitation on the store.
+  const preflightCredentials = { storeUrl: body.storeUrl, consumerKey: body.consumerKey, consumerSecret: body.consumerSecret };
+  const diagnosis = await diagnoseWooCommerceConnection(body.storeUrl, preflightCredentials);
+  if (diagnosis.stage !== 'ready') {
+    return NextResponse.json({ error: diagnosis.stage.toUpperCase(), message: diagnosis.detail }, { status: 400 });
   }
 
-  const credentials = { storeUrl: reachable.storeUrl, consumerKey: body.consumerKey, consumerSecret: body.consumerSecret };
-
-  const listed = await listWebhooks(reachable.storeUrl, credentials);
-  if (!listed.ok) {
-    return NextResponse.json({ error: 'CREDENTIALS_INVALID', message: listed.reason }, { status: 400 });
-  }
+  const storeUrl = diagnosis.storeUrl ?? body.storeUrl;
+  const credentials = { storeUrl, consumerKey: body.consumerKey, consumerSecret: body.consumerSecret };
 
   // Consumer Key/Secret never returned to the browser again after this
   // point -- saved encrypted, read back only server-side.
   await saveProviderCredentials(user.id, 'woocommerce', {
-    store_url: reachable.storeUrl,
+    store_url: storeUrl,
     consumer_key: body.consumerKey,
     consumer_secret: body.consumerSecret,
   });
 
-  const { connection, webhookSecret } = await ensureConnection(user.id, body.workflowId, 'woocommerce', reachable.storeUrl);
+  const { connection, webhookSecret } = await ensureConnection(user.id, body.workflowId, 'woocommerce', storeUrl);
   const webhookUrl = `${req.nextUrl.origin}/api/connectors/woocommerce/${connection.id}/receive`;
 
   const connector = getConnector('woocommerce')!;

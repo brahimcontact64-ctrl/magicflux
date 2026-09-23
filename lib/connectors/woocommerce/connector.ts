@@ -10,7 +10,7 @@ import type {
 import { verifyWooCommerceSignature } from './signature';
 import { normalizeWooCommerceEvent } from './normalize';
 import { WOOCOMMERCE_SUPPORTED_TOPICS, isSupportedTopic } from './capabilities';
-import { validateStoreUrlReachable, listWebhooks, createWebhook, deleteWebhook } from './client';
+import { diagnoseWooCommerceConnection, listWebhooks, createWebhook, deleteWebhook } from './client';
 
 /** WooCommerce's own activation/connectivity ping: delivered through the same mechanism as a real event, but its body is exactly `{"webhook_id": <id>}` and carries no real resource -- must be acknowledged, never normalized/dispatched. */
 function looksLikePing(rawBody: string): boolean {
@@ -71,14 +71,19 @@ export const woocommerceConnector: PlatformConnector = {
   },
 
   async testConnection({ connection, credentials }): Promise<TestConnectionResult> {
-    const reachable = await validateStoreUrlReachable(connection.storeUrl);
-    if (!reachable.ok) {
-      return { stage: 'store_unreachable', detail: reachable.reason };
+    // Phase 9.9.22B -- full staged diagnosis (store -> WordPress REST ->
+    // WooCommerce namespace -> credentials -> webhooks endpoint), with the
+    // pretty-permalink/rest_route compatibility fallback applied
+    // transparently at every step. Never collapses a real distinction into
+    // a misleading "credentials invalid" message.
+    const diagnosis = await diagnoseWooCommerceConnection(connection.storeUrl, credentials);
+    if (diagnosis.stage !== 'ready') {
+      return diagnosis;
     }
 
-    const listed = await listWebhooks(reachable.storeUrl, credentials);
+    const listed = await listWebhooks(diagnosis.storeUrl ?? connection.storeUrl, credentials);
     if (!listed.ok) {
-      return { stage: 'credentials_invalid', detail: listed.reason };
+      return { stage: 'authentication_failed', detail: listed.reason };
     }
 
     const subscriptionIds = Object.values(connection.providerSubscriptions);
