@@ -3,6 +3,7 @@ import 'server-only';
 import { randomBytes } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase-server';
 import { encryptSecretValue, decryptSecretValue } from '@/lib/security/encryption';
+import { getCredentialRowId } from '@/lib/credentials/storage';
 import type { ConnectionRecord, ConnectionStatus } from './types';
 
 /**
@@ -105,6 +106,16 @@ export async function ensureConnection(userId: string, workflowId: string, platf
   }
 
   const webhookSecret = generateWebhookSecret();
+  // Phase 9.9.22A -- links this connection to the integration_credentials
+  // row set it depends on (any one row is a valid CASCADE anchor -- see
+  // the migration's own header note), so disconnecting those credentials
+  // via the existing Settings > Integrations flow cleanly cascades this
+  // connection away instead of silently orphaning it. Best-effort: a null
+  // credentialId here (the row not found yet, e.g. a future connector with
+  // a different credential shape) still creates the connection -- the FK
+  // column is nullable precisely for that case.
+  const credentialId = await getCredentialRowId(userId, platform, 'consumer_secret').catch(() => null);
+
   const db = createServiceClient();
   const { data, error } = await db
     .from('platform_connections')
@@ -114,6 +125,7 @@ export async function ensureConnection(userId: string, workflowId: string, platf
       platform,
       status: 'connecting',
       store_url: storeUrl,
+      credential_id: credentialId,
       webhook_secret_encrypted: encryptSecretValue(webhookSecret),
       provider_subscriptions: {},
       topics: [],
