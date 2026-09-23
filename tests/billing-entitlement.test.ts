@@ -290,6 +290,154 @@ describe('resolveUserPlan() / getUserPlan() — canonical server-side entitlemen
   });
 });
 
+// ─── Phase 9.9.20 — Global Free Beta Entitlements: full matrix + reversibility ───
+//
+// Part F's minimum matrix (new/no-sub, old Free, expired, active Pro,
+// founder, missing-subscription-lookup) under BOTH BETA_MODE states, plus
+// Part E's critical reversibility proof: toggling BETA_MODE alone -- with
+// NO database migration or subscription mutation -- must be sufficient to
+// move the exact same account between Beta and normal commercial
+// entitlement. resolveUserPlan() already applies applyBetaExpansion()
+// uniformly whenever the resolved slug is "free", regardless of *why* it
+// resolved to free (see the single call site in plan-limits.ts) -- these
+// tests exercise every "why" explicitly so a future regression that special-
+// cases one source (e.g. only no_subscription, forgetting inactive_
+// subscription or resolution_error) fails loudly here.
+
+describe('Phase 9.9.20 — full Beta entitlement matrix (new, old-Free, expired, Pro, founder, DB-error) x BETA_MODE', () => {
+  it('old Free account (explicit active free-plan row) is Beta-expanded when BETA_MODE=true', async () => {
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: FREE_PLAN_ID, plan: 'free', current_period_end: null });
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+    const result = await resolveUserPlan(USER_A);
+    expect(result.plan.slug).toBe('free');
+    expect(result.source).toBe('active_subscription');
+    expect(result.plan.deploy_enabled).toBe(true);
+    expect(result.plan.workflows_limit).toBe(10);
+    expect(result.plan.integrations_limit).toBe(3);
+    expect(result.plan.executions_limit).toBe(100);
+  });
+
+  it('old Free account reverts to real, unexpanded Free limits when BETA_MODE=false', async () => {
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: FREE_PLAN_ID, plan: 'free', current_period_end: null });
+    process.env.BETA_MODE = 'false';
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.plan.slug).toBe('free');
+      expect(result.plan.deploy_enabled).toBe(false);
+      expect(result.plan.workflows_limit).toBe(3);
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+
+  it('expired subscription resolves free + Beta-expanded when BETA_MODE=true', async () => {
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: PRO_PLAN_ID, plan: 'pro', current_period_end: PAST });
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+    const result = await resolveUserPlan(USER_A);
+    expect(result.source).toBe('inactive_subscription');
+    expect(result.plan.slug).toBe('free');
+    expect(result.plan.deploy_enabled).toBe(true);
+  });
+
+  it('expired subscription resolves real (unexpanded) free when BETA_MODE=false -- an expired Pro sub must never be treated as Beta-exempt', async () => {
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: PRO_PLAN_ID, plan: 'pro', current_period_end: PAST });
+    process.env.BETA_MODE = 'false';
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.source).toBe('inactive_subscription');
+      expect(result.plan.slug).toBe('free');
+      expect(result.plan.deploy_enabled).toBe(false);
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+
+  it('an active Pro account is untouched by BETA_MODE=false -- turning Beta off must never downgrade a real paying customer', async () => {
+    subsTable.push({ user_id: USER_A, status: 'active', plan_id: PRO_PLAN_ID, plan: 'pro', current_period_end: FUTURE });
+    process.env.BETA_MODE = 'false';
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.plan.slug).toBe('pro');
+      expect(result.plan.deploy_enabled).toBe(true);
+      expect(result.source).toBe('active_subscription');
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+
+  it('founder/admin remains Founder regardless of BETA_MODE', async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(true);
+    process.env.BETA_MODE = 'false';
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.source).toBe('founder_override');
+      expect(result.plan.deploy_enabled).toBe(true);
+      expect(result.plan.workflows_limit).toBe(-1);
+      expect(subscriptionsQueryCount).toBe(0);
+    } finally {
+      delete process.env.BETA_MODE;
+      // vi.clearAllMocks() (beforeEach) clears call history but NOT a
+      // mockResolvedValue implementation -- without this, every later test
+      // (in this file, including the separate lifecycle-route describe
+      // block below) would silently keep resolving as founder/admin.
+      vi.mocked(isAdminUser).mockResolvedValue(false);
+    }
+  });
+
+  it('a missing-subscription-lookup (DB/relationship failure) fails closed to real Free, NOT Beta, when BETA_MODE=false', async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(false);
+    forceResolverError = true;
+    process.env.BETA_MODE = 'false';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+      const result = await resolveUserPlan(USER_A);
+      expect(result.source).toBe('resolution_error');
+      expect(result.plan.slug).toBe('free');
+      expect(result.plan.deploy_enabled).toBe(false);
+    } finally {
+      delete process.env.BETA_MODE;
+      errSpy.mockRestore();
+    }
+  });
+
+  it('Part E — reversibility: the SAME brand-new, zero-subscription account moves from Beta to normal commercial entitlement purely by toggling BETA_MODE, with no DB write in between', async () => {
+    const { isAdminUser } = await import('@/lib/supabase-server');
+    vi.mocked(isAdminUser).mockResolvedValue(false);
+    // No subsTable row pushed at all -- a genuinely brand-new account, and
+    // it stays that way for the whole test. The only thing that changes
+    // between the two resolutions is the env var.
+    const { resolveUserPlan } = await import('@/lib/billing/plan-limits');
+
+    const duringBeta = await resolveUserPlan(USER_A);
+    expect(duringBeta.plan.slug).toBe('free');
+    expect(duringBeta.plan.deploy_enabled).toBe(true);
+    expect(duringBeta.plan.workflows_limit).toBe(10);
+    expect(duringBeta.plan.integrations_limit).toBe(3);
+    expect(duringBeta.plan.executions_limit).toBe(100);
+
+    process.env.BETA_MODE = 'false';
+    try {
+      const afterBeta = await resolveUserPlan(USER_A);
+      expect(afterBeta.plan.slug).toBe('free');
+      expect(afterBeta.plan.deploy_enabled).toBe(false);
+      expect(afterBeta.plan.workflows_limit).toBe(3);
+      expect(afterBeta.plan.integrations_limit).toBe(1);
+      expect(afterBeta.plan.executions_limit).toBe(20);
+      // no row was ever written to make this happen
+      expect(subsTable.length).toBe(0);
+    } finally {
+      delete process.env.BETA_MODE;
+    }
+  });
+});
+
 // ─── Route-level: activation entitlement gate ──────────────────────────────
 
 function makeReq(url: string, init?: ConstructorParameters<typeof NextRequest>[1]): NextRequest {

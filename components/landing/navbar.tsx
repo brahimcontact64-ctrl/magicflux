@@ -92,7 +92,7 @@ function UserDropdown() {
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                   : 'bg-muted text-muted-foreground border-border'
               )}>
-                {user.plan === 'business' ? 'Business' : isPro ? 'Pro' : 'Free plan'}
+                {isPro ? (user.plan === 'business' ? 'Business' : 'Pro') : user.planName}
               </span>
             </div>
             <div className="h-px bg-border" />

@@ -170,7 +170,7 @@ function UserMenu() {
                   ? 'bg-amber-500/15 text-amber-400 border-amber-500/20'
                   : 'bg-muted text-muted-foreground border-border'
               )}>
-                {user.plan === 'business' ? 'Business' : isPro ? 'Pro' : 'Free'}
+                {isPro ? (user.plan === 'business' ? 'Business' : 'Pro') : user.planName}
               </span>
             </div>
             <div className="h-px bg-border" />
@@ -861,13 +861,13 @@ export default function BuilderPage() {
   }
 
   const showOutput = outputOpen && !plannerRejection && !!plannerResult;
-  const isPro = user?.plan === 'pro' || user?.plan === 'business';
   const hasMissingIntegrations = missingIntegrations.length > 0;
   const testDisabled = hasMissingIntegrations || isTestingWorkflow;
   const airtableConnected = requiredIntegrations.includes('airtable') && !missingIntegrations.includes('airtable');
   // Entitlement (Pro vs Free) is checked server-side when the user clicks
   // Activate on the editor page, not here — this page only needs to know
-  // whether it's safe to hand off to the editor at all.
+  // whether it's safe to hand off to the editor at all. Deploy-capability
+  // messaging below reads user.deployEnabled directly (Phase 9.9.20).
   const reviewDisabled = isTestingWorkflow || isDeploying;
 
   if (authLoading) {
@@ -938,8 +938,12 @@ export default function BuilderPage() {
         <UserMenu />
       </header>
 
-      {/* Upgrade banner for free users */}
-      {!isPro && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} checkoutAvailable={checkoutAvailable} />}
+      {/* Phase 9.9.20 -- gate on the real, Beta-aware capability
+          (user.deployEnabled, from the canonical server-side resolver),
+          never the cosmetic paid-tier flag (isPro). A Beta user is never
+          "isPro" but IS deploy-enabled, and previously saw a false
+          "requires Pro" nag for a capability they already had. */}
+      {!user.deployEnabled && <UpgradeBanner onUpgrade={handleUpgrade} upgrading={upgrading} checkoutAvailable={checkoutAvailable} />}
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -1088,7 +1092,16 @@ export default function BuilderPage() {
                 ) : (
                   <p className="text-emerald-400">All required integrations connected.</p>
                 )}
-                {!isPro && <p className="text-amber-400">Activating a live workflow is Pro only. Testing and export remain free.</p>}
+                {/* Phase 9.9.20 -- truthful, Beta-aware capability
+                    messaging: gates on user.deployEnabled (the canonical
+                    resolver's real, current answer), not the cosmetic
+                    isPro flag, so a Beta user sees confirmation instead of
+                    a false Pro-required block. */}
+                {user.deployEnabled ? (
+                  <p className="text-emerald-400">Live activation is included in {user.planName}.</p>
+                ) : (
+                  <p className="text-amber-400">Activating a live workflow requires a paid plan. Testing and export remain free.</p>
+                )}
               </div>
 
               {testResult && (

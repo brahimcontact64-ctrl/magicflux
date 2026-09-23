@@ -20,6 +20,13 @@ export async function GET(req: NextRequest) {
   ]);
 
   return NextResponse.json({
+    // Phase 9.9.20 -- plan_slug is the real, un-expanded paid-tier identity
+    // ('free'/'pro'/'business'), distinct from plan_name (which becomes
+    // "Free (Beta)" etc. under applyBetaExpansion()). Clients need the slug
+    // for the honest "did you actually pay" cosmetic badge, and deploy_enabled
+    // (already returned below) for the real, Beta-aware capability check --
+    // never derive capability from the slug.
+    plan_slug: plan.slug,
     plan_name: plan.name,
     connected_integrations: usage.connected_integrations,
     integrations_limit: plan.integrations_limit,

@@ -11,7 +11,21 @@ const ISOLATE_A = process.env.NEXT_PUBLIC_MF_BUILD_ISOLATE_A === '1';
 export interface AuthUser {
   id: string;
   email: string;
+  /** Real, un-expanded paid-tier slug ('free' | 'pro' | 'business') from the
+      canonical server-side resolver (lib/billing/plan-limits.ts). Stays
+      'free' for a Beta user even though Beta grants them expanded
+      capabilities -- use this ONLY for the honest "did they actually pay"
+      cosmetic badge (e.g. the Crown icon), never to gate a capability. */
   plan: string;
+  /** Display name from the same resolver, e.g. "Free (Beta)" while Beta Mode
+      is active, or "Pro" for a real paid subscriber. Safe to show verbatim. */
+  planName: string;
+  /** Whether this account can activate/deploy a live workflow RIGHT NOW,
+      per the canonical, Beta-aware resolver. This is the ONLY field UI
+      should gate deploy-capability messaging/blocking on -- `plan`/`isPro`
+      checks derived from it are cosmetic-only and must never imply a
+      capability the user doesn't actually have. */
+  deployEnabled: boolean;
 }
 
 interface AuthContextValue {
@@ -42,32 +56,51 @@ function setAccessTokenCookie(token: string | null) {
   document.cookie = `mf_access_token=${encodeURIComponent(token)}; Path=/; Max-Age=604800; SameSite=Lax${secure}`;
 }
 
-async function fetchPlan(userId: string): Promise<string> {
-  if (ISOLATE_A) return 'free';
+type Entitlement = { plan: string; planName: string; deployEnabled: boolean };
 
-  const { data: sub } = await supabase
-    .from('subscriptions')
-    .select('status, plan, plans!subscriptions_plan_id_fkey(slug)')
-    .eq('user_id', userId)
-    .maybeSingle();
+// Fails closed (no deploy) on any error -- this is a display concern only;
+// real enforcement always happens server-side against the same resolver
+// (see lib/billing/plan-limits.ts), so a transient failure here can only
+// under-display capability, never grant one.
+const FAIL_CLOSED_ENTITLEMENT: Entitlement = { plan: 'free', planName: 'Free', deployEnabled: false };
 
-  const subStatus = sub?.status as string | undefined;
-  const subPlanSlug = (sub?.plans as { slug?: string } | null | undefined)?.slug;
-  if (subStatus === 'active' && (subPlanSlug || sub?.plan)) {
-    return subPlanSlug ?? String(sub?.plan);
+/**
+ * Phase 9.9.20 -- this previously ran its OWN independent, non-Beta-aware
+ * query directly against `subscriptions`/`user_profiles`, completely
+ * bypassing the canonical server-side resolver (resolveUserPlan() in
+ * lib/billing/plan-limits.ts) and its Beta-mode expansion. A brand-new
+ * account with zero subscription rows resolved here to the literal string
+ * 'free', which every isPro-style client check then read as "not entitled" --
+ * even though the server's resolver, and every real enforcement route, had
+ * already granted that same account full Beta capability. Now calls
+ * /api/billing/usage, the existing endpoint that already wraps
+ * resolveUserPlan() -- the client reads the exact same effective
+ * entitlement the server enforces, instead of recomputing a second,
+ * divergent one.
+ */
+async function fetchEntitlement(accessToken: string): Promise<Entitlement> {
+  if (ISOLATE_A) return FAIL_CLOSED_ENTITLEMENT;
+
+  try {
+    const res = await fetch('/api/billing/usage', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return FAIL_CLOSED_ENTITLEMENT;
+
+    const data = (await res.json()) as { plan_slug?: string; plan_name?: string; deploy_enabled?: boolean };
+    return {
+      plan: data.plan_slug ?? 'free',
+      planName: data.plan_name ?? 'Free',
+      deployEnabled: Boolean(data.deploy_enabled),
+    };
+  } catch {
+    return FAIL_CLOSED_ENTITLEMENT;
   }
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('plan')
-    .eq('id', userId)
-    .maybeSingle();
-
-  return profile?.plan ?? 'free';
 }
 
-function toAuthUser(u: User, plan: string): AuthUser {
-  return { id: u.id, email: u.email ?? '', plan };
+function toAuthUser(u: User, entitlement: Entitlement): AuthUser {
+  return { id: u.id, email: u.email ?? '', ...entitlement };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -83,9 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
-    const plan = await fetchPlan(u.id);
+    const entitlement = s?.access_token ? await fetchEntitlement(s.access_token) : FAIL_CLOSED_ENTITLEMENT;
     setAccessTokenCookie(s?.access_token ?? null);
-    setUser(toAuthUser(u, plan));
+    setUser(toAuthUser(u, entitlement));
     setSession(s);
     setLoading(false);
   }, []);
@@ -126,10 +159,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshPlan = useCallback(async () => {
     if (ISOLATE_A) return;
 
-    const { data: { user: u } } = await supabase.auth.getUser();
-    if (!u) return;
-    const plan = await fetchPlan(u.id);
-    setUser(prev => (prev ? { ...prev, plan } : null));
+    const { data: { session: s } } = await supabase.auth.getSession();
+    if (!s?.user || !s.access_token) return;
+    const entitlement = await fetchEntitlement(s.access_token);
+    setUser(prev => (prev ? { ...prev, ...entitlement } : null));
   }, []);
 
   return (
