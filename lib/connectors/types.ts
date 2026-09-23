@@ -60,6 +60,8 @@ export type VerifyDiagnostics = {
   algorithm: string;
   deliveryId: string | null;
   topic: string | null;
+  /** A coarse, non-identifying classification ('wordpress' | 'bot_or_script' | 'absent' | 'other') -- never the raw User-Agent string, which this codebase's redaction conventions treat as low-sensitivity but unnecessary to persist verbatim for this purpose. */
+  userAgentClass: string;
 };
 
 export type VerifyResult =

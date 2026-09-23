@@ -216,6 +216,57 @@ export async function listWebhooks(storeUrl: string, credentials: ConnectCredent
   }
 }
 
+/**
+ * Phase 9.9.22B -- Live Certification Failure #3: safe delivery-history
+ * inspection, used to answer "did WooCommerce actually attempt to deliver
+ * this event, and what did IT observe" independently of anything our own
+ * receiver logged. The return type deliberately omits request_headers,
+ * request_body, response_headers, response_body, and summary (which
+ * embeds response body text) -- WooCommerce's own documented fields for
+ * this endpoint that can carry payload/credential-adjacent content. Only
+ * id/date/duration/destination-url/response-code are ever returned, so a
+ * caller cannot accidentally log or display anything sensitive even by
+ * mistake.
+ */
+export type WcWebhookDeliverySafe = { id: number; dateCreated: string; requestUrl: string; responseCode: number | null; durationSeconds: number | null };
+
+export async function listWebhookDeliveries(storeUrl: string, credentials: ConnectCredentials, webhookId: string): Promise<{ ok: true; deliveries: WcWebhookDeliverySafe[] } | { ok: false; status: number; reason: string }> {
+  const check = await checkUrlSafe(storeUrl);
+  if (!check.allowed) return { ok: false, status: 0, reason: check.reason };
+
+  const res = await wcRequest(storeUrl, `/wc/v3/webhooks/${encodeURIComponent(webhookId)}/deliveries`, {
+    method: 'GET',
+    headers: { Authorization: authHeader(credentials) },
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, status: res.status, reason: 'WooCommerce rejected these credentials' };
+  }
+  if (res.status === 404) {
+    // Modern WooCommerce versions may not expose delivery logs via this
+    // (documented-deprecated) REST sub-resource at all -- a 404 here means
+    // "not available through this API," not "no deliveries occurred."
+    return { ok: false, status: res.status, reason: 'Delivery history is not available via the REST API on this store' };
+  }
+  if (res.status >= 400) {
+    return { ok: false, status: res.status, reason: `WooCommerce returned an error listing deliveries (${res.status})` };
+  }
+
+  try {
+    const parsed = JSON.parse(res.bodyText) as Array<Record<string, unknown>>;
+    const safe = (Array.isArray(parsed) ? parsed : []).map((d) => ({
+      id: Number(d.id),
+      dateCreated: String(d.date_created ?? ''),
+      requestUrl: String(d.request_url ?? ''),
+      responseCode: typeof d.response_code === 'number' ? d.response_code : null,
+      durationSeconds: typeof d.duration === 'number' ? d.duration : null,
+    }));
+    return { ok: true, deliveries: safe };
+  } catch {
+    return { ok: false, status: res.status, reason: 'Unexpected response from WooCommerce' };
+  }
+}
+
 /** POST /webhooks -- requires write scope. A read-only Consumer Key fails here with 401/403 even though listWebhooks() above succeeded. */
 export async function createWebhook(
   storeUrl: string,

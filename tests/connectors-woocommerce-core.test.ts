@@ -170,28 +170,41 @@ describe('woocommerceConnector.normalize() end-to-end with a real connection rec
 });
 
 describe('Phase 9.9.22B -- Live Certification Failure #2: verify() diagnostics never leak sensitive material', () => {
-  it('a rejected signature attaches safe diagnostic metadata (delivery id, topic, body length, signature-present, algorithm)', () => {
+  it('a WRONG (present but invalid) signature -> reason INVALID_WOOCOMMERCE_SIGNATURE, with safe diagnostic metadata attached', () => {
     const headers = headersFrom({ 'X-WC-Webhook-Signature': 'aW52YWxpZA==', 'X-WC-Webhook-Delivery-ID': 'delivery-xyz', 'X-WC-Webhook-Topic': 'order.created' });
     const body = JSON.stringify({ id: 1 });
     const result = woocommerceConnector.verify({ rawBody: body, headers, connection: CONNECTION, webhookSecret: SECRET });
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('INVALID_WOOCOMMERCE_SIGNATURE');
     expect(result.diagnostics).toEqual({
       signaturePresent: true,
       bodyByteLength: Buffer.byteLength(body, 'utf8'),
       algorithm: 'hmac-sha256-base64',
       deliveryId: 'delivery-xyz',
       topic: 'order.created',
+      userAgentClass: 'absent',
     });
   });
 
-  it('reports signaturePresent:false when the header is entirely missing, distinguishing "wrong" from "absent"', () => {
+  it('Phase 9.9.22B Live Certification Failure #3: a MISSING signature header -> reason MISSING_WOOCOMMERCE_SIGNATURE (never the same reason as a present-but-wrong one), signaturePresent:false', () => {
     const headers = headersFrom({ 'X-WC-Webhook-Delivery-ID': 'delivery-abc' });
     const result = woocommerceConnector.verify({ rawBody: '{}', headers, connection: CONNECTION, webhookSecret: SECRET });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('MISSING_WOOCOMMERCE_SIGNATURE');
     expect(result.diagnostics?.signaturePresent).toBe(false);
+  });
+
+  it('classifies a WordPress-flavored User-Agent, a bot/script UA, and an absent one distinctly, without ever exposing the raw UA string in the diagnostic shape', () => {
+    const wpResult = woocommerceConnector.verify({ rawBody: '{}', headers: headersFrom({ 'User-Agent': 'WordPress/6.6; https://example.com' }), connection: CONNECTION, webhookSecret: SECRET });
+    const botResult = woocommerceConnector.verify({ rawBody: '{}', headers: headersFrom({ 'User-Agent': 'curl/8.4.0' }), connection: CONNECTION, webhookSecret: SECRET });
+    const absentResult = woocommerceConnector.verify({ rawBody: '{}', headers: headersFrom({}), connection: CONNECTION, webhookSecret: SECRET });
+
+    expect(wpResult.ok === false && wpResult.diagnostics?.userAgentClass).toBe('wordpress');
+    expect(botResult.ok === false && botResult.diagnostics?.userAgentClass).toBe('bot_or_script');
+    expect(absentResult.ok === false && absentResult.diagnostics?.userAgentClass).toBe('absent');
   });
 
   it('diagnostics never contain the signature value, the secret, or any body content', () => {

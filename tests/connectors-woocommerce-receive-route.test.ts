@@ -190,14 +190,35 @@ describe('POST /api/connectors/woocommerce/[connectionId]/receive -- adversarial
     expect(row.last_error).not.toContain('super-secret-customer@example.com');
   });
 
-  it('a MISSING signature header is distinguished from a WRONG one in the persisted diagnostic (signaturePresent=false)', async () => {
+  it('Phase 9.9.22B Live Certification Failure #3: a MISSING signature header is rejected with its own error code and logged, but deliberately does NOT overwrite connection health -- unrelated scanner/bot noise on the public receive URL must never make a healthy connection look broken', async () => {
     const { POST } = await importRoute();
     const body = orderPayload();
     const req = postReq(CONNECTION_A, { 'x-wc-webhook-topic': 'order.created' }, body); // no signature header at all
-    await POST(req, { params: { connectionId: CONNECTION_A } });
+    const res = await POST(req, { params: { connectionId: CONNECTION_A } });
+    const payload = await res.json();
 
-    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { last_error: string };
-    expect(row.last_error).toContain('signaturePresent=false');
+    expect(res.status).toBe(401);
+    expect(payload.error).toBe('MISSING_WOOCOMMERCE_SIGNATURE');
+
+    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { last_error: string | null; error_category: string | null; status: string };
+    expect(row.last_error).toBeNull(); // untouched -- the connection's own row never had one to begin with in this fixture
+    expect(row.error_category).toBeNull();
+    expect(row.status).toBe('connected'); // untouched
+  });
+
+  it('a signature that IS present but WRONG still updates connection health (distinct from the missing-header case above)', async () => {
+    const { POST } = await importRoute();
+    const body = orderPayload();
+    const req = postReq(CONNECTION_A, { 'x-wc-webhook-signature': 'd0hhdGV2ZXI=', 'x-wc-webhook-topic': 'order.created' }, body);
+    const res = await POST(req, { params: { connectionId: CONNECTION_A } });
+    const payload = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(payload.error).toBe('INVALID_WOOCOMMERCE_SIGNATURE');
+
+    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { error_category: string; status: string };
+    expect(row.error_category).toBe('invalid_signature');
+    expect(row.status).toBe('needs_attention');
   });
 
   it('tampered body (signature computed on a different body) -> 401, never dispatches', async () => {
@@ -333,6 +354,20 @@ describe('POST /api/connectors/woocommerce/[connectionId]/receive -- adversarial
     const res = await POST(req, { params: { connectionId: CONNECTION_A } });
     expect(res.status).toBe(422);
     expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('Phase 9.9.22B Live Certification Failure #3: a genuinely SIGNED, verified event rejected only because the workflow is not active updates connection health with its own distinct category -- proving the connector itself is healthy even though nothing dispatched', async () => {
+    tables.workflows = [{ ...activeWorkflowRow(WORKFLOW_A, OWNER_A), status: 'error' }];
+    const { POST } = await importRoute();
+    const req = await signedReq(CONNECTION_A, SECRET, orderPayload());
+    const res = await POST(req, { params: { connectionId: CONNECTION_A } });
+    expect(res.status).toBe(422);
+    expect(dispatchMock).not.toHaveBeenCalled();
+
+    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { error_category: string; last_error: string; last_verified_at: string | null };
+    expect(row.error_category).toBe('workflow_not_active');
+    expect(row.last_error).toContain('verified successfully');
+    expect(row.last_verified_at).not.toBeNull(); // proves signature verification itself succeeded
   });
 
   it('an unknown connection id (deleted/never existed) -> 404, never dispatched', async () => {

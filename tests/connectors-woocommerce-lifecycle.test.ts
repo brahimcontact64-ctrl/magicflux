@@ -587,3 +587,47 @@ describe('Phase 9.9.22B -- Live Certification Failure #1 regression: pretty-perm
     expect(JSON.stringify(result)).not.toContain('SUPER_SENSITIVE_PLUGIN_DEBUG_OUTPUT');
   });
 });
+
+describe('listWebhookDeliveries() -- Phase 9.9.22B Live Certification Failure #3 investigation tooling', () => {
+  it('returns only safe fields (id/date/duration/url/response-code), never request/response headers or bodies', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === '/wp-json/wc/v3/webhooks/1/deliveries') {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          body: null,
+          text: async () => JSON.stringify([{
+            id: 55,
+            date_created: '2026-09-23T14:52:00',
+            request_url: `${STORE_URL}/api/receive`,
+            request_headers: { 'X-WC-Webhook-Signature': 'SHOULD_NOT_APPEAR' },
+            request_body: '{"sensitive":"order data"}',
+            response_code: 200,
+            response_body: 'SHOULD_ALSO_NOT_APPEAR',
+            duration: 0.42,
+          }]),
+        };
+      }
+      throw new Error('unexpected');
+    });
+
+    const { listWebhookDeliveries } = await import('@/lib/connectors/woocommerce/client');
+    const result = await listWebhookDeliveries(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck', consumerSecret: 'cs' }, '1');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.deliveries).toEqual([{ id: 55, dateCreated: '2026-09-23T14:52:00', requestUrl: `${STORE_URL}/api/receive`, responseCode: 200, durationSeconds: 0.42 }]);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('SHOULD_NOT_APPEAR');
+    expect(serialized).not.toContain('SHOULD_ALSO_NOT_APPEAR');
+    expect(serialized).not.toContain('sensitive');
+  });
+
+  it('reports deliveries_unavailable (not a crash) when the store\'s WooCommerce version has removed this deprecated sub-resource (404)', async () => {
+    fetchMock.mockImplementation(async () => ({ status: 404, headers: { get: () => null }, body: null, text: async () => 'Not Found' }));
+    const { listWebhookDeliveries } = await import('@/lib/connectors/woocommerce/client');
+    const result = await listWebhookDeliveries(STORE_URL, { storeUrl: STORE_URL, consumerKey: 'ck', consumerSecret: 'cs' }, '1');
+    expect(result.ok).toBe(false);
+  });
+});

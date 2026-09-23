@@ -65,10 +65,27 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // sensitive material.
     const d = verifyResult.diagnostics;
     const safeSummary = d
-      ? `${verifyResult.reason} (deliveryId=${d.deliveryId ?? 'none'}, topic=${d.topic ?? 'none'}, bodyBytes=${d.bodyByteLength}, signaturePresent=${d.signaturePresent}, algorithm=${d.algorithm})`
+      ? `${verifyResult.reason} (deliveryId=${d.deliveryId ?? 'none'}, topic=${d.topic ?? 'none'}, bodyBytes=${d.bodyByteLength}, signaturePresent=${d.signaturePresent}, algorithm=${d.algorithm}, userAgentClass=${d.userAgentClass})`
       : verifyResult.reason;
     console.error(`[woocommerce-connector] signature verification failed for connection ${connection.id}: ${safeSummary}`);
-    await updateConnectionHealth(connection.id, { status: 'needs_attention', lastError: safeSummary, errorCategory: 'invalid_signature' });
+    // Phase 9.9.22B -- Live Certification Failure #3 root cause: a request
+    // with NO signature header at all is much more likely an unrelated
+    // scanner/bot hitting this (necessarily public) URL than a real,
+    // misconfigured WooCommerce delivery -- WooCommerce always signs when
+    // a webhook has a secret, and every subscription this connector
+    // creates always has one. This request STILL fails closed with 401
+    // and is still logged for observability, but it deliberately does NOT
+    // overwrite the connection's health/status: exactly this class of
+    // unrelated noise is what caused a genuinely healthy connection (a
+    // real, correctly-signed delivery had already passed verification
+    // moments earlier) to display a misleading "needs attention" state
+    // during this very investigation. A signature that IS present but
+    // wrong is a materially different, more suspicious fact about
+    // something claiming to be a real delivery, and still updates health
+    // as before.
+    if (verifyResult.reason === 'INVALID_WOOCOMMERCE_SIGNATURE') {
+      await updateConnectionHealth(connection.id, { status: 'needs_attention', lastError: safeSummary, errorCategory: 'invalid_signature' });
+    }
     return NextResponse.json({ error: verifyResult.reason }, { status: 401 });
   }
 
@@ -103,6 +120,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Target workflow not found' }, { status: 404 });
   }
   if (!isExecutableStatus(workflow.status)) {
+    // Phase 9.9.22B -- Live Certification Failure #3: this branch previously
+    // returned 422 WITHOUT ever touching connection health -- a real,
+    // CORRECTLY SIGNED delivery that reached this exact point (verification
+    // already passed above) left no visible trace at all, while an
+    // unrelated, signature-less request moments later DID overwrite the
+    // connection's status -- together making a genuinely working connector
+    // look broken. A signed delivery that only fails because the target
+    // workflow isn't ready yet is valuable, distinct signal: the connector
+    // is proven healthy, the workflow is what needs attention.
+    await updateConnectionHealth(connection.id, {
+      status: 'needs_attention',
+      lastVerifiedAt: new Date().toISOString(),
+      lastError: `Signed WooCommerce event verified successfully, but the target workflow's status is "${workflow.status}" (must be active). Activate the workflow to start dispatching.`,
+      errorCategory: 'workflow_not_active',
+    });
     return NextResponse.json({ error: 'Workflow is not active. Activate it before connecting a live platform event.' }, { status: 422 });
   }
 

@@ -12,6 +12,15 @@ import { normalizeWooCommerceEvent } from './normalize';
 import { WOOCOMMERCE_SUPPORTED_TOPICS, isSupportedTopic } from './capabilities';
 import { diagnoseWooCommerceConnection, listWebhooks, createWebhook, deleteWebhook } from './client';
 
+/** Phase 9.9.22B -- Live Certification Failure #3: coarse, safe classification only -- never persists/logs the raw User-Agent string. */
+function classifyUserAgent(userAgent: string | null): string {
+  if (!userAgent) return 'absent';
+  const ua = userAgent.toLowerCase();
+  if (ua.includes('wordpress') || ua.includes('woocommerce')) return 'wordpress';
+  if (/(bot|crawl|spider|curl|wget|python-requests|go-http-client|scan|monitor|uptime|probe)/.test(ua)) return 'bot_or_script';
+  return 'other';
+}
+
 /** WooCommerce's own activation/connectivity ping: delivered through the same mechanism as a real event, but its body is exactly `{"webhook_id": <id>}` and carries no real resource -- must be acknowledged, never normalized/dispatched. */
 function looksLikePing(rawBody: string): boolean {
   try {
@@ -37,20 +46,33 @@ export const woocommerceConnector: PlatformConnector = {
     if (verifyWooCommerceSignature(rawBody, signature, webhookSecret)) {
       return { ok: true };
     }
-    // Phase 9.9.22B -- Live Certification Failure #2: safe-only diagnostic
-    // metadata attached to every rejection, so a real failed delivery can
-    // be root-caused (secret drift vs. a raw-body fidelity issue vs. a
-    // missing header entirely) from connection-health/logs alone, without
-    // ever needing to see or reproduce the signature, secret, or payload.
+    // Phase 9.9.22B -- Live Certification Failure #3: a request with NO
+    // signature header at all is a structurally different fact than one
+    // with a signature that fails to verify -- the former usually means
+    // "this request did not come from WooCommerce's webhook delivery
+    // system in the first place" (a scanner/bot/unrelated hit reusing this
+    // URL), the latter means "something is wrong with the crypto/secret
+    // for a request that at least claims to be a real delivery." Reporting
+    // both as the same INVALID_WOOCOMMERCE_SIGNATURE previously sent a
+    // real investigation down the wrong path (auditing HMAC correctness)
+    // when the actual, distinguishable fact -- no X-WC-Webhook-Signature
+    // header present at all -- would have pointed at request provenance
+    // immediately.
+    //
+    // Safe-only diagnostic metadata attached to every rejection, so a real
+    // failed delivery can be root-caused from connection-health/logs alone,
+    // without ever needing to see or reproduce the signature, secret, or
+    // payload.
     return {
       ok: false,
-      reason: 'INVALID_WOOCOMMERCE_SIGNATURE',
+      reason: signature ? 'INVALID_WOOCOMMERCE_SIGNATURE' : 'MISSING_WOOCOMMERCE_SIGNATURE',
       diagnostics: {
         signaturePresent: Boolean(signature),
         bodyByteLength: Buffer.byteLength(rawBody, 'utf8'),
         algorithm: 'hmac-sha256-base64',
         deliveryId: headers.get('x-wc-webhook-delivery-id'),
         topic: headers.get('x-wc-webhook-topic'),
+        userAgentClass: classifyUserAgent(headers.get('user-agent')),
       },
     };
   },
