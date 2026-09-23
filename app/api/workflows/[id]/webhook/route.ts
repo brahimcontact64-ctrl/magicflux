@@ -6,6 +6,8 @@ import { isExecutableStatus } from '@/lib/workflow/lifecycle';
 import { deriveWebhookIdempotencyKey } from '@/lib/runtime/idempotency';
 import { dispatchProductionExecution } from '@/lib/runtime/execution-dispatch';
 import { classifyError } from '@/lib/security/safe-error';
+import { extractTestModeState, recordTestEvent } from '@/lib/workflow/webhook-test-mode';
+import { deriveTriggerFields } from '@/lib/connection-guide/trigger-fields';
 
 type Ctx = { params: { id: string } };
 
@@ -59,7 +61,17 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
   }
 
-  if (!isExecutableStatus(workflow.status)) {
+  const isActive = isExecutableStatus(workflow.status);
+  // Phase 9.9.21 -- Part 6: "Test Connection" lets an owner prove the REAL
+  // webhook URL/auth/payload shape work end-to-end BEFORE activating,
+  // without risking a real dispatch. Only ever consulted here, in the
+  // branch that already rejected every non-active workflow's webhook with
+  // 422 before this phase existed -- an ACTIVE workflow's dispatch path
+  // below is completely unreached by this check and behaves exactly as
+  // before. See lib/workflow/webhook-test-mode.ts's header for the full
+  // safety argument.
+  const testState = isActive ? null : extractTestModeState(workflow.workflow_json);
+  if (!isActive && !testState?.active) {
     return NextResponse.json(
       { error: 'Workflow is not active. Activate it before triggering via webhook.' },
       { status: 422 }
@@ -146,11 +158,59 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   });
 
   if (!signatureGuard.allowed) {
+    if (testState?.active) {
+      // Recorded even on auth failure -- "we received your request but the
+      // secret/header was wrong" is genuinely useful Test Connection
+      // feedback, and the caller still gets the exact same 401 a real
+      // production webhook would return (this branch never fakes success).
+      await recordTestEvent(db, workflow, {
+        receivedAt: new Date().toISOString(),
+        authenticated: false,
+        valid: false,
+        missingFields: [],
+        presentFields: [],
+      });
+    }
     return NextResponse.json(
       {
         error: signatureGuard.reason ?? 'Webhook rejected',
       },
       { status: 401 }
+    );
+  }
+
+  // Phase 9.9.21 -- Part 6: an authenticated request while Test Connection
+  // is armed validates the payload against this workflow's OWN derived
+  // trigger fields and records the result for the Connection Guide to poll
+  // -- it deliberately returns here, before canExecuteWorkflow()/dispatch,
+  // so a test event can NEVER cause a real execution (no email/Slack/
+  // Airtable side effect, no plan-usage consumption). isActive is false in
+  // this entire branch (enforced above), so this can never fire for a live
+  // workflow's real traffic.
+  if (testState?.active) {
+    const requiredFields = deriveTriggerFields(workflowJson).filter((f) => f.required).map((f) => f.name);
+    const presentFields = Object.keys(inputData).filter((k) => k !== 'query');
+    const missingFields = requiredFields.filter((f) => {
+      const v = inputData[f];
+      return v === undefined || v === null || v === '';
+    });
+
+    await recordTestEvent(db, workflow, {
+      receivedAt: new Date().toISOString(),
+      authenticated: true,
+      valid: missingFields.length === 0,
+      missingFields,
+      presentFields,
+    });
+
+    return NextResponse.json(
+      {
+        test: true,
+        received: true,
+        valid: missingFields.length === 0,
+        missingFields,
+      },
+      { status: 202 }
     );
   }
 

@@ -347,6 +347,121 @@ describe('GET/POST /api/workflows/[id]/webhook-secret — ownership-gated reveal
   });
 });
 
+describe('Phase 9.9.21 -- Test Connection (webhook route test-mode branch)', () => {
+  function draftWorkflow(id: string, userId: string, secret: string, testModeUntil: string | null): Row {
+    return {
+      id,
+      user_id: userId,
+      status: 'draft',
+      workflow_json: {
+        nodes: [
+          { id: '1', name: 'Webhook Trigger', type: 'n8n-nodes-base.webhook', parameters: { method: 'POST' } },
+          // A required field ("email") referenced strictly, an optional one ("company") inside a block.
+          { id: '2', name: 'Notify', type: 'n8n-nodes-base.slack', parameters: { text: 'New lead: ={{$json["email"]}} {{?company}}from {{$json["company"]}}{{/company}}' } },
+        ],
+        connections: {},
+        security: { webhook_secret: secret, ...(testModeUntil !== null ? { test_mode_until: testModeUntil } : {}) },
+      },
+      active_deployment_version_id: null,
+    };
+  }
+
+  const FUTURE_ISO = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const PAST_ISO = new Date(Date.now() - 60 * 1000).toISOString();
+
+  it('a draft workflow with NO test mode armed still 422s exactly as before this phase', async () => {
+    tables.workflows = [draftWorkflow('wf-draft', OWNER_A, SECRET_A, null)];
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-draft', { 'x-magicflux-webhook-secret': SECRET_A }, { email: 'a@b.com' }), { params: { id: 'wf-draft' } });
+    expect(res.status).toBe(422);
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('an EXPIRED test_mode_until (in the past) is treated as inactive -- falls through to the normal 422', async () => {
+    tables.workflows = [draftWorkflow('wf-draft', OWNER_A, SECRET_A, PAST_ISO)];
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-draft', { 'x-magicflux-webhook-secret': SECRET_A }, { email: 'a@b.com' }), { params: { id: 'wf-draft' } });
+    expect(res.status).toBe(422);
+  });
+
+  it('armed test mode + correct secret + all required fields present -> 202, valid:true, NO real execution dispatched', async () => {
+    tables.workflows = [draftWorkflow('wf-draft', OWNER_A, SECRET_A, FUTURE_ISO)];
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-draft', { 'x-magicflux-webhook-secret': SECRET_A }, { email: 'jane@example.com' }), { params: { id: 'wf-draft' } });
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body.test).toBe(true);
+    expect(body.valid).toBe(true);
+    expect(dispatchMock).not.toHaveBeenCalled();
+
+    const row = tables.workflows.find((w) => w.id === 'wf-draft') as { workflow_json: { security: { last_test_event: { authenticated: boolean; valid: boolean } } } };
+    expect(row.workflow_json.security.last_test_event.authenticated).toBe(true);
+    expect(row.workflow_json.security.last_test_event.valid).toBe(true);
+  });
+
+  it('armed test mode + correct secret + MISSING required field -> 202, valid:false, missingFields names it, still no dispatch', async () => {
+    tables.workflows = [draftWorkflow('wf-draft', OWNER_A, SECRET_A, FUTURE_ISO)];
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-draft', { 'x-magicflux-webhook-secret': SECRET_A }, {}), { params: { id: 'wf-draft' } });
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body.valid).toBe(false);
+    expect(body.missingFields).toContain('email');
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('armed test mode + WRONG secret -> 401 (same as production), records authenticated:false, no dispatch', async () => {
+    tables.workflows = [draftWorkflow('wf-draft', OWNER_A, SECRET_A, FUTURE_ISO)];
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-draft', { 'x-magicflux-webhook-secret': 'wrong-secret' }, { email: 'jane@example.com' }), { params: { id: 'wf-draft' } });
+
+    expect(res.status).toBe(401);
+    expect(dispatchMock).not.toHaveBeenCalled();
+
+    const row = tables.workflows.find((w) => w.id === 'wf-draft') as { workflow_json: { security: { last_test_event: { authenticated: boolean } } } };
+    expect(row.workflow_json.security.last_test_event.authenticated).toBe(false);
+  });
+
+  it('CRITICAL SAFETY: an ACTIVE workflow dispatches normally even if a stale test_mode_until is somehow present -- test mode is never consulted for live traffic', async () => {
+    const active = webhookWorkflow('wf-active-with-stale-flag', OWNER_A, SECRET_A) as { workflow_json: { security: Record<string, unknown> } };
+    active.workflow_json.security.test_mode_until = FUTURE_ISO; // simulates a tampered/stale flag
+    tables.workflows = [active as unknown as Row];
+
+    const { POST } = await import('../app/api/workflows/[id]/webhook/route');
+    const res = await POST(postReq('wf-active-with-stale-flag', { 'x-magicflux-webhook-secret': SECRET_A }, { email: 'jane@example.com' }), { params: { id: 'wf-active-with-stale-flag' } });
+
+    expect(res.status).toBe(202);
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ workflowId: 'wf-active-with-stale-flag' }));
+  });
+
+  it('lib/workflow/webhook-test-mode.ts: startTestMode() refuses to arm for an active/executable workflow', async () => {
+    tables.workflows = [webhookWorkflow('wf-active-2', OWNER_A, SECRET_A)];
+    const { startTestMode } = await import('../lib/workflow/webhook-test-mode');
+    const result = await startTestMode(OWNER_A, 'wf-active-2', 15);
+    expect(result.ok).toBe(false);
+  });
+
+  it('lib/workflow/webhook-test-mode.ts: start -> stop cycle on a draft workflow', async () => {
+    tables.workflows = [draftWorkflow('wf-draft-2', OWNER_A, SECRET_A, null)];
+    const { startTestMode, stopTestMode, getConnectionTestState } = await import('../lib/workflow/webhook-test-mode');
+
+    const started = await startTestMode(OWNER_A, 'wf-draft-2', 5);
+    expect(started.ok).toBe(true);
+    if (started.ok) expect(started.state.active).toBe(true);
+
+    const mid = await getConnectionTestState(OWNER_A, 'wf-draft-2');
+    expect(mid.ok).toBe(true);
+    if (mid.ok) expect(mid.state.active).toBe(true);
+
+    const stopped = await stopTestMode(OWNER_A, 'wf-draft-2');
+    expect(stopped.ok).toBe(true);
+    if (stopped.ok) expect(stopped.state.active).toBe(false);
+  });
+});
+
 describe('secret redaction coverage', () => {
   it('webhook_secret is in the redaction key-set used across logs/errors', async () => {
     const { isSensitiveKey } = await import('../lib/security/redact');

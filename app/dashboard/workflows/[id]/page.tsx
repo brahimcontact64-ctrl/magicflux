@@ -28,6 +28,7 @@ import {
   Webhook,
   RefreshCw,
   BarChart2,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -1341,7 +1342,20 @@ export default function WorkflowDetailsPage() {
 
           {webhookInfo && (
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-              <p className="text-xs font-medium flex items-center gap-1.5"><Webhook className="w-3.5 h-3.5" /> Production Webhook</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium flex items-center gap-1.5"><Webhook className="w-3.5 h-3.5" /> Production Webhook</p>
+                {/* Phase 9.9.21 -- the first-class "how do I connect my
+                    actual website/store" entry point. Links to a dedicated
+                    page rather than expanding inline here -- this section
+                    was already dense, and the connection guide needs its
+                    own room for a platform selector, code examples, and a
+                    Test Connection widget. */}
+                <Link href={`/dashboard/workflows/${workflow.id}/connect`}>
+                  <Button size="sm" className="gap-1.5 h-7">
+                    <Zap className="w-3.5 h-3.5" /> Connect your website
+                  </Button>
+                </Link>
+              </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground font-mono">{webhookInfo.method}</span>
                 <code className="flex-1 min-w-[220px] truncate rounded bg-black/20 border border-border px-2 py-1">{webhookInfo.url}</code>
