@@ -178,6 +178,39 @@ function connectReq(body: Record<string, unknown>) {
 
 const VALID_CONNECT_BODY = { workflowId: WORKFLOW_A, storeUrl: STORE_URL, consumerKey: 'ck_test', consumerSecret: 'cs_test' };
 
+describe('Phase 9.9.22B -- Live Certification Failure #2 audit: ensureConnection() never silently drifts the webhook secret', () => {
+  it('refuses (throws) rather than silently generating and using a fresh, unpersisted secret when an EXISTING connection row has no readable stored secret', async () => {
+    tables.platform_connections.push({
+      id: 'conn-drift-1',
+      user_id: OWNER_A,
+      workflow_id: WORKFLOW_A,
+      platform: 'woocommerce',
+      status: 'connected',
+      store_url: STORE_URL,
+      webhook_secret_encrypted: '', // falsy -- simulates an unreadable/missing stored secret
+      provider_subscriptions: {},
+      topics: [],
+    });
+
+    const { ensureConnection } = await import('@/lib/connectors/storage');
+    await expect(ensureConnection(OWNER_A, WORKFLOW_A, 'woocommerce', STORE_URL)).rejects.toThrow(/no readable webhook secret/i);
+  });
+
+  it('a healthy existing connection reuses its OWN stored secret unchanged (no regeneration, no drift)', async () => {
+    const { POST } = await import('../app/api/connectors/woocommerce/connect/route');
+    await POST(connectReq(VALID_CONNECT_BODY));
+    const firstSecretEncrypted = tables.platform_connections[0].webhook_secret_encrypted;
+
+    const { ensureConnection } = await import('@/lib/connectors/storage');
+    const { webhookSecret, isNew } = await ensureConnection(OWNER_A, WORKFLOW_A, 'woocommerce', STORE_URL);
+
+    expect(isNew).toBe(false);
+    expect(tables.platform_connections[0].webhook_secret_encrypted).toBe(firstSecretEncrypted); // untouched
+    const { decryptSecretValue } = await import('@/lib/security/encryption');
+    expect(webhookSecret).toBe(decryptSecretValue(String(firstSecretEncrypted)));
+  });
+});
+
 describe('POST /api/connectors/woocommerce/connect', () => {
   it('creates the connection and exactly one WooCommerce webhook per default topic', async () => {
     const { POST } = await import('../app/api/connectors/woocommerce/connect/route');

@@ -37,7 +37,22 @@ export const woocommerceConnector: PlatformConnector = {
     if (verifyWooCommerceSignature(rawBody, signature, webhookSecret)) {
       return { ok: true };
     }
-    return { ok: false, reason: 'INVALID_WOOCOMMERCE_SIGNATURE' };
+    // Phase 9.9.22B -- Live Certification Failure #2: safe-only diagnostic
+    // metadata attached to every rejection, so a real failed delivery can
+    // be root-caused (secret drift vs. a raw-body fidelity issue vs. a
+    // missing header entirely) from connection-health/logs alone, without
+    // ever needing to see or reproduce the signature, secret, or payload.
+    return {
+      ok: false,
+      reason: 'INVALID_WOOCOMMERCE_SIGNATURE',
+      diagnostics: {
+        signaturePresent: Boolean(signature),
+        bodyByteLength: Buffer.byteLength(rawBody, 'utf8'),
+        algorithm: 'hmac-sha256-base64',
+        deliveryId: headers.get('x-wc-webhook-delivery-id'),
+        topic: headers.get('x-wc-webhook-topic'),
+      },
+    };
   },
 
   identifyEvent({ rawBody, headers }): IdentifiedEvent | null {

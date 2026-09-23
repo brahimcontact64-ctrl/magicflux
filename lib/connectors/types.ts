@@ -47,9 +47,24 @@ export type ConnectorCapabilities = {
   requiresOAuth: boolean;
 };
 
+/**
+ * Phase 9.9.22B -- Live Certification Failure #2: `diagnostics` on a
+ * failed verification is deliberately SAFE-ONLY metadata (never the
+ * signature, secret, auth header, or raw body) so a real rejected
+ * delivery can be root-caused from logs/connection-health without ever
+ * needing to see, ask for, or reproduce sensitive material.
+ */
+export type VerifyDiagnostics = {
+  signaturePresent: boolean;
+  bodyByteLength: number;
+  algorithm: string;
+  deliveryId: string | null;
+  topic: string | null;
+};
+
 export type VerifyResult =
   | { ok: true }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; diagnostics?: VerifyDiagnostics };
 
 export type IdentifiedEvent = {
   /** Stable, provider-issued delivery/event id -- the idempotency key source. Never derived from a body hash when a real id exists. */

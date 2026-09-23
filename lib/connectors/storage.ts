@@ -101,8 +101,23 @@ export async function getDecryptedWebhookSecret(connectionId: string): Promise<s
 export async function ensureConnection(userId: string, workflowId: string, platform: string, storeUrl: string): Promise<{ connection: ConnectionRecord; webhookSecret: string; isNew: boolean }> {
   const existing = await getConnectionForOwner(userId, workflowId, platform);
   if (existing) {
+    // Phase 9.9.22B -- Live Certification Failure #2 audit: this
+    // previously fell back to `secret ?? generateWebhookSecret()` -- if
+    // the stored secret was ever unreadable, that silently handed the
+    // caller a FRESH, NEVER-PERSISTED secret. The caller (connect/route.ts)
+    // would then configure WooCommerce's webhook with that fresh value
+    // while this row kept storing the old one -- signature verification on
+    // every subsequent real delivery would fail forever, indistinguishable
+    // from a genuine attacker without this audit trail. An existing
+    // connection's secret must always be readable; anything else is a real
+    // data-integrity fault and must fail loudly (never silently diverge)
+    // so the operator sees it immediately instead of a mysteriously
+    // rejected signature days later.
     const secret = await getDecryptedWebhookSecret(existing.id);
-    return { connection: existing, webhookSecret: secret ?? generateWebhookSecret(), isNew: false };
+    if (!secret) {
+      throw new Error(`Existing platform_connections row ${existing.id} has no readable webhook secret -- refusing to proceed with a freshly generated, unpersisted one (would cause permanent signature-verification drift).`);
+    }
+    return { connection: existing, webhookSecret: secret, isNew: false };
   }
 
   const webhookSecret = generateWebhookSecret();

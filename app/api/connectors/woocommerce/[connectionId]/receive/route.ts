@@ -58,7 +58,17 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // applies for its own HMAC scheme.
   const verifyResult = connector.verify({ rawBody, headers: req.headers, connection, webhookSecret });
   if (!verifyResult.ok) {
-    await updateConnectionHealth(connection.id, { status: 'needs_attention', lastError: verifyResult.reason, errorCategory: 'invalid_signature' });
+    // Phase 9.9.22B -- Live Certification Failure #2: persist and log only
+    // the safe diagnostic fields (never the signature/secret/body/auth
+    // header) so a rejected real delivery is root-causable from
+    // connection-health/server logs without asking for or reproducing
+    // sensitive material.
+    const d = verifyResult.diagnostics;
+    const safeSummary = d
+      ? `${verifyResult.reason} (deliveryId=${d.deliveryId ?? 'none'}, topic=${d.topic ?? 'none'}, bodyBytes=${d.bodyByteLength}, signaturePresent=${d.signaturePresent}, algorithm=${d.algorithm})`
+      : verifyResult.reason;
+    console.error(`[woocommerce-connector] signature verification failed for connection ${connection.id}: ${safeSummary}`);
+    await updateConnectionHealth(connection.id, { status: 'needs_attention', lastError: safeSummary, errorCategory: 'invalid_signature' });
     return NextResponse.json({ error: verifyResult.reason }, { status: 401 });
   }
 

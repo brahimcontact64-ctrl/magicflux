@@ -166,10 +166,38 @@ describe('POST /api/connectors/woocommerce/[connectionId]/receive -- adversarial
   it('invalid signature -> 401, never dispatches', async () => {
     const { POST } = await importRoute();
     const body = orderPayload();
-    const req = postReq(CONNECTION_A, { 'x-wc-webhook-signature': 'aW52YWxpZC1zaWduYXR1cmU=', 'x-wc-webhook-topic': 'order.created' }, body);
+    const req = postReq(CONNECTION_A, { 'x-wc-webhook-signature': 'aW52YWxpZC1zaWduYXR1cmU=', 'x-wc-webhook-topic': 'order.created', 'x-wc-webhook-delivery-id': 'delivery-inv-1' }, body);
     const res = await POST(req, { params: { connectionId: CONNECTION_A } });
     expect(res.status).toBe(401);
     expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('Phase 9.9.22B Live Certification Failure #2: an invalid signature persists a SAFE diagnostic summary (delivery id, topic, body length, signature-present) and never leaks the signature, secret, or payload content', async () => {
+    const { POST } = await importRoute();
+    const body = orderPayload('super-secret-customer@example.com');
+    const req = postReq(CONNECTION_A, { 'x-wc-webhook-signature': 'aW52YWxpZC1zaWduYXR1cmU=', 'x-wc-webhook-topic': 'order.created', 'x-wc-webhook-delivery-id': 'delivery-diag-1' }, body);
+    await POST(req, { params: { connectionId: CONNECTION_A } });
+
+    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { last_error: string; error_category: string; webhook_secret_encrypted: string };
+    expect(row.error_category).toBe('invalid_signature');
+    expect(row.last_error).toContain('delivery-diag-1');
+    expect(row.last_error).toContain('order.created');
+    expect(row.last_error).toContain('signaturePresent=true');
+    // Never the signature value, the encrypted/decrypted secret, or the payload's own sensitive content.
+    expect(row.last_error).not.toContain('aW52YWxpZC1zaWduYXR1cmU=');
+    expect(row.last_error).not.toContain(SECRET);
+    expect(row.last_error).not.toContain(row.webhook_secret_encrypted);
+    expect(row.last_error).not.toContain('super-secret-customer@example.com');
+  });
+
+  it('a MISSING signature header is distinguished from a WRONG one in the persisted diagnostic (signaturePresent=false)', async () => {
+    const { POST } = await importRoute();
+    const body = orderPayload();
+    const req = postReq(CONNECTION_A, { 'x-wc-webhook-topic': 'order.created' }, body); // no signature header at all
+    await POST(req, { params: { connectionId: CONNECTION_A } });
+
+    const row = tables.platform_connections.find((r) => r.id === CONNECTION_A) as { last_error: string };
+    expect(row.last_error).toContain('signaturePresent=false');
   });
 
   it('tampered body (signature computed on a different body) -> 401, never dispatches', async () => {

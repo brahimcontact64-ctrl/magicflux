@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { computeWooCommerceSignature, verifyWooCommerceSignature } from '@/lib/connectors/woocommerce/signature';
 import { normalizeWooCommerceEvent } from '@/lib/connectors/woocommerce/normalize';
 import { isSupportedTopic, WOOCOMMERCE_SUPPORTED_TOPICS } from '@/lib/connectors/woocommerce/capabilities';
@@ -167,3 +168,106 @@ describe('woocommerceConnector.normalize() end-to-end with a real connection rec
     expect(result?.normalizedData.email).toBe('a@b.com');
   });
 });
+
+describe('Phase 9.9.22B -- Live Certification Failure #2: verify() diagnostics never leak sensitive material', () => {
+  it('a rejected signature attaches safe diagnostic metadata (delivery id, topic, body length, signature-present, algorithm)', () => {
+    const headers = headersFrom({ 'X-WC-Webhook-Signature': 'aW52YWxpZA==', 'X-WC-Webhook-Delivery-ID': 'delivery-xyz', 'X-WC-Webhook-Topic': 'order.created' });
+    const body = JSON.stringify({ id: 1 });
+    const result = woocommerceConnector.verify({ rawBody: body, headers, connection: CONNECTION, webhookSecret: SECRET });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.diagnostics).toEqual({
+      signaturePresent: true,
+      bodyByteLength: Buffer.byteLength(body, 'utf8'),
+      algorithm: 'hmac-sha256-base64',
+      deliveryId: 'delivery-xyz',
+      topic: 'order.created',
+    });
+  });
+
+  it('reports signaturePresent:false when the header is entirely missing, distinguishing "wrong" from "absent"', () => {
+    const headers = headersFrom({ 'X-WC-Webhook-Delivery-ID': 'delivery-abc' });
+    const result = woocommerceConnector.verify({ rawBody: '{}', headers, connection: CONNECTION, webhookSecret: SECRET });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.diagnostics?.signaturePresent).toBe(false);
+  });
+
+  it('diagnostics never contain the signature value, the secret, or any body content', () => {
+    const realisticSecret = 'f'.repeat(64);
+    const body = JSON.stringify({ id: 1, billing: { email: 'super-secret-customer@example.com' } });
+    const headers = headersFrom({ 'X-WC-Webhook-Signature': 'd0hhdGV2ZXI=', 'X-WC-Webhook-Topic': 'order.created' });
+    const result = woocommerceConnector.verify({ rawBody: body, headers, connection: CONNECTION, webhookSecret: realisticSecret });
+    expect(result.ok).toBe(false);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(realisticSecret);
+    expect(serialized).not.toContain('d0hhdGV2ZXI=');
+    expect(serialized).not.toContain('super-secret-customer@example.com');
+  });
+
+  it('accepts a correctly signed, REALISTIC full-size order.created payload (nested line_items, tax_lines, meta_data, non-ASCII billing name) -- rules out a raw-body-fidelity issue at real-world scale/content', () => {
+    const realisticSecret = randomHex64();
+    const realisticOrder = buildRealisticOrderPayload();
+    const rawBody = JSON.stringify(realisticOrder);
+    const signature = computeWooCommerceSignature(rawBody, realisticSecret);
+    const headers = headersFrom({ 'X-WC-Webhook-Signature': signature, 'X-WC-Webhook-Topic': 'order.created', 'X-WC-Webhook-Delivery-ID': 'delivery-realistic-1' });
+
+    const result = woocommerceConnector.verify({ rawBody, headers, connection: CONNECTION, webhookSecret: realisticSecret });
+    expect(result.ok).toBe(true);
+
+    // And it normalizes correctly end-to-end from the same raw bytes.
+    const identity = woocommerceConnector.identifyEvent({ rawBody, headers })!;
+    const normalized = woocommerceConnector.normalize({ rawBody, headers, connection: CONNECTION, identity });
+    expect(normalized?.normalizedData.email).toBe(realisticOrder.billing.email);
+    expect(normalized?.normalizedData.name).toBe(`${realisticOrder.billing.first_name} ${realisticOrder.billing.last_name}`);
+  });
+
+  it('a single-byte mutation anywhere in a large realistic payload is detected (proves comparison is over the FULL body, not a prefix/truncated form)', () => {
+    const realisticSecret = randomHex64();
+    const realisticOrder = buildRealisticOrderPayload();
+    const rawBody = JSON.stringify(realisticOrder);
+    const signature = computeWooCommerceSignature(rawBody, realisticSecret);
+    const headers = headersFrom({ 'X-WC-Webhook-Signature': signature, 'X-WC-Webhook-Topic': 'order.created' });
+
+    // Flip one character deep inside the payload (well past any reasonable prefix-only comparison bug).
+    const tamperedBody = rawBody.slice(0, -50) + (rawBody.slice(-50) === 'x' ? 'y' : 'x') + rawBody.slice(-49);
+    const result = woocommerceConnector.verify({ rawBody: tamperedBody, headers, connection: CONNECTION, webhookSecret: realisticSecret });
+    expect(result.ok).toBe(false);
+  });
+});
+
+function randomHex64(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/** Shaped closely after a real WooCommerce order.created payload -- nested line_items/tax_lines/meta_data, decimal price strings, and a non-ASCII billing name, to stress-test raw-body byte fidelity beyond the tiny stub payloads used elsewhere in this suite. */
+function buildRealisticOrderPayload() {
+  return {
+    id: 4821,
+    status: 'processing',
+    currency: 'EUR',
+    total: '129.99',
+    date_created: '2026-09-23T14:20:11',
+    billing: {
+      first_name: 'Frédéric',
+      last_name: 'Müller-O\'Connell',
+      email: 'frederic.test@example.com',
+      phone: '+33 6 12 34 56 78',
+      address_1: 'Rue de l\'Église 12, Apt. "B"',
+      city: 'Québec',
+      postcode: 'G1V 0A6',
+      country: 'CA',
+    },
+    line_items: [
+      { id: 1, name: 'Café en grains — 1kg', quantity: 2, total: '39.98', sku: 'CAFE-1KG', meta_data: [{ key: '_roast', value: 'medium' }] },
+      { id: 2, name: 'Théière en fonte (noir)', quantity: 1, total: '90.01', sku: 'THEIERE-BLK', meta_data: [] },
+    ],
+    tax_lines: [{ id: 10, rate_code: 'CA-QC-TVQ-1', label: 'TVQ', tax_total: '6.48' }],
+    shipping_lines: [{ id: 20, method_title: 'Livraison standard', total: '8.50' }],
+    meta_data: [
+      { key: '_customer_note', value: 'Livrer entre 9h et 17h, merci !' },
+      { key: '_special_chars_test', value: '€ ¥ £ © ® ™ — “quoted” <tag> & "escaped"' },
+    ],
+  };
+}
