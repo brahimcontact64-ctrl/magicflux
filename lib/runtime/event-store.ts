@@ -43,6 +43,16 @@ export type ExecutionEventType =
   // Deliberately distinct from every AI classification / Human Review /
   // SLA acknowledgment event -- those histories are never touched by this.
   | 'lead_lifecycle_changed'
+  // Workflow #2 Phase A -- a follow-up sequence's durable state transition
+  // (see lib/runtime/inbound-reply/storage.ts's transitionFollowupSequence()
+  // and the transition_followup_sequence_atomic() migration RPC it calls).
+  // Deliberately distinct from lead_lifecycle_changed (business
+  // contacted/won/lost outcome) and from any AI classification event --
+  // "replied" is a fact about correspondence, not a business or
+  // qualification judgment; subsequent workflow logic decides what it means.
+  | 'sequence_replied'
+  | 'sequence_cancelled'
+  | 'sequence_completed'
   // Replay
   | 'replay_started'
   | 'replay_completed';
