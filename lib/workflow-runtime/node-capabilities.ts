@@ -135,12 +135,25 @@ export const WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE = 'magicflux-nodes.waitForAcknowl
  */
 export const CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE = 'magicflux-nodes.createAcknowledgmentChallenge';
 
+/**
+ * Workflow #2 Phase C -- canonical type string for the Follow-up Send
+ * capability. Turns lib/runtime/inbound-reply/send-followup.ts's guarded
+ * orchestration into a workflow step (lib/workflow-runtime/node-handlers/
+ * follow-up-send.ts). UNLIKE the three types above, this one DOES use a
+ * real per-user credential (Gmail OAuth, via getValidAccessToken) --
+ * declared in PROVIDER_NODE_ALLOWLIST['gmail'] (lib/integrations.ts)
+ * alongside n8n-nodes-base.gmail, not in the credential-free exception list
+ * that test enforces (see allowlist-consistency.security.test.ts).
+ */
+export const FOLLOW_UP_SEND_NODE_TYPE = 'magicflux-nodes.followUpSend';
+
 /** Exact lowercase type strings for MagicFlux-native (non-n8n) capability nodes. */
 export const MAGICFLUX_NATIVE_EXACT_TYPES: ReadonlySet<string> = new Set([
   AI_CLASSIFIER_NODE_TYPE.toLowerCase(),
   HUMAN_REVIEW_NODE_TYPE.toLowerCase(),
   WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(),
   CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE.toLowerCase(),
+  FOLLOW_UP_SEND_NODE_TYPE.toLowerCase(),
 ]);
 
 /** Lowercase substrings that route a type to a generic (credential-free) handler. */
@@ -274,6 +287,11 @@ const BLOCKLIST: ReadonlyArray<BlockRule> = [
     matchesParameters: (params) => String(params.resume ?? '').toLowerCase() === 'webhook',
     reason: 'waitHandler only understands date/duration waits; resume:"webhook" (the Approval Step block\'s n8n resume-webhook mechanism) matches none of its recognized keys, so it silently falls through to "no wait time specified — continuing" and the workflow proceeds immediately, as if already approved.',
     userMessage: 'Approval steps that pause for a person to respond aren\'t available yet — this step would not actually wait.',
+  },
+  {
+    type: FOLLOW_UP_SEND_NODE_TYPE.toLowerCase(),
+    reason: 'Workflow #2 Phase C: the handler (follow-up-send.ts) is real and calls the certified Phase B orchestration (sendFollowupMessage), but its required migrations (20260924000001_add_inbound_reply_sequence_infrastructure.sql, 20260924000002_add_followup_send_lock.sql) are not yet applied to production, and no live Gmail send-path certification has occurred -- blocked so planner/validator/editor never offer it as usable before both are true, mirroring the googledrive precedent below (a known, honest, real handler that is still not production-ready).',
+    userMessage: 'Sending automated follow-up messages isn\'t available yet.',
   },
   {
     // Phase 9.5.1A — traced Blocks -> planner assembly -> node type ->

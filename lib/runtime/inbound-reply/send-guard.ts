@@ -26,14 +26,22 @@ import type { SequenceStatus } from './types';
  * tests/inbound-reply-send-guard.test.ts) are the deliverable; wiring a
  * real send node to call it is later work.
  */
-export type SendGuardResult = { sendable: true } | { sendable: false; reason: string; currentStatus: SequenceStatus };
+export type SendGuardResult = { sendable: true } | { sendable: false; reason: string; currentStatus: SequenceStatus | null };
 
 export async function assertSequenceSendable(sequenceId: string, userId: string): Promise<SendGuardResult> {
   const sequence = await getFollowupSequenceForOwner(sequenceId, userId);
 
   if (!sequence) {
-    // An unknown sequence id is never sendable -- fail closed, not open.
-    return { sendable: false, reason: 'Follow-up sequence not found.', currentStatus: 'cancelled' };
+    // Workflow #2 Phase C finding: an unknown sequence id is never sendable
+    // -- fail closed, not open -- but this is a DIFFERENT fact from the
+    // sequence genuinely being 'cancelled' (a domain/configuration error --
+    // e.g. a misconfigured node parameter -- vs. a normal, expected business
+    // outcome). Previously collapsed into currentStatus:'cancelled', which a
+    // caller could not distinguish from a real cancellation; a caller that
+    // needs to tell them apart (e.g. a node handler classifying "missing
+    // sequence" as a configuration error rather than routine suppression)
+    // checks for `currentStatus === null` specifically.
+    return { sendable: false, reason: 'Follow-up sequence not found.', currentStatus: null };
   }
 
   if (sequence.status !== 'active') {

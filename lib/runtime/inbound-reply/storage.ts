@@ -4,6 +4,27 @@ import { createServiceClient } from '@/lib/supabase-server';
 import type { Conversation, FollowupSequence, OutboundMessage, SequenceStatus } from './types';
 
 /**
+ * Workflow #2 Phase C pre-flight finding: a Postgres query against a
+ * relation/function that doesn't exist yet (this migration is unapplied)
+ * returns `{data: null, error: {code, message}}` from Supabase -- NOT the
+ * same as a genuine "zero rows matched" result, which is `{data: null,
+ * error: null}`. Several read functions below previously destructured only
+ * `data`, silently treating a missing-schema error identically to "not
+ * found" -- which Phase C's own send-time guard would then have reported as
+ * ordinary business suppression ("sequence not found"), exactly the
+ * misleading classification Phase C was explicitly told to avoid. Postgres
+ * error codes 42P01 (undefined_table) and 42883 (undefined_function) are
+ * the two this migration's own DDL can produce; matched by code first,
+ * falling back to the message text in case a wrapping layer ever loses the
+ * structured code.
+ */
+export function isSchemaMissingError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === '42P01' || error.code === '42883') return true;
+  return /relation ".*" does not exist|function .* does not exist/i.test(error.message ?? '');
+}
+
+/**
  * Workflow #2 Phase A -- persistence for runtime_conversations /
  * runtime_followup_sequences / runtime_outbound_messages /
  * runtime_inbound_reply_events (see the migration file's header for the
@@ -180,7 +201,11 @@ export async function getFollowupSequence(sequenceId: string): Promise<FollowupS
  */
 export async function getFollowupSequenceForOwner(sequenceId: string, userId: string): Promise<FollowupSequence | null> {
   const db = createServiceClient();
-  const { data } = await db.from('runtime_followup_sequences').select('*').eq('id', sequenceId).eq('user_id', userId).maybeSingle();
+  const { data, error } = await db.from('runtime_followup_sequences').select('*').eq('id', sequenceId).eq('user_id', userId).maybeSingle();
+  // A real query error (in particular, missing-schema before this migration
+  // is applied) must never be silently treated as "no matching row" -- see
+  // isSchemaMissingError()'s own doc comment above.
+  if (error) throw new Error(`Failed to look up follow-up sequence: ${error.message}`);
   return data ? toSequence(data as SequenceRow) : null;
 }
 
@@ -257,7 +282,8 @@ export async function recordOutboundMessage(params: { userId: string; sequenceId
 /** Fast, cheap pre-check for "was this exact logical follow-up attempt already successfully sent" -- checked BEFORE acquiring the send lock or contacting the provider at all, so a retry of an already-succeeded attempt never re-sends. */
 export async function findOutboundMessageByAttemptKey(attemptKey: string): Promise<OutboundMessage | null> {
   const db = createServiceClient();
-  const { data } = await db.from('runtime_outbound_messages').select('*').eq('attempt_key', attemptKey).maybeSingle();
+  const { data, error } = await db.from('runtime_outbound_messages').select('*').eq('attempt_key', attemptKey).maybeSingle();
+  if (error) throw new Error(`Failed to look up outbound message by attempt key: ${error.message}`);
   return data ? toOutboundMessage(data as OutboundMessageRow) : null;
 }
 
@@ -406,7 +432,7 @@ export async function acquireFollowupSendLock(params: { sequenceId: string; user
     p_lease_seconds: params.leaseSeconds ?? 60,
   });
 
-  if (error) return { ok: false, reason: 'Failed to acquire the send lock due to a database error.', currentStatus: null };
+  if (error) return { ok: false, reason: `Failed to acquire the send lock: ${error.message}`, currentStatus: null };
 
   const row = (Array.isArray(data) ? data[0] : data) as { ok: boolean; reason: string | null; current_status: string | null } | undefined;
   if (!row) return { ok: false, reason: 'The database did not return a result for this lock acquisition.', currentStatus: null };

@@ -129,8 +129,8 @@ export type FollowupSendRequest = {
 
 export type FollowupSendResult =
   | { outcome: 'duplicate_attempt'; existingOutboundMessageId: string }
-  /** Covers both "not active" and "unknown sequence id" -- assertSequenceSendable() (Phase A) deliberately fails closed for an unknown id with the same shape as a genuinely inactive one; see its own doc comment. */
-  | { outcome: 'suppressed'; reason: string; currentStatus: SequenceStatus }
+  /** currentStatus is null specifically for "sequence doesn't exist" (a configuration/domain error), distinct from a real terminal status (replied/cancelled/completed -- ordinary business suppression) or 'active' (send-lock contention -- transient, safe to retry). See send-guard.ts's own doc comment. */
+  | { outcome: 'suppressed'; reason: string; currentStatus: SequenceStatus | null }
   | { outcome: 'credential_unavailable'; reason: string }
   | { outcome: 'send_failed'; reason: string }
   | { outcome: 'send_indeterminate'; reason: string }

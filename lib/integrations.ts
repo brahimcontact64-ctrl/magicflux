@@ -47,6 +47,12 @@ export const PROVIDER_NODE_ALLOWLIST: ReadonlyMap<IntegrationProvider, ReadonlyS
     'n8n-nodes-base.emailreadimap',
     'n8n-nodes-base.gmail',
     'n8n-nodes-base.gmailtrigger',
+    // Workflow #2 Phase C -- Follow-up Send uses a real per-user Gmail
+    // credential (getValidAccessToken), same as emailHandler above, so the
+    // Builder readiness/SETUP_REQUIRED gate must know a workflow containing
+    // this node type needs a Gmail connection. Blocked from actually
+    // dispatching until certified -- see node-capabilities.ts's BLOCKLIST.
+    'magicflux-nodes.followupsend',
   ])],
   // 'email' is an alias for 'gmail' — both keys map to the same node-type set.
   // injectCredentialsIntoWorkflow() looks up credentials by both keys.
@@ -57,6 +63,7 @@ export const PROVIDER_NODE_ALLOWLIST: ReadonlyMap<IntegrationProvider, ReadonlyS
     'n8n-nodes-base.emailreadimap',
     'n8n-nodes-base.gmail',
     'n8n-nodes-base.gmailtrigger',
+    'magicflux-nodes.followupsend',
   ])],
   ['google_drive', new Set([
     'n8n-nodes-base.googledrive',

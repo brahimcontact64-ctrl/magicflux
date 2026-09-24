@@ -15,7 +15,8 @@ import { aiClassifierHandler } from './ai-classifier';
 import { humanReviewHandler } from './human-review';
 import { waitForAcknowledgmentHandler } from './wait-for-acknowledgment';
 import { createAcknowledgmentChallengeHandler } from './create-acknowledgment-challenge';
-import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE, WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE, CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE } from '../node-capabilities';
+import { followUpSendHandler } from './follow-up-send';
+import { checkNodeCapability, isConditionalNodeType, AI_CLASSIFIER_NODE_TYPE, HUMAN_REVIEW_NODE_TYPE, WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE, CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE, FOLLOW_UP_SEND_NODE_TYPE } from '../node-capabilities';
 
 // Returns a ReadonlyMap backed by a Proxy that throws TypeError on any
 // mutation attempt (set / delete / clear). Object.freeze() does not protect
@@ -80,6 +81,14 @@ export const HANDLER_NODE_ALLOWLIST: ReadonlyMap<string, NodeHandler> = frozenMa
   [WAIT_FOR_ACKNOWLEDGMENT_NODE_TYPE.toLowerCase(), waitForAcknowledgmentHandler],
   // Non-blocking companion -- creates the same durable row early, no user credential.
   [CREATE_ACKNOWLEDGMENT_CHALLENGE_NODE_TYPE.toLowerCase(), createAcknowledgmentChallengeHandler],
+  // Workflow #2 Phase C -- Follow-up Send. Uses a real per-user Gmail
+  // credential (see PROVIDER_NODE_ALLOWLIST['gmail'] in lib/integrations.ts)
+  // -- NOT a CREDENTIAL_FREE_HANDLER_EXCEPTIONS entry, unlike the three
+  // above. Registered here so dispatch/testing is real, exactly like
+  // googledrive.ts -- checkNodeCapability()'s BLOCKLIST (node-capabilities.ts)
+  // intercepts it before this entry is ever reached in real dispatch, until
+  // the required migrations are applied and live certification occurs.
+  [FOLLOW_UP_SEND_NODE_TYPE.toLowerCase(), followUpSendHandler],
 ] as const);
 
 function getNodeTypeKey(node: EngineNode): string {
@@ -172,4 +181,5 @@ export {
   humanReviewHandler,
   waitForAcknowledgmentHandler,
   createAcknowledgmentChallengeHandler,
+  followUpSendHandler,
 };

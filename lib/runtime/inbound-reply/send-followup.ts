@@ -63,7 +63,7 @@ export async function sendFollowupMessage(
   const lock = await acquireFollowupSendLock({ sequenceId: request.sequenceId, userId: request.userId, lockToken });
   if (!lock.ok) {
     logObservability({ sequenceId: request.sequenceId, suppressed: true, reason: 'send_lock_not_acquired' });
-    return { outcome: 'suppressed', reason: lock.reason, currentStatus: lock.currentStatus ?? 'cancelled' };
+    return { outcome: 'suppressed', reason: lock.reason, currentStatus: lock.currentStatus };
   }
 
   try {

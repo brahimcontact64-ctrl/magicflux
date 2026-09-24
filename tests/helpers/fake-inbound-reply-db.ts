@@ -50,7 +50,10 @@ function matches(row: Row, filters: Array<[string, unknown]>): boolean {
   return filters.every(([col, val]) => row[col] === val);
 }
 
-function builder(tables: FakeTables, table: keyof FakeTables) {
+/** Phase C: the exact shape Supabase returns for a query against a relation that doesn't exist yet -- used to test that missing-schema errors are classified distinctly, never silently treated as "not found." */
+const SCHEMA_MISSING_ERROR = { code: '42P01', message: 'relation "runtime_followup_sequences" does not exist' };
+
+function builder(tables: FakeTables, table: keyof FakeTables, schemaMissing: boolean) {
   const rows = tables[table];
   let mode: 'select' | 'insert' | 'update' = 'select';
   let insertPayload: Row | null = null;
@@ -76,6 +79,7 @@ function builder(tables: FakeTables, table: keyof FakeTables) {
       return api;
     },
     single: async () => {
+      if (schemaMissing) return { data: null, error: SCHEMA_MISSING_ERROR };
       if (mode !== 'insert' || !insertPayload) return { data: null, error: { message: 'single() only supported after insert() in this fake', code: 'FAKE' } };
       if (violatesUnique(table, rows, insertPayload)) {
         return { data: null, error: { message: 'duplicate key value violates unique constraint', code: '23505' } };
@@ -85,13 +89,15 @@ function builder(tables: FakeTables, table: keyof FakeTables) {
       return { data: row, error: null };
     },
     maybeSingle: async () => {
+      if (schemaMissing) return { data: null, error: SCHEMA_MISSING_ERROR };
       const found = rows.find((r) => matches(r, filters));
       if (mode === 'update' && found) {
         Object.assign(found, updatePatch, { updated_at: new Date().toISOString() });
       }
       return { data: found ? { ...found } : null, error: null };
     },
-    then(resolve: (v: { data: Row[]; error: null }) => unknown) {
+    then(resolve: (v: { data: Row[] | null; error: unknown }) => unknown) {
+      if (schemaMissing) return Promise.resolve(resolve({ data: null, error: SCHEMA_MISSING_ERROR }));
       if (mode === 'update') {
         const found = rows.filter((r) => matches(r, filters));
         found.forEach((r) => Object.assign(r, updatePatch, { updated_at: new Date().toISOString() }));
@@ -210,10 +216,12 @@ function fakeReleaseSendLockRpc(tables: FakeTables, params: Record<string, unkno
  * createServiceClient() call made afterwards, without needing vi.doMock's
  * dynamic-import dance.
  */
-export function makeFakeInboundReplyDb(tables: FakeTables) {
+export function makeFakeInboundReplyDb(tables: FakeTables, options?: { schemaMissing?: boolean }) {
+  const schemaMissing = options?.schemaMissing ?? false;
   return {
-    from: (table: string) => builder(tables, table as keyof FakeTables),
+    from: (table: string) => builder(tables, table as keyof FakeTables, schemaMissing),
     rpc: async (fn: string, params: Record<string, unknown>) => {
+      if (schemaMissing) return { data: null, error: { code: '42883', message: `function public.${fn}(...) does not exist` } };
       if (fn === 'transition_followup_sequence_atomic') return fakeTransitionRpc(tables, params);
       if (fn === 'acquire_followup_send_lock_atomic') return fakeAcquireSendLockRpc(tables, params);
       if (fn === 'release_followup_send_lock_atomic') return fakeReleaseSendLockRpc(tables, params);
