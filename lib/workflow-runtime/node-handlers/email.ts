@@ -172,8 +172,8 @@ function encodeHeaderWord(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
 }
 
-type GmailSendResult =
-  | { ok: true; id: string }
+export type GmailSendResult =
+  | { ok: true; id: string; threadId: string | null }
   | { ok: false; indeterminate: true; message: string }
   | { ok: false; indeterminate: false; message: string; statusCode: number };
 
@@ -190,7 +190,15 @@ type GmailSendResult =
  * blindly retried, exactly like the SMTP path's own DATA-command ambiguity
  * below.
  */
-async function sendViaGmailApi(
+/**
+ * Workflow #2 Phase B -- exported (previously module-private) and widened
+ * to also return Gmail's own threadId on success, so a future
+ * follow-up-sending node can persist outbound correlation metadata without
+ * a second Gmail-send implementation. Purely additive: the existing
+ * emailHandler() caller below never reads a threadId field, so this cannot
+ * change its behavior.
+ */
+export async function sendViaGmailApi(
   accessToken: string,
   opts: { to: string; from?: string; subject: string; body: string }
 ): Promise<GmailSendResult> {
@@ -227,8 +235,8 @@ async function sendViaGmailApi(
     return { ok: false, indeterminate: false, statusCode: res.status, message: `Gmail API returned ${res.status}: ${redactText(errBody.slice(0, 200))}` };
   }
 
-  const result = (await res.json()) as { id?: string };
-  return { ok: true, id: String(result.id ?? 'unknown') };
+  const result = (await res.json()) as { id?: string; threadId?: string };
+  return { ok: true, id: String(result.id ?? 'unknown'), threadId: result.threadId ? String(result.threadId) : null };
 }
 
 export async function emailHandler(

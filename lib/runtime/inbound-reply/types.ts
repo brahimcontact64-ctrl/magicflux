@@ -49,6 +49,10 @@ export type OutboundMessage = {
   providerMessageId: string;
   providerThreadId: string | null;
   inReplyToMessageId: string | null;
+  /** Caller-supplied stable identifier for "this exact logical follow-up attempt" (e.g. "<sequenceId>:step-1"), used to detect a retry of an already-succeeded send before ever contacting the provider again. Optional -- a caller that doesn't supply one loses only the fast pre-check, not correctness of the send lock itself. */
+  attemptKey: string | null;
+  /** True when the send path's own post-send re-check found the sequence had already transitioned away from 'active' DURING the provider call -- see send-lock.ts's own header note on why this race cannot be fully closed. */
+  sentDuringRaceWindow: boolean;
   sentAt: string;
 };
 
@@ -91,3 +95,43 @@ export type ProcessInboundReplyResult =
   | { outcome: 'sequence_transitioned'; inboundReplyEventId: string; sequenceId: string; previousStatus: SequenceStatus }
   | { outcome: 'sequence_already_terminal'; inboundReplyEventId: string; sequenceId: string; currentStatus: SequenceStatus }
   | { outcome: 'rejected_invalid_payload'; reason: string };
+
+/**
+ * Workflow #2 Phase B -- the generic, provider-extensible outbound send
+ * contract. A provider adapter (e.g. a thin Gmail wrapper around the
+ * EXISTING lib/workflow-runtime/node-handlers/email.ts#sendViaGmailApi,
+ * never a second implementation) conforms to this shape; the send
+ * orchestration in send-followup.ts never imports a specific provider
+ * directly, so a future Slack/SMS follow-up channel implements the same
+ * interface without touching send-followup.ts at all.
+ */
+export type OutboundSendParams = { accessToken: string; to: string; subject: string; body: string };
+
+export type OutboundSendResult =
+  | { ok: true; providerMessageId: string; providerThreadId: string | null }
+  | { ok: false; indeterminate: true; message: string }
+  | { ok: false; indeterminate: false; message: string };
+
+export type OutboundProviderClient = {
+  provider: string;
+  send(params: OutboundSendParams): Promise<OutboundSendResult>;
+};
+
+export type FollowupSendRequest = {
+  sequenceId: string;
+  userId: string;
+  /** Stable identifier for "this exact logical follow-up attempt" (e.g. "<sequenceId>:step-1"). Strongly recommended -- see OutboundMessage.attemptKey's own doc comment. */
+  attemptKey?: string;
+  to: string;
+  subject: string;
+  body: string;
+};
+
+export type FollowupSendResult =
+  | { outcome: 'duplicate_attempt'; existingOutboundMessageId: string }
+  /** Covers both "not active" and "unknown sequence id" -- assertSequenceSendable() (Phase A) deliberately fails closed for an unknown id with the same shape as a genuinely inactive one; see its own doc comment. */
+  | { outcome: 'suppressed'; reason: string; currentStatus: SequenceStatus }
+  | { outcome: 'credential_unavailable'; reason: string }
+  | { outcome: 'send_failed'; reason: string }
+  | { outcome: 'send_indeterminate'; reason: string }
+  | { outcome: 'sent'; outboundMessageId: string; providerMessageId: string; providerThreadId: string | null; sentDuringRaceWindow: boolean };

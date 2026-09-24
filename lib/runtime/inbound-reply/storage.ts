@@ -84,6 +84,8 @@ type OutboundMessageRow = {
   provider_message_id: string;
   provider_thread_id: string | null;
   in_reply_to_message_id: string | null;
+  attempt_key: string | null;
+  sent_during_race_window: boolean;
   sent_at: string;
 };
 
@@ -97,6 +99,8 @@ function toOutboundMessage(row: OutboundMessageRow): OutboundMessage {
     providerMessageId: row.provider_message_id,
     providerThreadId: row.provider_thread_id,
     inReplyToMessageId: row.in_reply_to_message_id,
+    attemptKey: row.attempt_key,
+    sentDuringRaceWindow: row.sent_during_race_window,
     sentAt: row.sent_at,
   };
 }
@@ -222,8 +226,13 @@ export async function createFollowupSequence(params: { userId: string; workflowI
   return toSequence(data as SequenceRow);
 }
 
-/** Records an outbound message's correlation metadata. Called by a FUTURE follow-up-sending node handler (out of scope this phase) immediately after a real send succeeds. */
-export async function recordOutboundMessage(params: { userId: string; sequenceId: string; conversationId: string; provider: string; providerMessageId: string; providerThreadId?: string | null; inReplyToMessageId?: string | null }): Promise<OutboundMessage> {
+/**
+ * Records an outbound message's correlation metadata. Called by
+ * send-followup.ts's sendFollowupMessage() -- and ONLY after the provider
+ * has confirmed a successful send (Phase B's own explicit requirement: no
+ * fake successful outbound record on a provider failure).
+ */
+export async function recordOutboundMessage(params: { userId: string; sequenceId: string; conversationId: string; provider: string; providerMessageId: string; providerThreadId?: string | null; inReplyToMessageId?: string | null; attemptKey?: string | null; sentDuringRaceWindow?: boolean }): Promise<OutboundMessage> {
   const db = createServiceClient();
   const { data, error } = await db
     .from('runtime_outbound_messages')
@@ -235,12 +244,21 @@ export async function recordOutboundMessage(params: { userId: string; sequenceId
       provider_message_id: params.providerMessageId,
       provider_thread_id: params.providerThreadId ?? null,
       in_reply_to_message_id: params.inReplyToMessageId ?? null,
+      attempt_key: params.attemptKey ?? null,
+      sent_during_race_window: params.sentDuringRaceWindow ?? false,
     })
     .select('*')
     .single();
 
   if (error || !data) throw new Error(`Failed to record outbound message: ${error?.message}`);
   return toOutboundMessage(data as OutboundMessageRow);
+}
+
+/** Fast, cheap pre-check for "was this exact logical follow-up attempt already successfully sent" -- checked BEFORE acquiring the send lock or contacting the provider at all, so a retry of an already-succeeded attempt never re-sends. */
+export async function findOutboundMessageByAttemptKey(attemptKey: string): Promise<OutboundMessage | null> {
+  const db = createServiceClient();
+  const { data } = await db.from('runtime_outbound_messages').select('*').eq('attempt_key', attemptKey).maybeSingle();
+  return data ? toOutboundMessage(data as OutboundMessageRow) : null;
 }
 
 export type TransitionSequenceResult =
@@ -366,4 +384,42 @@ export async function reserveInboundReplyEvent(params: {
 export async function markInboundReplyEventProcessed(inboundReplyEventId: string): Promise<void> {
   const db = createServiceClient();
   await db.from('runtime_inbound_reply_events').update({ processed_at: new Date().toISOString() }).eq('id', inboundReplyEventId);
+}
+
+export type AcquireSendLockResult = { ok: true } | { ok: false; reason: string; currentStatus: SequenceStatus | null };
+
+/**
+ * Workflow #2 Phase B -- acquires the per-sequence send lease via
+ * acquire_followup_send_lock_atomic() (see the migration's own header for
+ * the full race-window analysis: this closes concurrent-send races, but
+ * NOT the residual "reply commits during the in-flight provider call"
+ * window, which is inherent to any external provider API and is instead
+ * made observable via sentDuringRaceWindow on the resulting outbound
+ * message). Never call the provider without first acquiring this lock.
+ */
+export async function acquireFollowupSendLock(params: { sequenceId: string; userId: string; lockToken: string; leaseSeconds?: number }): Promise<AcquireSendLockResult> {
+  const db = createServiceClient();
+  const { data, error } = await db.rpc('acquire_followup_send_lock_atomic', {
+    p_sequence_id: params.sequenceId,
+    p_user_id: params.userId,
+    p_lock_token: params.lockToken,
+    p_lease_seconds: params.leaseSeconds ?? 60,
+  });
+
+  if (error) return { ok: false, reason: 'Failed to acquire the send lock due to a database error.', currentStatus: null };
+
+  const row = (Array.isArray(data) ? data[0] : data) as { ok: boolean; reason: string | null; current_status: string | null } | undefined;
+  if (!row) return { ok: false, reason: 'The database did not return a result for this lock acquisition.', currentStatus: null };
+  if (!row.ok) return { ok: false, reason: row.reason ?? 'Unable to acquire the send lock.', currentStatus: row.current_status as SequenceStatus | null };
+  return { ok: true };
+}
+
+/** Releases a previously-acquired send lease. Always safe to call, including after a failed/indeterminate send or an unexpected error -- a mismatched or already-expired token is a silent no-op (see the migration's own function comment). */
+export async function releaseFollowupSendLock(params: { sequenceId: string; userId: string; lockToken: string }): Promise<void> {
+  const db = createServiceClient();
+  await db.rpc('release_followup_send_lock_atomic', {
+    p_sequence_id: params.sequenceId,
+    p_user_id: params.userId,
+    p_lock_token: params.lockToken,
+  });
 }

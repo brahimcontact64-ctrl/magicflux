@@ -30,13 +30,20 @@ export function makeEmptyTables(): FakeTables {
 
 const UNIQUE_KEYS: Record<string, string[][]> = {
   runtime_conversations: [['workflow_id', 'provider', 'provider_thread_id']],
-  runtime_outbound_messages: [['provider', 'provider_message_id']],
+  // attempt_key is its own single-column unique constraint (Phase B) --
+  // Postgres treats multiple NULLs as non-conflicting for a UNIQUE
+  // constraint, mirrored below by skipping any key whose candidate value
+  // is null/undefined.
+  runtime_outbound_messages: [['provider', 'provider_message_id'], ['attempt_key']],
   runtime_inbound_reply_events: [['provider', 'provider_message_id']],
 };
 
 function violatesUnique(table: string, rows: Row[], candidate: Row): boolean {
   const uniqueSets = UNIQUE_KEYS[table] ?? [];
-  return uniqueSets.some((keys) => rows.some((r) => keys.every((k) => r[k] === candidate[k])));
+  return uniqueSets.some((keys) => {
+    if (keys.some((k) => candidate[k] === null || candidate[k] === undefined)) return false;
+    return rows.some((r) => keys.every((k) => r[k] === candidate[k]));
+  });
 }
 
 function matches(row: Row, filters: Array<[string, unknown]>): boolean {
@@ -140,6 +147,55 @@ function fakeTransitionRpc(tables: FakeTables, params: Record<string, unknown>) 
 }
 
 /**
+ * Implements acquire_followup_send_lock_atomic()'s exact CAS semantics --
+ * only succeeds if 'active' AND no unexpired lease is held.
+ */
+function fakeAcquireSendLockRpc(tables: FakeTables, params: Record<string, unknown>) {
+  const sequenceId = params.p_sequence_id as string;
+  const userId = params.p_user_id as string;
+  const lockToken = params.p_lock_token as string;
+  const leaseSeconds = params.p_lease_seconds as number;
+
+  const row = tables.runtime_followup_sequences.find((r) => r.id === sequenceId && r.user_id === userId);
+  if (!row) {
+    return { data: [{ ok: false, reason: 'Follow-up sequence not found.', current_status: null }], error: null };
+  }
+
+  const status = row.status as string;
+  if (status !== 'active') {
+    return { data: [{ ok: false, reason: `Sequence is "${status}", not active.`, current_status: status }], error: null };
+  }
+
+  const existingToken = row.send_lock_token as string | null | undefined;
+  const existingExpiry = row.send_lock_expires_at as string | null | undefined;
+  const leaseHeld = existingToken != null && existingExpiry != null && new Date(existingExpiry).getTime() > Date.now();
+
+  if (leaseHeld) {
+    return { data: [{ ok: false, reason: "Another send attempt currently holds this sequence's send lock.", current_status: status }], error: null };
+  }
+
+  row.send_lock_token = lockToken;
+  row.send_lock_expires_at = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+  row.updated_at = new Date().toISOString();
+
+  return { data: [{ ok: true, reason: null, current_status: 'active' }], error: null };
+}
+
+function fakeReleaseSendLockRpc(tables: FakeTables, params: Record<string, unknown>) {
+  const sequenceId = params.p_sequence_id as string;
+  const userId = params.p_user_id as string;
+  const lockToken = params.p_lock_token as string;
+
+  const row = tables.runtime_followup_sequences.find((r) => r.id === sequenceId && r.user_id === userId);
+  if (row && row.send_lock_token === lockToken) {
+    row.send_lock_token = null;
+    row.send_lock_expires_at = null;
+    row.updated_at = new Date().toISOString();
+  }
+  return { data: null, error: null };
+}
+
+/**
  * A test file uses this like:
  *
  *   let tables: FakeTables;
@@ -159,6 +215,8 @@ export function makeFakeInboundReplyDb(tables: FakeTables) {
     from: (table: string) => builder(tables, table as keyof FakeTables),
     rpc: async (fn: string, params: Record<string, unknown>) => {
       if (fn === 'transition_followup_sequence_atomic') return fakeTransitionRpc(tables, params);
+      if (fn === 'acquire_followup_send_lock_atomic') return fakeAcquireSendLockRpc(tables, params);
+      if (fn === 'release_followup_send_lock_atomic') return fakeReleaseSendLockRpc(tables, params);
       throw new Error(`Unhandled fake RPC: ${fn}`);
     },
   };
