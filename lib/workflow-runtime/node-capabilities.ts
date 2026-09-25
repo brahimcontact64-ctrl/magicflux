@@ -236,11 +236,50 @@ type BlockRule = {
    * every node this rule's type/substrings match, regardless of parameters.
    */
   matchesParameters?: (parameters: Record<string, unknown>) => boolean;
+  /**
+   * Workflow #2 Phase D.1 -- an optional, per-rule escape hatch for a
+   * LOCAL STAGING CERTIFICATION opt-in. When present and it returns true,
+   * this rule is skipped (the type falls through to the normal
+   * isKnownNodeType() check below, exactly as if the rule didn't exist).
+   * Deliberately a property on ONE rule at a time, added explicitly and
+   * individually, never a blanket "all blocklist rules are bypassable"
+   * mechanism -- adding this to some future, more dangerous blocklist entry
+   * (e.g. the code/function execution block) requires the same explicit,
+   * deliberate choice this comment is making right now for
+   * FOLLOW_UP_SEND_NODE_TYPE alone. See isFollowUpSendStagingCertificationEnabled()
+   * below for the actual fail-closed gating logic.
+   */
+  bypassCheck?: () => boolean;
   /** Internal diagnostic reason (safe for logs, not necessarily for end users). */
   reason: string;
   /** Short, human, non-technical explanation safe to show a normal user. */
   userMessage: string;
 };
+
+/**
+ * Workflow #2 Phase D.1 -- gates the ONE explicit bypass this file allows
+ * (magicflux-nodes.followUpSend's BLOCKLIST entry, for local staging
+ * certification only). Fails closed by design at every layer:
+ *
+ *   1. Requires an EXPLICIT, dedicated flag -- MAGICFLUX_ENABLE_FOLLOWUP_
+ *      SEND_STAGING_CERTIFICATION must be exactly the string 'true'.
+ *      NODE_ENV=development alone is never sufficient (Phase D.1's own
+ *      explicit requirement) -- a developer's ordinary local dev session
+ *      does NOT enable this node merely by not being production.
+ *   2. Even with the flag set, NODE_ENV==='production' or
+ *      VERCEL_ENV==='production' unconditionally refuses the bypass --
+ *      belt-and-suspenders so a flag accidentally left set in a production
+ *      environment variable (a config mistake, not a code path) can never
+ *      activate this node in production. This check is redundant with "the
+ *      flag should simply never be set in production" by policy, but never
+ *      assumes that policy was followed.
+ */
+export function isFollowUpSendStagingCertificationEnabled(): boolean {
+  if (process.env.MAGICFLUX_ENABLE_FOLLOWUP_SEND_STAGING_CERTIFICATION !== 'true') return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  if (process.env.VERCEL_ENV === 'production') return false;
+  return true;
+}
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -292,6 +331,11 @@ const BLOCKLIST: ReadonlyArray<BlockRule> = [
     type: FOLLOW_UP_SEND_NODE_TYPE.toLowerCase(),
     reason: 'Workflow #2 Phase C: the handler (follow-up-send.ts) is real and calls the certified Phase B orchestration (sendFollowupMessage), but its required migrations (20260924000001_add_inbound_reply_sequence_infrastructure.sql, 20260924000002_add_followup_send_lock.sql) are not yet applied to production, and no live Gmail send-path certification has occurred -- blocked so planner/validator/editor never offer it as usable before both are true, mirroring the googledrive precedent below (a known, honest, real handler that is still not production-ready).',
     userMessage: 'Sending automated follow-up messages isn\'t available yet.',
+    // Workflow #2 Phase D.1 -- the ONLY bypassable rule in this file, and
+    // only for a local staging certification run with the explicit opt-in
+    // (see isFollowUpSendStagingCertificationEnabled()'s own doc comment
+    // for the full fail-closed gating logic).
+    bypassCheck: isFollowUpSendStagingCertificationEnabled,
   },
   {
     // Phase 9.5.1A — traced Blocks -> planner assembly -> node type ->
@@ -338,6 +382,7 @@ export function checkNodeCapability(node: { type: string; parameters?: unknown }
         : false;
     if (!typeMatches) continue;
     if (rule.matchesParameters && !rule.matchesParameters(parameters)) continue;
+    if (rule.bypassCheck && rule.bypassCheck()) continue;
     return { capable: false, reason: rule.reason, userMessage: rule.userMessage };
   }
 

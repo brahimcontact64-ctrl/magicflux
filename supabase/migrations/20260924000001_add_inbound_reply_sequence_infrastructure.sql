@@ -626,3 +626,23 @@ CREATE POLICY "Users can view own inbound reply events" ON "public"."runtime_inb
 GRANT SELECT ON TABLE "public"."runtime_conversations" TO "authenticated";
 GRANT SELECT ON TABLE "public"."runtime_followup_sequences" TO "authenticated";
 GRANT SELECT ON TABLE "public"."runtime_inbound_reply_events" TO "authenticated";
+
+-- Workflow #2 Phase D.1 local-bootstrap finding, fixed here (genuine
+-- correctness defect in this already-checkpointed migration, confirmed by
+-- direct local reproduction -- see the Phase D.1 report's own section on
+-- this): BYPASSRLS (which service_role has) only skips ROW-LEVEL policy
+-- checks: it does NOT grant table-level SELECT/INSERT/UPDATE/DELETE
+-- privileges, which are a completely separate, orthogonal Postgres
+-- permission layer. Every function in lib/runtime/inbound-reply/storage.ts
+-- writes via createServiceClient() (the service_role key) -- without these
+-- grants, every one of those calls fails with "permission denied for
+-- table ..." the instant this migration is applied anywhere, exactly as
+-- reproduced against a real local Postgres instance during Phase D.1.
+-- Mirrors the exact grant platform_connections (Phase 9.9.22A,
+-- 20260923000001, already live in production) already correctly includes
+-- for itself -- this migration simply omitted the equivalent grants for
+-- its own four new tables.
+GRANT ALL ON TABLE "public"."runtime_conversations" TO "service_role";
+GRANT ALL ON TABLE "public"."runtime_followup_sequences" TO "service_role";
+GRANT ALL ON TABLE "public"."runtime_outbound_messages" TO "service_role";
+GRANT ALL ON TABLE "public"."runtime_inbound_reply_events" TO "service_role";

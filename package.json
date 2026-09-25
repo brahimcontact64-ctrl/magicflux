@@ -19,7 +19,8 @@
     "load:test": "tsx --env-file=.env.local scripts/load-test-runtime.ts",
     "stress:sse": "tsx --env-file=.env.local scripts/stress-test-sse.ts",
     "chaos:webhooks": "tsx --env-file=.env.local scripts/chaos-webhooks.ts",
-    "backup:drill": "tsx --env-file=.env.local scripts/backup-drill.ts"
+    "backup:drill": "tsx --env-file=.env.local scripts/backup-drill.ts",
+    "phase-d:seed": "tsx --env-file=.env.staging.local scripts/phase-d/seed-staging-data.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
