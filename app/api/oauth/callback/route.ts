@@ -4,6 +4,7 @@ import { getOAuthProviderConfig, exchangeOAuthCode, serializeOAuthTokens } from 
 import { isAllowedOAuthReturnTo, verifyOAuthState } from '@/lib/credentials/oauth-state';
 import { assertTrustedUserId, saveCredentialsWithVerification } from '@/lib/credentials/storage';
 import { computeOAuthClientFingerprint, fingerprintSecret, getRuntimeIdentity } from '@/lib/credentials/oauth-fingerprint';
+import { ensureGmailHistoryCursor } from '@/lib/runtime/inbound-reply/gmail-poll';
 
 /**
  * GET /api/oauth/callback?code=<code>&state=<state>
@@ -123,6 +124,19 @@ export async function GET(req: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[oauth/callback] saveCredentialsWithVerification failed for provider=${provider}: ${msg}`);
     return errorRedirect('save_failed');
+  }
+
+  // Workflow #2 Phase D.4 -- eagerly establish the Gmail history-poll cursor
+  // baseline at connect time, not on the first cron poll (see
+  // ensureGmailHistoryCursor()'s own doc comment for the exact race this
+  // closes). Gmail-only; enrichment only -- never blocks or fails the OAuth
+  // connection itself.
+  if (provider === 'gmail') {
+    try {
+      await ensureGmailHistoryCursor(userId);
+    } catch {
+      // Non-fatal -- the next cron poll's own bootstrap-on-first-poll is a safe fallback.
+    }
   }
 
   // ── Success redirect ───────────────────────────────────────────────────────────

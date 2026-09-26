@@ -102,7 +102,31 @@ export const realGmailApiClient: GmailApiClient = {
   },
 };
 
-const HISTORY_CURSOR_KEY = 'gmail_history_cursor';
+export const HISTORY_CURSOR_KEY = 'gmail_history_cursor';
+
+/**
+ * Workflow #2 Phase D.4 production-readiness finding -- pollGmailInboundReplies()'s
+ * own bootstrap-on-first-poll deliberately never backfills old mail (see
+ * this module's own header note), which is correct for an EXISTING
+ * connection but leaves a real gap for a BRAND-NEW one: if a reply arrives
+ * before the first cron poll ever runs for this user (cron cadence +
+ * per-invocation batch size both add delay), it is silently invisible
+ * forever -- exactly the defect Phase D.2C had to work around manually to
+ * certify reply detection at all. Called once, right after a Gmail OAuth
+ * connection succeeds (app/api/oauth/callback/route.ts), so the baseline is
+ * established at the EARLIEST possible moment instead of waiting on cron.
+ * A no-op if a cursor already exists (never overwrites/rewinds one).
+ * Enrichment only: the caller treats a failure here as non-fatal -- the
+ * next cron poll's own bootstrap-on-first-poll remains a safe fallback.
+ */
+export async function ensureGmailHistoryCursor(userId: string, client: GmailApiClient = realGmailApiClient): Promise<void> {
+  const stored = await getDecryptedProviderCredentials(userId, 'gmail');
+  if (stored[HISTORY_CURSOR_KEY]) return;
+
+  const accessToken = await getValidAccessToken(userId, 'gmail');
+  const historyId = await client.getCurrentHistoryId(accessToken);
+  await saveProviderCredentials(userId, 'gmail', { [HISTORY_CURSOR_KEY]: historyId });
+}
 
 export type PollGmailResult =
   | { outcome: 'bootstrapped'; historyId: string }

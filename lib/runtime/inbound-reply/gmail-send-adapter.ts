@@ -32,9 +32,22 @@ import type { OutboundProviderClient, OutboundSendResult } from './types';
  * A failure of this enrichment fetch NEVER fails the send itself -- the
  * message is already irreversibly sent by this point; internetMessageId
  * simply stays null, exactly like any other legacy/pre-D.3 outbound row.
+ *
+ * Phase D.4 production-readiness finding -- this degradation was
+ * previously silent (bare catch, no signal at all). A structured,
+ * secret-free log line makes a SYSTEMIC failure (e.g. every send losing
+ * its internet_message_id, which would silently disable the In-Reply-To/
+ * References correlation fallbacks fleet-wide) diagnosable, while an
+ * occasional individual failure remains exactly as harmless as before --
+ * never the access token, never the message body, only the Gmail message
+ * id (already non-secret, already persisted elsewhere) and a short reason.
  */
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+
+function logDegradation(gmailMessageId: string, reason: string): void {
+  console.warn('[gmail-send-adapter] internet_message_id unavailable', JSON.stringify({ gmailMessageId, reason }));
+}
 
 async function fetchInternetMessageId(accessToken: string, gmailMessageId: string): Promise<string | null> {
   try {
@@ -42,12 +55,18 @@ async function fetchInternetMessageId(accessToken: string, gmailMessageId: strin
     url.searchParams.set('format', 'metadata');
     url.searchParams.set('metadataHeaders', 'Message-ID');
     const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logDegradation(gmailMessageId, `metadata fetch returned HTTP ${res.status}`);
+      return null;
+    }
     const body = (await res.json()) as { payload?: { headers?: Array<{ name: string; value: string }> } };
     const header = body.payload?.headers?.find((h) => h.name?.toLowerCase() === 'message-id');
-    return canonicalizeInternetMessageId(header?.value ?? null);
-  } catch {
+    const canonical = canonicalizeInternetMessageId(header?.value ?? null);
+    if (!canonical) logDegradation(gmailMessageId, 'Message-ID header missing or malformed in metadata response');
+    return canonical;
+  } catch (err) {
     // Enrichment only -- never surfaced as a send failure.
+    logDegradation(gmailMessageId, err instanceof Error ? err.message : 'unknown error');
     return null;
   }
 }

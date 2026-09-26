@@ -111,6 +111,46 @@ describe('pollGmailInboundReplies', () => {
     expect(tables.runtime_followup_sequences.find((s) => s.id === 'seq-thread-untouched-2')?.status).toBe('active');
   });
 
+  it('PARTIAL BATCH FAILURE: message 1 processes and persists durably even though message 2 then throws -- cursor stays put so the NEXT poll safely retries (message 1 as a no-op duplicate, message 2 for real)', async () => {
+    storedCredentials.gmail_history_cursor = 'history-100';
+    seedSequence('thread-partial');
+    const { pollGmailInboundReplies } = await import('@/lib/runtime/inbound-reply/gmail-poll');
+    const client: GmailApiClient = {
+      getCurrentHistoryId: vi.fn(),
+      listHistory: vi.fn(async () => ({ historyId: 'history-101', addedMessageIds: ['msg-ok', 'msg-throws'] })),
+      getMessage: vi.fn(async ({ messageId }: { messageId: string }) => {
+        if (messageId === 'msg-throws') throw new Error('Gmail messages.get failed: 500');
+        return fakeGmailMessage(messageId, 'thread-partial');
+      }),
+    };
+
+    await expect(pollGmailInboundReplies(USER_A, client)).rejects.toThrow('500');
+
+    // Message 1's real, durable effect already happened and is NOT rolled back.
+    expect(tables.runtime_followup_sequences.find((s) => s.id === 'seq-thread-partial')?.status).toBe('replied');
+    // Cursor never advanced -- the whole range (including the already-processed
+    // message 1) will be re-fetched on the next poll.
+    expect(storedCredentials.gmail_history_cursor).toBe('history-100');
+
+    // Retry: the next poll re-fetches the same range. Message 1 is a safe
+    // idempotent no-op; message 2 succeeds this time.
+    const retryClient: GmailApiClient = {
+      getCurrentHistoryId: vi.fn(),
+      listHistory: vi.fn(async () => ({ historyId: 'history-101', addedMessageIds: ['msg-ok', 'msg-throws'] })),
+      getMessage: vi.fn(async ({ messageId }: { messageId: string }) => fakeGmailMessage(messageId, 'thread-partial')),
+    };
+    const retryResult = await pollGmailInboundReplies(USER_A, retryClient);
+
+    expect(retryResult.outcome).toBe('processed');
+    if (retryResult.outcome === 'processed') {
+      expect(retryResult.messageResults[0].outcome).toBe('duplicate');
+      // Second message correlates to the SAME already-terminal sequence -- a
+      // safe, distinct outcome, never a silent second transition.
+      expect(retryResult.messageResults[1].outcome).toBe('sequence_already_terminal');
+    }
+    expect(storedCredentials.gmail_history_cursor).toBe('history-101');
+  });
+
   it('RESYNC REQUIRED: an expired history window is reported distinctly, never silently treated as "no new messages"', async () => {
     storedCredentials.gmail_history_cursor = 'history-too-old';
     const { pollGmailInboundReplies } = await import('@/lib/runtime/inbound-reply/gmail-poll');
@@ -160,5 +200,37 @@ describe('pollGmailInboundReplies', () => {
     // test in this suite imports it for invocation either (grep-verifiable:
     // only gmail-poll.test.ts references the symbol, purely for this shape
     // assertion).
+  });
+});
+
+describe('ensureGmailHistoryCursor (Phase D.4 -- connect-time bootstrap)', () => {
+  it('bootstraps a cursor when none exists yet, using the provided client', async () => {
+    const { ensureGmailHistoryCursor } = await import('@/lib/runtime/inbound-reply/gmail-poll');
+    const client: GmailApiClient = { getCurrentHistoryId: vi.fn(async () => 'history-connect-1'), listHistory: vi.fn(), getMessage: vi.fn() };
+
+    await ensureGmailHistoryCursor(USER_A, client);
+
+    expect(client.getCurrentHistoryId).toHaveBeenCalledTimes(1);
+    expect(storedCredentials.gmail_history_cursor).toBe('history-connect-1');
+  });
+
+  it('is a safe no-op when a cursor already exists -- never overwrites/rewinds it', async () => {
+    storedCredentials.gmail_history_cursor = 'history-existing';
+    const { ensureGmailHistoryCursor } = await import('@/lib/runtime/inbound-reply/gmail-poll');
+    const client: GmailApiClient = { getCurrentHistoryId: vi.fn(async () => 'history-should-not-be-used'), listHistory: vi.fn(), getMessage: vi.fn() };
+
+    await ensureGmailHistoryCursor(USER_A, client);
+
+    expect(client.getCurrentHistoryId).not.toHaveBeenCalled();
+    expect(storedCredentials.gmail_history_cursor).toBe('history-existing');
+  });
+
+  it('propagates a credential/token failure to the caller (the OAuth callback route treats this as non-fatal via its own try/catch, not this function)', async () => {
+    accessTokenImpl = async () => {
+      throw new Error('No valid OAuth credentials stored for provider: gmail');
+    };
+    const { ensureGmailHistoryCursor } = await import('@/lib/runtime/inbound-reply/gmail-poll');
+
+    await expect(ensureGmailHistoryCursor(USER_A, { getCurrentHistoryId: vi.fn(), listHistory: vi.fn(), getMessage: vi.fn() })).rejects.toThrow();
   });
 });

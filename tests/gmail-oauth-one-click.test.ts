@@ -223,6 +223,72 @@ describe('GET /api/oauth/callback', () => {
     fetchSpy.mockRestore();
   });
 
+  it('Phase D.4: a successful gmail connection eagerly bootstraps the Gmail history cursor', async () => {
+    vi.doMock('@/lib/credentials/storage', () => ({
+      assertTrustedUserId: (id: string) => { if (id !== OWNER_ID) throw new Error('untrusted'); },
+      saveCredentialsWithVerification: vi.fn().mockResolvedValue(undefined),
+    }));
+    const ensureGmailHistoryCursor = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('@/lib/runtime/inbound-reply/gmail-poll', () => ({ ensureGmailHistoryCursor }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'real-access-token', refresh_token: 'real-refresh-token', expires_in: 3600 }),
+    } as Response);
+
+    const { buildOAuthState } = await import('../lib/credentials/oauth-state');
+    const state = buildOAuthState(OWNER_ID, 'gmail');
+    const { GET } = await import('../app/api/oauth/callback/route');
+    const res = await GET(callbackUrl({ code: 'real-auth-code', state }));
+
+    expect(res.headers.get('location')).toContain('oauth=success');
+    expect(ensureGmailHistoryCursor).toHaveBeenCalledWith(OWNER_ID);
+    fetchSpy.mockRestore();
+  });
+
+  it('Phase D.4: a NON-gmail provider connection never invokes the Gmail cursor bootstrap', async () => {
+    vi.doMock('@/lib/credentials/storage', () => ({
+      assertTrustedUserId: (id: string) => { if (id !== OWNER_ID) throw new Error('untrusted'); },
+      saveCredentialsWithVerification: vi.fn().mockResolvedValue(undefined),
+    }));
+    const ensureGmailHistoryCursor = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('@/lib/runtime/inbound-reply/gmail-poll', () => ({ ensureGmailHistoryCursor }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'real-access-token', refresh_token: 'real-refresh-token', expires_in: 3600 }),
+    } as Response);
+
+    const { buildOAuthState } = await import('../lib/credentials/oauth-state');
+    const state = buildOAuthState(OWNER_ID, 'google_sheets');
+    const { GET } = await import('../app/api/oauth/callback/route');
+    const res = await GET(callbackUrl({ code: 'real-auth-code', state }));
+
+    expect(res.headers.get('location')).toContain('oauth=success');
+    expect(ensureGmailHistoryCursor).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('Phase D.4: a Gmail cursor-bootstrap failure never breaks the OAuth success redirect (enrichment only)', async () => {
+    vi.doMock('@/lib/credentials/storage', () => ({
+      assertTrustedUserId: (id: string) => { if (id !== OWNER_ID) throw new Error('untrusted'); },
+      saveCredentialsWithVerification: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock('@/lib/runtime/inbound-reply/gmail-poll', () => ({
+      ensureGmailHistoryCursor: vi.fn().mockRejectedValue(new Error('Gmail API transient failure')),
+    }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'real-access-token', refresh_token: 'real-refresh-token', expires_in: 3600 }),
+    } as Response);
+
+    const { buildOAuthState } = await import('../lib/credentials/oauth-state');
+    const state = buildOAuthState(OWNER_ID, 'gmail');
+    const { GET } = await import('../app/api/oauth/callback/route');
+    const res = await GET(callbackUrl({ code: 'real-auth-code', state }));
+
+    expect(res.headers.get('location')).toContain('oauth=success');
+    fetchSpy.mockRestore();
+  });
+
   it('a token-exchange failure redirects with a generic reason -- never the client secret or the real error body', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
