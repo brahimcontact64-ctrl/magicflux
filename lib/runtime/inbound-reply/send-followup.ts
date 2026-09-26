@@ -114,6 +114,7 @@ export async function sendFollowupMessage(
       provider: client.provider,
       providerMessageId: sendResult.providerMessageId,
       providerThreadId: sendResult.providerThreadId,
+      internetMessageId: sendResult.internetMessageId,
       attemptKey: request.attemptKey ?? null,
       sentDuringRaceWindow,
     });

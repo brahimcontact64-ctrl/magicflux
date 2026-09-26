@@ -107,9 +107,10 @@ describe('processInboundReply', () => {
       sequence_id: seqB.sequenceId,
       conversation_id: seqB.conversationId,
       provider: 'gmail',
-      provider_message_id: '<amb@example.com>',
+      provider_message_id: 'gmail-provider-id-amb',
       provider_thread_id: null,
       in_reply_to_message_id: null,
+      internet_message_id: '<amb@example.com>',
       sent_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     });

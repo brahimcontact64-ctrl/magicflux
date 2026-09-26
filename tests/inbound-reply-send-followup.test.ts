@@ -49,7 +49,7 @@ function seedSequence(userId: string, status: string, id = 'seq-1', threadId = '
 }
 
 function fakeProvider(impl?: OutboundProviderClient['send']): OutboundProviderClient {
-  const defaultImpl = async (): Promise<OutboundSendResult> => ({ ok: true, providerMessageId: 'gmail-msg-1', providerThreadId: 'gmail-thread-out-1' });
+  const defaultImpl = async (): Promise<OutboundSendResult> => ({ ok: true, providerMessageId: 'gmail-msg-1', providerThreadId: 'gmail-thread-out-1', internetMessageId: '<gmail-msg-1@mail.gmail.com>' });
   return {
     provider: 'gmail',
     send: vi.fn(impl ?? defaultImpl),
@@ -111,7 +111,7 @@ describe('sendFollowupMessage', () => {
   it('5. a successful send persists outbound correlation with the real provider ids', async () => {
     const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
     seedSequence(USER_A, 'active');
-    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-real', providerThreadId: 'gmail-thread-real' }));
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-real', providerThreadId: 'gmail-thread-real', internetMessageId: '<gmail-msg-real@mail.gmail.com>' }));
 
     const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
 
@@ -122,10 +122,36 @@ describe('sendFollowupMessage', () => {
     expect(row.sequence_id).toBe('seq-1');
   });
 
+  it('5a. D.3: a successful send persists the real internet_message_id (RFC 5322 Message-ID), distinct from provider_message_id', async () => {
+    const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
+    seedSequence(USER_A, 'active');
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-provider-native-id', providerThreadId: 'gmail-thread-real', internetMessageId: '<real-rfc-id@mail.gmail.com>' }));
+
+    const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
+
+    expect(result.outcome).toBe('sent');
+    const row = tables.runtime_outbound_messages[0];
+    expect(row.internet_message_id).toBe('<real-rfc-id@mail.gmail.com>');
+    expect(row.provider_message_id).toBe('gmail-provider-native-id');
+    expect(row.internet_message_id).not.toBe(row.provider_message_id);
+  });
+
+  it('5a2. D.3: a null internetMessageId (enrichment fetch failed) is persisted as null, never blocks the send', async () => {
+    const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
+    seedSequence(USER_A, 'active');
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-no-rfc-id', providerThreadId: 'gmail-thread-real', internetMessageId: null }));
+
+    const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
+
+    expect(result.outcome).toBe('sent');
+    const row = tables.runtime_outbound_messages[0];
+    expect(row.internet_message_id).toBeNull();
+  });
+
   it('5b. a successful send backfills the conversation\'s placeholder provider_thread_id with the real one (Phase D.2C live-certification finding)', async () => {
     const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
     const { conversationId } = seedSequence(USER_A, 'active', 'seq-1', 'PLACEHOLDER-pending-thread');
-    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-real', providerThreadId: 'gmail-thread-real' }));
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-real', providerThreadId: 'gmail-thread-real', internetMessageId: '<gmail-msg-real@mail.gmail.com>' }));
 
     const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
 
@@ -137,7 +163,7 @@ describe('sendFollowupMessage', () => {
   it('5c. a second send in an already-correctly-threaded conversation is a safe no-op backfill', async () => {
     const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
     const { conversationId } = seedSequence(USER_A, 'active', 'seq-1', 'gmail-thread-real');
-    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-2', providerThreadId: 'gmail-thread-real' }));
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-2', providerThreadId: 'gmail-thread-real', internetMessageId: '<gmail-msg-2@mail.gmail.com>' }));
 
     const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
 
@@ -193,7 +219,7 @@ describe('sendFollowupMessage', () => {
     const provider = fakeProvider(
       () =>
         new Promise((resolve) => {
-          releaseSend = () => resolve({ ok: true, providerMessageId: 'gmail-msg-concurrent', providerThreadId: null });
+          releaseSend = () => resolve({ ok: true, providerMessageId: 'gmail-msg-concurrent', providerThreadId: null, internetMessageId: null });
         })
     );
 
@@ -264,7 +290,7 @@ describe('sendFollowupMessage', () => {
   it('14. thread/message ids are stored correctly, exactly as the provider returned them', async () => {
     const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
     seedSequence(USER_A, 'active');
-    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'exact-message-id-123', providerThreadId: 'exact-thread-id-456' }));
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'exact-message-id-123', providerThreadId: 'exact-thread-id-456', internetMessageId: '<exact-rfc-id@mail.gmail.com>' }));
 
     const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
 
@@ -318,7 +344,7 @@ describe('sendFollowupMessage', () => {
         { provider: 'gmail', providerMessageId: 'reply-during-send', providerThreadId: 'thread-race-17', senderHash: null, senderDomain: null, receivedAt: new Date().toISOString(), inReplyTo: null, references: null },
         { userId: USER_A }
       );
-      return { ok: true, providerMessageId: 'gmail-msg-raced', providerThreadId: null };
+      return { ok: true, providerMessageId: 'gmail-msg-raced', providerThreadId: null, internetMessageId: null };
     });
 
     const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);

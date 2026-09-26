@@ -49,6 +49,8 @@ export type OutboundMessage = {
   providerMessageId: string;
   providerThreadId: string | null;
   inReplyToMessageId: string | null;
+  /** Phase D.3 -- this outbound message's OWN RFC 5322 Message-ID header value (e.g. "<abc123@mail.gmail.com>"), as Gmail actually confirmed it -- NOT generated/assumed locally. Null for outbound rows sent before D.3 (legacy) or when the provider adapter's post-send metadata fetch failed (enrichment only -- never blocks a successful send). Distinct from inReplyToMessageId (what THIS message's own In-Reply-To header points to, i.e. its parent) and from providerMessageId (Gmail's own API-native id, a different namespace entirely -- see correlate.ts's header comment for why these must never be conflated). */
+  internetMessageId: string | null;
   /** Caller-supplied stable identifier for "this exact logical follow-up attempt" (e.g. "<sequenceId>:step-1"), used to detect a retry of an already-succeeded send before ever contacting the provider again. Optional -- a caller that doesn't supply one loses only the fast pre-check, not correctness of the send lock itself. */
   attemptKey: string | null;
   /** True when the send path's own post-send re-check found the sequence had already transitioned away from 'active' DURING the provider call -- see send-lock.ts's own header note on why this race cannot be fully closed. */
@@ -108,7 +110,7 @@ export type ProcessInboundReplyResult =
 export type OutboundSendParams = { accessToken: string; to: string; subject: string; body: string };
 
 export type OutboundSendResult =
-  | { ok: true; providerMessageId: string; providerThreadId: string | null }
+  | { ok: true; providerMessageId: string; providerThreadId: string | null; internetMessageId: string | null }
   | { ok: false; indeterminate: true; message: string }
   | { ok: false; indeterminate: false; message: string };
 

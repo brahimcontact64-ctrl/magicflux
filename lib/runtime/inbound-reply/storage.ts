@@ -105,6 +105,7 @@ type OutboundMessageRow = {
   provider_message_id: string;
   provider_thread_id: string | null;
   in_reply_to_message_id: string | null;
+  internet_message_id: string | null;
   attempt_key: string | null;
   sent_during_race_window: boolean;
   sent_at: string;
@@ -120,6 +121,7 @@ function toOutboundMessage(row: OutboundMessageRow): OutboundMessage {
     providerMessageId: row.provider_message_id,
     providerThreadId: row.provider_thread_id,
     inReplyToMessageId: row.in_reply_to_message_id,
+    internetMessageId: row.internet_message_id ?? null,
     attemptKey: row.attempt_key,
     sentDuringRaceWindow: row.sent_during_race_window,
     sentAt: row.sent_at,
@@ -159,6 +161,30 @@ export async function findOutboundMessageByProviderMessageId(params: { userId: s
     .eq('user_id', params.userId)
     .eq('provider', params.provider)
     .eq('provider_message_id', params.providerMessageId)
+    .maybeSingle();
+  return data ? toOutboundMessage(data as OutboundMessageRow) : null;
+}
+
+/**
+ * Workflow #2 Phase D.3 -- looks up an outbound message by its OWN real RFC
+ * 5322 Message-ID (internet_message_id), NOT Gmail's API-native
+ * provider_message_id -- see correlate.ts's header comment for why these
+ * must never be conflated. Used by the In-Reply-To and References
+ * correlation fallbacks. Scoped by userId, exactly like
+ * findConversationByThreadId/findOutboundMessageByProviderMessageId -- a
+ * reply is only ever correlated within the mailbox owner's own data, and a
+ * legacy row with internet_message_id = NULL can never match here (SQL
+ * equality against NULL is never true), so pre-D.3 outbound rows simply
+ * fall back to provider_thread_id correlation, exactly as intended.
+ */
+export async function findOutboundMessageByInternetMessageId(params: { userId: string; provider: string; internetMessageId: string }): Promise<OutboundMessage | null> {
+  const db = createServiceClient();
+  const { data } = await db
+    .from('runtime_outbound_messages')
+    .select('*')
+    .eq('user_id', params.userId)
+    .eq('provider', params.provider)
+    .eq('internet_message_id', params.internetMessageId)
     .maybeSingle();
   return data ? toOutboundMessage(data as OutboundMessageRow) : null;
 }
@@ -287,7 +313,7 @@ export async function createFollowupSequence(params: { userId: string; workflowI
  * has confirmed a successful send (Phase B's own explicit requirement: no
  * fake successful outbound record on a provider failure).
  */
-export async function recordOutboundMessage(params: { userId: string; sequenceId: string; conversationId: string; provider: string; providerMessageId: string; providerThreadId?: string | null; inReplyToMessageId?: string | null; attemptKey?: string | null; sentDuringRaceWindow?: boolean }): Promise<OutboundMessage> {
+export async function recordOutboundMessage(params: { userId: string; sequenceId: string; conversationId: string; provider: string; providerMessageId: string; providerThreadId?: string | null; inReplyToMessageId?: string | null; internetMessageId?: string | null; attemptKey?: string | null; sentDuringRaceWindow?: boolean }): Promise<OutboundMessage> {
   const db = createServiceClient();
   const { data, error } = await db
     .from('runtime_outbound_messages')
@@ -299,6 +325,7 @@ export async function recordOutboundMessage(params: { userId: string; sequenceId
       provider_message_id: params.providerMessageId,
       provider_thread_id: params.providerThreadId ?? null,
       in_reply_to_message_id: params.inReplyToMessageId ?? null,
+      internet_message_id: params.internetMessageId ?? null,
       attempt_key: params.attemptKey ?? null,
       sent_during_race_window: params.sentDuringRaceWindow ?? false,
     })
