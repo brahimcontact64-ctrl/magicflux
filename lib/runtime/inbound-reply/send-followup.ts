@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { acquireFollowupSendLock, findOutboundMessageByAttemptKey, getFollowupSequenceForOwner, recordOutboundMessage, releaseFollowupSendLock } from './storage';
+import { acquireFollowupSendLock, findOutboundMessageByAttemptKey, getFollowupSequenceForOwner, recordOutboundMessage, releaseFollowupSendLock, updateConversationProviderThreadId } from './storage';
 import { assertSequenceSendable } from './send-guard';
 import type { FollowupSendRequest, FollowupSendResult, OutboundProviderClient } from './types';
 
@@ -117,6 +117,15 @@ export async function sendFollowupMessage(
       attemptKey: request.attemptKey ?? null,
       sentDuringRaceWindow,
     });
+
+    // Reconcile the conversation's provider_thread_id with the real thread
+    // the provider just confirmed -- see updateConversationProviderThreadId()'s
+    // own doc comment for why this is required (an outbound-initiated
+    // conversation starts with a placeholder, never otherwise corrected)
+    // and why it's always safe to call, not just on the first send.
+    if (sendResult.providerThreadId) {
+      await updateConversationProviderThreadId(sequence.conversationId, sendResult.providerThreadId);
+    }
 
     logObservability({ sequenceId: request.sequenceId, providerSuccess: true, outboundCorrelationPersisted: true, sentDuringRaceWindow });
 

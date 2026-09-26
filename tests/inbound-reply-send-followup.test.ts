@@ -122,6 +122,30 @@ describe('sendFollowupMessage', () => {
     expect(row.sequence_id).toBe('seq-1');
   });
 
+  it('5b. a successful send backfills the conversation\'s placeholder provider_thread_id with the real one (Phase D.2C live-certification finding)', async () => {
+    const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
+    const { conversationId } = seedSequence(USER_A, 'active', 'seq-1', 'PLACEHOLDER-pending-thread');
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-real', providerThreadId: 'gmail-thread-real' }));
+
+    const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
+
+    expect(result.outcome).toBe('sent');
+    const conversation = tables.runtime_conversations.find((c) => c.id === conversationId);
+    expect(conversation?.provider_thread_id).toBe('gmail-thread-real');
+  });
+
+  it('5c. a second send in an already-correctly-threaded conversation is a safe no-op backfill', async () => {
+    const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
+    const { conversationId } = seedSequence(USER_A, 'active', 'seq-1', 'gmail-thread-real');
+    const provider = fakeProvider(async () => ({ ok: true, providerMessageId: 'gmail-msg-2', providerThreadId: 'gmail-thread-real' }));
+
+    const result = await sendFollowupMessage(baseRequest(), provider, okAccessToken);
+
+    expect(result.outcome).toBe('sent');
+    const conversation = tables.runtime_conversations.find((c) => c.id === conversationId);
+    expect(conversation?.provider_thread_id).toBe('gmail-thread-real');
+  });
+
   it('6. a provider failure never produces a fake successful outbound record', async () => {
     const { sendFollowupMessage } = await import('@/lib/runtime/inbound-reply/send-followup');
     seedSequence(USER_A, 'active');

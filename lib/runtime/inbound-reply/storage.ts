@@ -232,6 +232,36 @@ export async function ensureConversation(params: { userId: string; workflowId: s
   return toConversation(data as ConversationRow);
 }
 
+/**
+ * Workflow #2 Phase D.2C live-certification finding: an outbound-initiated
+ * conversation (the only kind this milestone's send path creates) is
+ * necessarily created BEFORE the first real send happens -- there is no
+ * real provider thread yet at that point, only a caller-chosen placeholder
+ * providerThreadId. Nothing previously reconciled that placeholder with the
+ * REAL thread id the provider assigns once the first send actually
+ * succeeds, so correlateInboundReply()'s provider_thread_id lookup
+ * (correlate.ts) could never match a genuine reply's real thread id against
+ * a conversation still holding its original placeholder -- discovered only
+ * by running a real Gmail send + real Gmail reply through the full path,
+ * exactly what a mock-based test cannot surface.
+ *
+ * Called by sendFollowupMessage() immediately after a successful send, for
+ * every send (not just the first) -- a no-op whenever the conversation
+ * already holds the correct thread id (the common case for a second+
+ * message in an existing real thread), so this is always safe to call
+ * unconditionally rather than requiring the caller to detect "is this still
+ * a placeholder."
+ */
+export async function updateConversationProviderThreadId(conversationId: string, providerThreadId: string): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db
+    .from('runtime_conversations')
+    .update({ provider_thread_id: providerThreadId })
+    .eq('id', conversationId);
+
+  if (error) throw new Error(`Failed to update conversation's provider thread id: ${error.message}`);
+}
+
 /** Creates a new active follow-up sequence for a conversation. A future send-node calls this once, at sequence start. */
 export async function createFollowupSequence(params: { userId: string; workflowId: string; executionId?: string | null; conversationId: string }): Promise<FollowupSequence> {
   const db = createServiceClient();

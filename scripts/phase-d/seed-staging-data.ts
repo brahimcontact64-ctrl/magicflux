@@ -37,25 +37,43 @@ export type StagingSeedResult = {
  * Idempotent: re-running this against the SAME local database finds and
  * reuses the existing staging fixture (matched by the marker embedded in
  * workflow name / entity_reference) rather than creating duplicates.
+ *
+ * targetUserId (Phase D.2B): the real Gmail-credentialed OAuth grant lives
+ * under whichever local user interactively completed Google consent in the
+ * browser -- not the synthetic marker user created by default below. A real
+ * send certification needs the workflow/conversation/sequence fixture owned
+ * by THAT SAME user (assertSequenceSendable filters by user_id), so callers
+ * that already hold a real, verified local user id pass it here instead of
+ * letting this function create/reuse the synthetic one. Omitting it
+ * preserves the exact original default behavior byte-for-byte.
  */
-export async function seedPhaseDStagingData(db: ReturnType<typeof createServiceClient>): Promise<StagingSeedResult> {
+export async function seedPhaseDStagingData(
+  db: ReturnType<typeof createServiceClient>,
+  targetUserId?: string
+): Promise<StagingSeedResult> {
   const stagingEmail = `${PHASE_D_STAGING_MARKER.toLowerCase()}@magicflux.local`;
 
   // 1. A dedicated synthetic auth user -- never a real customer, never
-  // Workflow #1's own owning user.
+  // Workflow #1's own owning user. Skipped entirely when targetUserId is
+  // given: that user must already exist (created via real Supabase auth,
+  // e.g. the interactive Google OAuth login), so no lookup/create here.
   let userId: string;
-  const { data: existingUsers } = await db.auth.admin.listUsers();
-  const existingUser = existingUsers?.users.find((u) => u.email === stagingEmail);
-  if (existingUser) {
-    userId = existingUser.id;
+  if (targetUserId) {
+    userId = targetUserId;
   } else {
-    const { data: created, error: createUserError } = await db.auth.admin.createUser({
-      email: stagingEmail,
-      email_confirm: true,
-      user_metadata: { marker: PHASE_D_STAGING_MARKER },
-    });
-    if (createUserError || !created.user) throw new Error(`Failed to create staging user: ${createUserError?.message}`);
-    userId = created.user.id;
+    const { data: existingUsers } = await db.auth.admin.listUsers();
+    const existingUser = existingUsers?.users.find((u) => u.email === stagingEmail);
+    if (existingUser) {
+      userId = existingUser.id;
+    } else {
+      const { data: created, error: createUserError } = await db.auth.admin.createUser({
+        email: stagingEmail,
+        email_confirm: true,
+        user_metadata: { marker: PHASE_D_STAGING_MARKER },
+      });
+      if (createUserError || !created.user) throw new Error(`Failed to create staging user: ${createUserError?.message}`);
+      userId = created.user.id;
+    }
   }
 
   // 2. A dedicated synthetic workflow row -- distinct name, distinct owner,
@@ -133,8 +151,13 @@ export async function seedPhaseDStagingData(db: ReturnType<typeof createServiceC
 async function main() {
   assertLocalSupabaseTargetOrExit(requireEnv('NEXT_PUBLIC_SUPABASE_URL'));
 
+  // Optional: `tsx seed-staging-data.ts <targetUserId>` seeds the fixture
+  // under an already-existing real local user instead of the default
+  // synthetic one -- see seedPhaseDStagingData()'s doc comment.
+  const targetUserId = process.argv[2];
+
   const db = createServiceClient();
-  const result = await seedPhaseDStagingData(db);
+  const result = await seedPhaseDStagingData(db, targetUserId);
   console.log(JSON.stringify({ marker: PHASE_D_STAGING_MARKER, ...result }, null, 2));
 }
 
