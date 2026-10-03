@@ -27,6 +27,17 @@ import { pollGmailInboundReplies, type GmailApiClient, type PollGmailResult } fr
  * migration, once real usage volume justifies it -- not a correctness gap
  * at current/expected scale, where one bounded batch easily covers every
  * eligible mailbox well within a single cron cadence.
+ *
+ * Phase D.7A -- the D.7 production canary-eligibility audit found a real,
+ * unrelated, pre-existing production Gmail connection (a genuine customer's
+ * own connection, nothing to do with this certification) whose verification
+ * status could independently flip to 'healthy' at any time via the existing
+ * daily reverify-credentials cron, which would otherwise make it silently
+ * pollable the moment that happens. GMAIL_POLLING_CANARY_USER_IDS adds an
+ * explicit, fail-closed allowlist boundary so ONLY deliberately-approved
+ * user ids can ever be selected, independent of DB-reported health -- see
+ * parseGmailPollingCanaryAllowlist()'s own doc comment for the full
+ * semantics.
  */
 
 const CANDIDATE_FETCH_CAP = 200; // generous upper bound before health-filtering -- never an unbounded full-table scan
@@ -37,21 +48,74 @@ function gmailCredentialKey(): string {
   return config.credentialKey;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Workflow #2 Phase D.7A -- fail-closed canary scope. GMAIL_POLLING_CANARY_USER_IDS
+ * is a comma-separated allowlist of MagicFlux user ids explicitly approved
+ * for the Gmail-polling canary -- a deliberate, auditable restriction so the
+ * one unrelated, pre-existing production Gmail connection discovered during
+ * the D.7 eligibility audit (a real customer's own connection, unrelated to
+ * this certification, whose verification status happens to be 'unknown'
+ * today) can NEVER become pollable merely because a later reverify-credentials
+ * run re-verifies it as 'healthy' -- only an id a human has explicitly
+ * listed here can ever be selected, independent of its DB-reported health.
+ *
+ * FAIL CLOSED BY DESIGN, never "missing config = allow all":
+ *   - missing/empty/whitespace-only env -> empty set (zero candidates,
+ *     cleanly and silently -- the ordinary, expected state before a canary
+ *     is deliberately configured).
+ *   - ANY entry that doesn't look like a real UUID -> throws, never
+ *     silently drops the bad entry and keeps going -- a typo'd id must
+ *     surface loudly (as an operational error) rather than quietly either
+ *     narrowing (harmless) or -- the real risk this guards against --
+ *     some future refactor of this parsing treating an unparseable value
+ *     as "no filter" and silently widening scope to everyone.
+ *
+ * Never logs the raw env value -- only ever consumed internally to build a
+ * Set of ids, never echoed into an error message, a response, or a log line.
+ */
+export function parseGmailPollingCanaryAllowlist(rawValue: string | undefined): Set<string> {
+  if (!rawValue || !rawValue.trim()) return new Set();
+
+  const entries = rawValue.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  const allowlist = new Set<string>();
+  for (const entry of entries) {
+    if (!UUID_PATTERN.test(entry)) {
+      throw new Error('GMAIL_POLLING_CANARY_USER_IDS contains an entry that is not a valid UUID -- refusing to guess, failing closed instead of silently narrowing or widening the Gmail polling canary scope.');
+    }
+    allowlist.add(entry.toLowerCase());
+  }
+  return allowlist;
+}
+
 /**
  * Discovers up to `limit` Gmail connections eligible for inbound-reply
- * polling: a real OAuth credential row (credential_key = the provider
- * registry's own 'oauth_google_gmail' constant -- never a bare
- * gmail_history_cursor-only row, which integration_credentials' own
- * (user_id, provider, credential_key) uniqueness means can exist as a
- * SEPARATE row for the same connection) with a 'healthy' verification
- * status. A revoked/invalid credential is never selected -- polling it
- * would just fail getValidAccessToken() every tick for no benefit, exactly
- * like reverify-credentials' own staleness filter avoids wasted work.
+ * polling. A candidate must satisfy BOTH, independently:
+ *   A. a real OAuth credential row (credential_key = the provider
+ *      registry's own 'oauth_google_gmail' constant -- never a bare
+ *      gmail_history_cursor-only row, which integration_credentials' own
+ *      (user_id, provider, credential_key) uniqueness means can exist as a
+ *      SEPARATE row for the same connection) with a 'healthy' verification
+ *      status. A revoked/invalid credential is never selected -- polling it
+ *      would just fail getValidAccessToken() every tick for no benefit,
+ *      exactly like reverify-credentials' own staleness filter avoids
+ *      wasted work.
+ *   B. (Phase D.7A) explicitly present in the GMAIL_POLLING_CANARY_USER_IDS
+ *      allowlist -- see parseGmailPollingCanaryAllowlist()'s own doc
+ *      comment for the full fail-closed rationale. Being healthy is NOT
+ *      sufficient by itself during the canary; eligible = healthy INTERSECT
+ *      allowlisted, never a union. Checked FIRST, before any database query,
+ *      so an empty/missing allowlist short-circuits to zero candidates
+ *      without even touching the database.
  *
  * Returns only opaque user ids -- never credential material, never an
  * email address.
  */
 export async function discoverGmailPollingCandidates(limit: number): Promise<string[]> {
+  const allowlist = parseGmailPollingCanaryAllowlist(process.env.GMAIL_POLLING_CANARY_USER_IDS);
+  if (allowlist.size === 0) return [];
+
   const db = createServiceClient();
   const credentialKey = gmailCredentialKey();
 
@@ -80,7 +144,12 @@ export async function discoverGmailPollingCandidates(limit: number): Promise<str
     (verifications ?? []).filter((v) => v.status === 'healthy').map((v) => String(v.user_id))
   );
 
-  return candidateIds.filter((id) => healthyIds.has(id)).slice(0, limit);
+  // eligible = healthy INTERSECT allowlisted -- never a union; see this
+  // function's own doc comment and parseGmailPollingCanaryAllowlist()'s for
+  // why being in only one set is never sufficient during the canary.
+  return candidateIds
+    .filter((id) => healthyIds.has(id) && allowlist.has(id.toLowerCase()))
+    .slice(0, limit);
 }
 
 export type GmailPollingBatchSummary = {

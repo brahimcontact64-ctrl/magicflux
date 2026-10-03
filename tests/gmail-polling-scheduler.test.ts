@@ -124,10 +124,21 @@ vi.mock('@/lib/credentials/storage', () => ({
   }),
 }));
 
+const USER_A = '00000000-0000-4000-8000-0000000000a1';
+const USER_B = '00000000-0000-4000-8000-0000000000b2';
+const USER_C = '00000000-0000-4000-8000-0000000000c3';
+
 beforeEach(() => {
   fakeDb = new FakeDb();
   storedCredentials = {};
   accessTokenImpl = async () => 'fake-access-token';
+  // Phase D.7A: eligibility now ALSO requires explicit allowlisting. Most
+  // existing tests below are about the OTHER half of eligibility (health,
+  // provider, ordering, bounding) and predate this concept -- default to
+  // allowlisting this file's own fixed test users so those tests keep
+  // exercising exactly what they always did. Tests that specifically
+  // exercise allowlist semantics override this per-test.
+  process.env.GMAIL_POLLING_CANARY_USER_IDS = `${USER_A},${USER_B},${USER_C}`;
   vi.resetModules();
 });
 
@@ -148,10 +159,6 @@ function seedVerification(userId: string, status: string) {
     status,
   });
 }
-
-const USER_A = '00000000-0000-4000-8000-0000000000a1';
-const USER_B = '00000000-0000-4000-8000-0000000000b2';
-const USER_C = '00000000-0000-4000-8000-0000000000c3';
 
 describe('discoverGmailPollingCandidates', () => {
   it('selects only Gmail connections with a healthy verification status', async () => {
@@ -221,11 +228,14 @@ describe('discoverGmailPollingCandidates', () => {
   });
 
   it('BOUNDED: never returns more than the requested limit', async () => {
+    const ids: string[] = [];
     for (let i = 0; i < 10; i++) {
       const id = `00000000-0000-4000-8000-00000000${String(i).padStart(4, '0')}`;
+      ids.push(id);
       seedGmailCredential(id, `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`);
       seedVerification(id, 'healthy');
     }
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = ids.join(',');
 
     const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
     const candidates = await discoverGmailPollingCandidates(3);
@@ -249,6 +259,112 @@ describe('discoverGmailPollingCandidates', () => {
 
     expect(candidates).toEqual([USER_A]);
     expect(typeof candidates[0]).toBe('string');
+  });
+});
+
+describe('parseGmailPollingCanaryAllowlist (Phase D.7A -- fail-closed canary scope)', () => {
+  it('1. env absent -> empty set (zero candidates)', async () => {
+    delete process.env.GMAIL_POLLING_CANARY_USER_IDS;
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(parseGmailPollingCanaryAllowlist(undefined).size).toBe(0);
+  });
+
+  it('2. env empty string -> empty set', async () => {
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(parseGmailPollingCanaryAllowlist('').size).toBe(0);
+  });
+
+  it('3. env whitespace-only -> empty set', async () => {
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(parseGmailPollingCanaryAllowlist('   \t  ').size).toBe(0);
+  });
+
+  it('4. a malformed UUID entry throws -- fails closed/loud, never silently drops or broadens', async () => {
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(() => parseGmailPollingCanaryAllowlist('not-a-real-uuid')).toThrow();
+    expect(() => parseGmailPollingCanaryAllowlist(`${USER_A},also-not-a-uuid`)).toThrow();
+  });
+
+  it("9/10/11. multiple valid ids, duplicates, and surrounding whitespace are all handled safely", async () => {
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    const allowlist = parseGmailPollingCanaryAllowlist(`  ${USER_A} , ${USER_B},${USER_A} ,${USER_B}  `);
+    expect(allowlist.size).toBe(2);
+    expect(allowlist.has(USER_A)).toBe(true);
+    expect(allowlist.has(USER_B)).toBe(true);
+  });
+
+  it('never throws a message containing the raw env value verbatim beyond the entries themselves -- no secret/credential content to begin with, but confirms no unrelated data leaks into the error', async () => {
+    const { parseGmailPollingCanaryAllowlist } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    try {
+      parseGmailPollingCanaryAllowlist('garbage-value');
+      throw new Error('expected parseGmailPollingCanaryAllowlist to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).not.toContain('garbage-value');
+    }
+  });
+});
+
+describe('discoverGmailPollingCandidates -- Phase D.7A allowlist intersection', () => {
+  it('5. a healthy Gmail user who IS allowlisted is selected', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = USER_A;
+    seedGmailCredential(USER_A, '2026-01-01T00:00:00Z');
+    seedVerification(USER_A, 'healthy');
+
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(await discoverGmailPollingCandidates(25)).toEqual([USER_A]);
+  });
+
+  it('6. a healthy Gmail user who is NOT allowlisted is excluded', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = USER_B; // only B allowlisted
+    seedGmailCredential(USER_A, '2026-01-01T00:00:00Z');
+    seedVerification(USER_A, 'healthy');
+
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(await discoverGmailPollingCandidates(25)).toEqual([]);
+  });
+
+  it('7. an allowlisted but UNHEALTHY user is excluded', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = USER_A;
+    seedGmailCredential(USER_A, '2026-01-01T00:00:00Z');
+    seedVerification(USER_A, 'unknown');
+
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(await discoverGmailPollingCandidates(25)).toEqual([]);
+  });
+
+  it('8. an allowlisted user with NO Gmail OAuth credential at all is excluded', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = USER_A;
+    // No seedGmailCredential call at all for USER_A.
+
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(await discoverGmailPollingCandidates(25)).toEqual([]);
+  });
+
+  it('12. CRITICAL: the unrelated real-world scenario -- a non-allowlisted candidate can NEVER become eligible merely because its status later changes unknown -> healthy', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = USER_A; // the dedicated, explicitly-approved canary user
+    seedGmailCredential(USER_A, '2026-01-01T00:00:00Z');
+    seedVerification(USER_A, 'healthy');
+    // USER_B represents the real, unrelated, pre-existing production Gmail
+    // connection discovered during the D.7 audit -- unknown today.
+    seedGmailCredential(USER_B, '2025-09-16T00:00:00Z');
+    seedVerification(USER_B, 'unknown');
+
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+    expect(await discoverGmailPollingCandidates(25)).toEqual([USER_A]);
+
+    // Now simulate reverify-credentials re-verifying USER_B as healthy --
+    // the exact event the D.7 report identified as the real risk.
+    fakeDb.credentialTables.get('credential_verifications')!.find((r) => r.user_id === USER_B)!.status = 'healthy';
+
+    expect(await discoverGmailPollingCandidates(25)).toEqual([USER_A]); // USER_B still never selected -- not allowlisted
+  });
+
+  it('13. no credential/token/body ever appears in a thrown error from a malformed allowlist', async () => {
+    process.env.GMAIL_POLLING_CANARY_USER_IDS = 'not-a-uuid';
+    const { discoverGmailPollingCandidates } = await import('@/lib/runtime/inbound-reply/gmail-polling-scheduler');
+
+    await expect(discoverGmailPollingCandidates(25)).rejects.toThrow();
   });
 });
 
